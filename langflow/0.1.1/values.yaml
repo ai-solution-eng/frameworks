@@ -74,9 +74,9 @@ langflow:
     backendOnly: true
     numWorkers: 1
     image:
-      repository: langflowai/langflow
+      repository: mendeza/langflow
       imagePullPolicy: IfNotPresent
-      tag: latest
+      tag: 1.0.4
     command:
       - python
       - -m
