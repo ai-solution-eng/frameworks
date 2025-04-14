@@ -104,6 +104,12 @@ langflow:
         value: "/app/db/alembic.log"
       - name: LANGFLOW_UPDATE_STARTER_PROJECTS
         value: "false"
+      - name: LANGFLOW_AUTO_LOGIN
+        value: "false"
+      - name: LANGFLOW_SUPERUSER
+        value: 'admin'
+      - name: LANGFLOW_SUPERUSER_PASSWORD
+        value: 'admin'
 #      - name: HTTP_PROXY
 #        value: "http://hpeproxy.its.hpecorp.net:443"
 #      - name: HTTPS_PROXY
