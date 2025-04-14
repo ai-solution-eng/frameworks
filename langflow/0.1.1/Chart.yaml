@@ -1,8 +1,8 @@
 apiVersion: v2
-name: langflow-ide
+name: langflow-ide-dev
 description: Helm chart for Langflow IDE
 type: application
-version: 0.1.1
+version: 0.1.10
 appVersion: latest
 maintainers:
   - name: Langflow

@@ -2141,5 +2141,5 @@ podDisruptionBudgets:
 
 ezua:
   virtualService:
-    endpoint: "weaviate.${DOMAIN_NAME}"
+    endpoint: "weaviate-v2.${DOMAIN_NAME}"
     istioGateway: "istio-system/ezaf-gateway"
