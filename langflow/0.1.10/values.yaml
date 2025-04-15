@@ -23,7 +23,7 @@ ezua:
   #Use next options in order to configure the application endpoint.
   #Example of a VirtualService is here:
   virtualService:
-    endpoint: "langflow-ide-dev.${DOMAIN_NAME}"
+    endpoint: "langflow-ide-remote-db.${DOMAIN_NAME}"
     istioGateway: "istio-system/ezaf-gateway"
 
   authorizationPolicy:
@@ -110,6 +110,8 @@ langflow:
         value: 'admin'
       - name: LANGFLOW_SUPERUSER_PASSWORD
         value: 'admin'
+      - mame: LANGFLOW_DATABASE_URL
+        value: ''
 #      - name: HTTP_PROXY
 #        value: "http://hpeproxy.its.hpecorp.net:443"
 #      - name: HTTPS_PROXY
