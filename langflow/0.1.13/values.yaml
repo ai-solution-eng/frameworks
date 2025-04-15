@@ -110,8 +110,6 @@ langflow:
         value: 'admin'
       - name: LANGFLOW_SUPERUSER_PASSWORD
         value: 'admin'
-      - mame: LANGFLOW_DATABASE_URL
-        value: ''
 #      - name: HTTP_PROXY
 #        value: "http://hpeproxy.its.hpecorp.net:443"
 #      - name: HTTPS_PROXY
@@ -162,7 +160,29 @@ langflow:
         #    key: password
         #    name: <secret-name>
       database: {}
-
+    # --- External Database Configuration START ---
+    externalDatabase:
+      # Set to true to use an external database instead of SQLite or bundled Postgres
+      enabled: true
+      # Database driver type
+      driver:
+        value: "postgresql"
+      # Hostname or service name of the external database
+      host:
+         value: "postgresql.postgresql.svc.cluster.local"
+      # Port of the external database
+      port:
+        value: "5432"
+      # Username for the database connection
+      user:
+        value: "postgres"
+      # Password for the database connection (using a Kubernetes Secret)
+      password:
+        value: "test"
+      # Name of the database to connect to
+      database:
+        value: "langflow"
+    # --- External Database Configuration END ---
     volumes:
       - name: flows
         emptyDir: {}
@@ -188,7 +208,7 @@ langflow:
         readOnly: false
 
     sqlite:
-      enabled: true
+      enabled: false
       volume:
         size: "1Gi"
         existingStorageClassName: "default"
