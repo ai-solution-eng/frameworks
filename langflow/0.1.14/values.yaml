@@ -23,7 +23,7 @@ ezua:
   #Use next options in order to configure the application endpoint.
   #Example of a VirtualService is here:
   virtualService:
-    endpoint: "langflow-ide-dbb.${DOMAIN_NAME}"
+    endpoint: "langflow-ide-da.${DOMAIN_NAME}"
     istioGateway: "istio-system/ezaf-gateway"
 
   authorizationPolicy:
@@ -146,20 +146,6 @@ langflow:
       runAsNonRoot: true
       runAsGroup: 1000
 
-    externalDatabase:
-      # Compose in the SQLAlchemy format:
-      # https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls
-      enabled: false
-      driver: {}
-        # value: "postgresql"
-      port: {}
-      user: {}
-      password: {}
-        # valueFrom:
-        #   secretKeyRef:
-        #    key: password
-        #    name: <secret-name>
-      database: {}
     # --- External Database Configuration START ---
     externalDatabase:
       # Set to true to use an external database instead of SQLite or bundled Postgres
