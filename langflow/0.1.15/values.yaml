@@ -23,7 +23,7 @@ ezua:
   #Use next options in order to configure the application endpoint.
   #Example of a VirtualService is here:
   virtualService:
-    endpoint: "langflow-ide-da.${DOMAIN_NAME}"
+    endpoint: "langflow-ide-dc.${DOMAIN_NAME}"
     istioGateway: "istio-system/ezaf-gateway"
 
   authorizationPolicy:
@@ -167,7 +167,7 @@ langflow:
         value: "test"
       # Name of the database to connect to
       database:
-        value: "langflow"
+        value: "langflow2"
     # --- External Database Configuration END ---
     volumes:
       - name: flows

@@ -1,8 +1,8 @@
 apiVersion: v2
-name: langflow-ide-dbbb
+name: langflow-ide-dc
 description: Helm chart for Langflow IDE
 type: application
-version: 0.1.14
+version: 0.1.15
 appVersion: latest
 maintainers:
   - name: Langflow
