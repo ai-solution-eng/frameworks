@@ -1,11 +1,12 @@
-# argo-cd
+# Porting
 
 https://github.com/HPEEzmeral/byoa-tutorials/tree/main/tutorial#configure-application-endpointvirtualservice
 
 ### Notes
 HPE Lable for Pod resource monitoring and SSO is not applied for now. 
 
-### VirtualService.yaml
+## VirtualService.yaml
+
 ```yaml
 apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
@@ -32,7 +33,8 @@ spec:
 
 ```
 
-### values.yaml
+## values.yaml
+
 ```yaml
 ezua:
   #Use next options in order to configure the application endpoint.
@@ -84,7 +86,13 @@ Spec:
           Number:  80
 Events:            <none>
 ```
-### Get Default Password
+
+## Getting the default password
+
+The generated password can be obtained running the following command:
+
 ```sh
-kubectl -n argo-cd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+kubectl -n NAMESPACE get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
 ```
+
+where NAMESPACE is the namespace specified during the import process.
