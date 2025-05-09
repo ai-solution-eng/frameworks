@@ -4,7 +4,7 @@ metadata:
   name: {{ printf "%s-%s-virtual-service" .Release.Name .Chart.Name }}
 spec:
   gateways:
-    - {{ .Values.ezua.virtualService.istioGateway | required ".Values.ezua.virtualService.istioGateway is required !\n" }}
+    - istio-system/ezaf-gateway
   hosts:
     - {{ .Values.ezua.virtualService.endpoint | required ".Values.ezua.virtualService.endpoint is required !\n" }}
   http:

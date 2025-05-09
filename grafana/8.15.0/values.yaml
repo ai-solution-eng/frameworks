@@ -217,7 +217,7 @@ downloadDashboards:
 
 ## Pod Labels
 podLabels:
-  hpe-ezua/app: grafana
+  hpe-ezua/app: grafana-aie
   hpe-ezua/type: vendor-service
 
 podPortName: grafana
@@ -418,6 +418,8 @@ persistence:
   type: pvc
   enabled: false
   # storageClassName: default
+  ## (Optional) Use this to bind the claim to an existing PersistentVolume (PV) by name.
+  volumeName: ""
   accessModes:
     - ReadWriteOnce
   size: 10Gi
@@ -475,6 +477,7 @@ initChownData:
   #    cpu: 100m
   #    memory: 128Mi
   securityContext:
+    readOnlyRootFilesystem: false
     runAsNonRoot: false
     runAsUser: 0
     seccompProfile:
@@ -482,6 +485,8 @@ initChownData:
     capabilities:
       add:
         - CHOWN
+      drop:
+        - ALL
 
 # Administrator credentials when not using an existing secret (see below)
 adminUser: admin
@@ -806,6 +811,18 @@ dashboardProviders: {}
 #      options:
 #        path: /var/lib/grafana/dashboards/default
 
+## Configure how curl fetches remote dashboards. The beginning dash is required.
+## NOTE: This sets the default short flags for all dashboards, but these
+##       defaults can be overridden individually for each dashboard by setting
+##       curlOptions. See the example dashboards section below.
+##
+## -s  - silent mode
+## -k  - allow insecure (eg: non-TLS) connections
+## -f  - fail fast
+## See the curl documentation for additional options
+##
+defaultCurlOptions: "-skf"
+
 ## Configure grafana dashboard to import
 ## NOTE: To use dashboards you must also enable/configure dashboardProviders
 ## ref: https://grafana.com/dashboards
@@ -825,6 +842,7 @@ dashboards: {}
   #     datasource: Prometheus
   #   local-dashboard:
   #     url: https://example.com/repository/test.json
+  #     curlOptions: "-sLf"
   #     token: ''
   #   local-dashboard-base64:
   #     url: https://example.com/repository/test-b64.json
@@ -1626,4 +1644,3 @@ assertNoLeakedSecrets: true
 ezua:
   virtualService:
     endpoint: "grafana.${DOMAIN_NAME}"
-    istioGateway: "istio-system/ezaf-gateway"
