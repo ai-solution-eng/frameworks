@@ -38,7 +38,7 @@ spec:
 Uncommented podLabels and set to:
 ```yaml
 podLabels:
-  hpe-ezua/app: grafana-aie
+  hpe-ezua/app: argo-cd
   hpe-ezua/type: vendor-service
 
 ```
