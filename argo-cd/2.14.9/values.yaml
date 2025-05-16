@@ -93,7 +93,9 @@ global:
   podAnnotations: {}
 
   # -- Labels for the all deployed pods
-  podLabels: {}
+  podLabels: 
+    hpe-ezua/app: argo-cd
+    hpe-ezua/type: vendor-service
 
   # -- Add Prometheus scrape annotations to all metrics services. This can be used as an alternative to the ServiceMonitors.
   addPrometheusAnnotations: false
@@ -775,16 +777,18 @@ controller:
   podAnnotations: {}
 
   # -- Labels to be added to application controller pods
-  podLabels: {}
+  podLabels: 
+    hpe-ezua/app: argo-cd
+    hpe-ezua/type: vendor-service
 
   # -- Resource limits and requests for the application controller pods
-  resources: {}
-  #  limits:
-  #    cpu: 500m
-  #    memory: 512Mi
-  #  requests:
-  #    cpu: 250m
-  #    memory: 256Mi
+  resources: 
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
 
   # Application controller container ports
   containerPorts:
@@ -1059,13 +1063,13 @@ dex:
     imagePullPolicy: ""
     # -- Argo CD init image resources
     # @default -- `{}` (defaults to dex.resources)
-    resources: {}
-    #  requests:
-    #    cpu: 5m
-    #    memory: 96Mi
-    #  limits:
-    #    cpu: 10m
-    #    memory: 144Mi
+    resources: 
+      requests:
+        cpu: 5m
+        memory: 96Mi
+      limits:
+        cpu: 10m
+        memory: 144Mi
 
   # -- Environment variables to pass to the Dex server
   env: []
@@ -1123,16 +1127,18 @@ dex:
   podAnnotations: {}
 
   # -- Labels to be added to the Dex server pods
-  podLabels: {}
+  podLabels: 
+    hpe-ezua/app: argo-cd
+    hpe-ezua/type: vendor-service
 
   # -- Resource limits and requests for dex
-  resources: {}
-  #  limits:
-  #    cpu: 50m
-  #    memory: 64Mi
-  #  requests:
-  #    cpu: 10m
-  #    memory: 32Mi
+  resources: 
+    limits:
+      cpu: 50m
+      memory: 64Mi
+    requests:
+      cpu: 10m
+      memory: 32Mi
 
   # Dex container ports
   # NOTE: These ports are currently hardcoded and cannot be changed
@@ -1365,13 +1371,13 @@ redis:
       failureThreshold: 5
 
     # -- Resource limits and requests for redis-exporter sidecar
-    resources: {}
-      # limits:
-      #   cpu: 50m
-      #   memory: 64Mi
-      # requests:
-      #   cpu: 10m
-      #   memory: 32Mi
+    resources: 
+       limits:
+         cpu: 50m
+         memory: 64Mi
+       requests:
+         cpu: 10m
+         memory: 32Mi
 
   # -- Secrets with credentials to pull images from a private registry
   # @default -- `[]` (defaults to global.imagePullSecrets)
@@ -1443,16 +1449,18 @@ redis:
   podAnnotations: {}
 
   # -- Labels to be added to the Redis server pods
-  podLabels: {}
+  podLabels: 
+    hpe-ezua/app: argo-cd
+    hpe-ezua/type: vendor-service
 
   # -- Resource limits and requests for redis
-  resources: {}
-  #  limits:
-  #    cpu: 200m
-  #    memory: 128Mi
-  #  requests:
-  #    cpu: 100m
-  #    memory: 64Mi
+  resources: 
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
 
   # -- Redis pod-level security context
   # @default -- See [values.yaml]
@@ -1715,16 +1723,18 @@ redisSecretInit:
   podAnnotations: {}
 
   # -- Labels to be added to the Redis secret-init Job
-  podLabels: {}
+  podLabels: 
+    hpe-ezua/app: argo-cd
+    hpe-ezua/type: vendor-service
 
   # -- Resource limits and requests for Redis secret-init Job
-  resources: {}
-  #  limits:
-  #    cpu: 200m
-  #    memory: 128Mi
-  #  requests:
-  #    cpu: 100m
-  #    memory: 64Mi
+  resources: 
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
 
   # -- Application controller container-level security context
   # @default -- See [values.yaml]
@@ -1901,13 +1911,13 @@ server:
         - ALL
 
     # -- Resource limits and requests for the argocd-extensions container
-    resources: {}
-    #  limits:
-    #    cpu: 50m
-    #    memory: 128Mi
-    #  requests:
-    #    cpu: 10m
-    #    memory: 64Mi
+    resources: 
+      limits:
+        cpu: 50m
+        memory: 128Mi
+      requests:
+        cpu: 10m
+        memory: 64Mi
 
   # -- Additional containers to be added to the server pod
   ## Note: Supports use of custom Helm templates
@@ -1973,16 +1983,18 @@ server:
   podAnnotations: {}
 
   # -- Labels to be added to server pods
-  podLabels: {}
+  podLabels: 
+    hpe-ezua/app: argo-cd
+    hpe-ezua/type: vendor-service
 
   # -- Resource limits and requests for the Argo CD server
-  resources: {}
-  #  limits:
-  #    cpu: 100m
-  #    memory: 128Mi
-  #  requests:
-  #    cpu: 50m
-  #    memory: 64Mi
+  resources: 
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
 
   # Server container ports
   containerPorts:
@@ -2621,16 +2633,18 @@ repoServer:
   podAnnotations: {}
 
   # -- Labels to be added to repo server pods
-  podLabels: {}
+  podLabels: 
+    hpe-ezua/app: argo-cd
+    hpe-ezua/type: vendor-service
 
   # -- Resource limits and requests for the repo server pods
-  resources: {}
-  #  limits:
-  #    cpu: 50m
-  #    memory: 128Mi
-  #  requests:
-  #    cpu: 10m
-  #    memory: 64Mi
+  resources: 
+    limits:
+      cpu: 50m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
 
   # Repo server container ports
   containerPorts:
@@ -2991,16 +3005,18 @@ applicationSet:
   podAnnotations: {}
 
   # -- Labels for the ApplicationSet controller pods
-  podLabels: {}
+  podLabels: 
+    hpe-ezua/app: argo-cd
+    hpe-ezua/type: vendor-service
 
   # -- Resource limits and requests for the ApplicationSet controller pods.
-  resources: {}
-    # limits:
-    #   cpu: 100m
-    #   memory: 128Mi
-    # requests:
-    #   cpu: 100m
-    #   memory: 128Mi
+  resources: 
+     limits:
+       cpu: 100m
+       memory: 128Mi
+     requests:
+       cpu: 100m
+       memory: 128Mi
 
   # ApplicationSet controller container ports
   containerPorts:
@@ -3373,16 +3389,18 @@ notifications:
   podAnnotations: {}
 
   # -- Labels to be applied to the notifications controller Pods
-  podLabels: {}
+  podLabels: 
+    hpe-ezua/app: argo-cd
+    hpe-ezua/type: vendor-service
 
   # -- Resource limits and requests for the notifications controller
-  resources: {}
-    # limits:
-    #   cpu: 100m
-    #   memory: 128Mi
-    # requests:
-    #   cpu: 100m
-    #   memory: 128Mi
+  resources: 
+     limits:
+       cpu: 100m
+       memory: 128Mi
+     requests:
+       cpu: 100m
+       memory: 128Mi
 
   # Notification controller container ports
   containerPorts:
@@ -3856,16 +3874,18 @@ commitServer:
   podAnnotations: {}
 
   # -- Labels for the commit server pods
-  podLabels: {}
+  podLabels: 
+    hpe-ezua/app: argo-cd
+    hpe-ezua/type: vendor-service
 
   # -- Resource limits and requests for the commit server pods.
-  resources: {}
-    # limits:
-    #   cpu: 100m
-    #   memory: 128Mi
-    # requests:
-    #   cpu: 100m
-    #   memory: 128Mi
+  resources: 
+     limits:
+       cpu: 100m
+       memory: 128Mi
+     requests:
+       cpu: 100m
+       memory: 128Mi
 
   # -- [DNS configuration]
   dnsConfig: {}

@@ -35,6 +35,16 @@ spec:
 
 ## values.yaml
 
+Uncommented podLabels and set to:
+```yaml
+podLabels:
+  hpe-ezua/app: grafana-aie
+  hpe-ezua/type: vendor-service
+
+```
+
+Also uncommented resource requests and limits, and kept the proposed values.
+
 ```yaml
 ezua:
   #Use next options in order to configure the application endpoint.
