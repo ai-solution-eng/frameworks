@@ -3,7 +3,7 @@
 https://github.com/HPEEzmeral/byoa-tutorials/tree/main/tutorial#configure-application-endpointvirtualservice
 
 ### Notes
-HPE Lable for Pod resource monitoring and SSO is not applied for now. 
+SSO is not applied for now. 
 
 ## VirtualService.yaml
 
