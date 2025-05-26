@@ -1,0 +1,38 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ printf "%s-%s-virtual-service" .Release.Name .Chart.Name }}
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway | required ".Values.ezua.virtualService.istioGateway is required !\n" }}
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint | required ".Values.ezua.virtualService.endpoint is required !\n" }}
+  http:
+    - match:
+        - uri:
+            prefix: /api
+        - uri:
+            prefix: /service/
+        - uri:
+            prefix: /v2/
+        - uri:
+            prefix: /c/
+        - uri:
+            prefix: /chartrepo/
+        - uri:
+            prefix: /oidc/
+      route:
+        - destination:
+            host: harbor-core.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 80
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            # Insert target service name here
+            host: harbor-portal.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              # Insert target service port number here
+              number: 80
