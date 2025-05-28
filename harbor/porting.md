@@ -30,6 +30,8 @@ Make sure to:
 - Add _hpe-ezua.tpl to your helm chart template
 - Use hpe-ezua.labels in the helm chart workloads
 
+In values.yaml, make the following changes.
+
 ```yaml
 ezua:
   #Use next options in order to configure the application endpoint.
