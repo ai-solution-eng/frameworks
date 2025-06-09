@@ -17,21 +17,6 @@ serviceAccount:
   # fullname template
   name: ""
 
-#Platform related options
-ezua:
-  domainName: "${DOMAIN_NAME}"
-  #Use next options in order to configure the application endpoint.
-  #Example of a VirtualService is here:
-  virtualService:
-    endpoint: "langflow.${DOMAIN_NAME}"
-    istioGateway: "istio-system/ezaf-gateway"
-
-  authorizationPolicy:
-    namespace: "istio-system"
-    providerName: "oauth2-proxy"
-    matchLabels:
-      app: "langflow-service"
-
 ingress:
   enabled: false
   annotations: {}
@@ -74,9 +59,10 @@ langflow:
     backendOnly: true
     numWorkers: 1
     image:
-      repository: langflowai/langflow
+#      repository: langflowai/langflow
+      repository: acarboni/langflow-ide
       imagePullPolicy: IfNotPresent
-      tag: latest
+      tag: 1.4.2
     command:
       - python
       - -m
@@ -104,18 +90,6 @@ langflow:
         value: "/app/db/alembic.log"
       - name: LANGFLOW_UPDATE_STARTER_PROJECTS
         value: "false"
-#      - name: HTTP_PROXY
-#        value: "http://hpeproxy.its.hpecorp.net:443"
-#      - name: HTTPS_PROXY
-#        value: "http://hpeproxy.its.hpecorp.net:443"
-#      - name: http_proxy
-#        value: "http://hpeproxy.its.hpecorp.net:443"
-#      - name: https_proxy
-#        value: "http://hpeproxy.its.hpecorp.net:443"
-#      - name: NO_PROXY
-#        value: ".external.hpe.local,localhost,.cluster.local,.svc,.default.svc,.apps-upgrade-ezai.hpepcai.com,.ezai-services.svc.cluster.local"     
-#      - name: no_proxy
-#        value: ".external.hpe.local,localhost,.cluster.local,.svc,.default.svc,.apps-upgrade-ezai.hpepcai.com,.ezai-services.svc.cluster.local"
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -141,6 +115,8 @@ langflow:
       runAsGroup: 1000
 
     externalDatabase:
+      # Compose in the SQLAlchemy format:
+      # https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls
       enabled: true
       driver:
         value: "postgresql"
@@ -157,7 +133,6 @@ langflow:
           secretKeyRef:
             key: "password"
             name: "langflow-ide-postgresql-service"
-
     volumes:
       - name: flows
         emptyDir: {}
@@ -241,7 +216,7 @@ langflow:
         memory: 512Mi
       limits:
         cpu: 2
-        memory: 1Gi
+        memory: 4Gi
     probe:
       failureThreshold: 3
       periodSeconds: 10
@@ -276,3 +251,17 @@ postgresql:
     username: "langflow"
     password: "langflow-postgres"
     database: "langflow-db"
+
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  #Use next options in order to configure the application endpoint.
+  #Example of a VirtualService is here:
+  virtualService:
+    endpoint: "langflow.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    matchLabels:
+      app: "langflow-service"
