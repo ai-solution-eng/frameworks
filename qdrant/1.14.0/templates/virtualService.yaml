@@ -1,0 +1,29 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "qdrant.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "qdrant.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway }}
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint }}
+  #The following virtualService options are specific and depend on the application implementation.
+  #This example is a simple application with single service and simple match routes.
+  #The URL should point to the corresponding service. 
+  #Kubernetes provides an internal DNS mapping for services using the format <ServiceName>.<ServiceNamespace>.svc.cluster.local. 
+  http:
+    - match:
+        - uri:
+            prefix: /
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            # Insert target service name here
+            host: {{ include "qdrant.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              # Insert target service port number here
+              number: {{ .Values.service.http_port }}
