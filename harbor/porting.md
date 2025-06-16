@@ -236,6 +236,17 @@ exporter:
       memory: 256Mi
 ```
 
+Test pusing a docker container image for a demo app locally. Prerequisites:
+- The demo-app:latest image is available
+- The demo project is created on Harbor UI
+
+```sh
+docker push harbor.ingress.pcaiABCD.XYZ.hpecolo.net/demo/demo-app:latest
+The push refers to repository [harbor.ingress.pcaiABCD.XYZ.hpecolo.net/demo/demo-app]
+f44f286046d9: Pushed 
+latest: digest: sha256:d93af1ffa3c9dcaf136ae9cbf575d834dc049b6ba33f7edb0711909e2e54467b size: 527
+```
+
 ## Notes
 - Redirect URL into keycloak is optional and not added yet
 - TLS is not enabled

@@ -3,11 +3,6 @@ ezua:
   virtualService:
     endpoint: "harbor.${DOMAIN_NAME}"
     istioGateway: "istio-system/ezaf-gateway"
-  authorizationPolicy:
-    namespace: "istio-system"
-    providerName: "oauth2-proxy"
-    matchLabels:
-      istio: "ingressgateway"
 
 expose:
   # Set how to expose the service. Set the type as "ingress", "clusterIP", "nodePort" or "loadBalancer"
@@ -39,7 +34,7 @@ expose:
       secretName: ""
   ingress:
     hosts:
-      core: harbor.ingress.${DOMAIN_NAME}
+      core: harbor.${DOMAIN_NAME}
     # set to the type of ingress controller if it has specific requirements.
     # leave as `default` for most ingress controllers.
     # set to `gce` if using the GCE ingress controller
@@ -123,7 +118,7 @@ expose:
 # the IP address of k8s node
 #
 # If Harbor is deployed behind the proxy, set it as the URL of proxy
-externalURL: https://harbor.ingress.${DOMAIN_NAME}
+externalURL: https://harbor.${DOMAIN_NAME}
 
 # The persistence is enabled by default and a default StorageClass
 # is needed in the k8s cluster to provision volumes dynamically.
@@ -964,13 +959,6 @@ database:
     shmSizeLimit: 512Mi
     initContainer:
       migrator: {}
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 100m
-          memory: 128Mi
       permissions: {}
       resources:
         limits:
