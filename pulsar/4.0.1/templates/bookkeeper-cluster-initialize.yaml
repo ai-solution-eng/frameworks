@@ -1,0 +1,113 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+{{- if or (and .Values.useReleaseStatus .Release.IsInstall) .Values.initialize }}
+{{- if .Values.components.bookkeeper }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ template "pulsar.fullname" . }}-{{ .Values.bookkeeper.component }}-init"
+  namespace: {{ template "pulsar.namespace" . }}
+  labels:
+    {{- include "pulsar.standardLabels" . | nindent 4 }}
+    component: "{{ .Values.bookkeeper.component }}-init"
+spec:
+# This feature was previously behind a feature gate for several Kubernetes versions and will default to true in 1.23 and beyond
+# https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
+{{- if and .Values.job.ttl.enabled (semverCompare ">=1.23-0" .Capabilities.KubeVersion.Version) }}
+  ttlSecondsAfterFinished: {{ .Values.job.ttl.secondsAfterFinished | default 600 }}
+{{- end }}
+  template:
+    spec:
+    {{- include "pulsar.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: "{{ template "pulsar.fullname" . }}-{{ .Values.bookkeeper.component }}"
+      {{- with .Values.pulsar_metadata.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.pulsar_metadata.nodeSelector | indent 8 }}
+      {{- end }}
+      {{- with .Values.pulsar_metadata.tolerations }}
+      tolerations:
+{{ toYaml .Values.pulsar_metadata.tolerations | indent 8 }}
+      {{- end }}
+      initContainers:
+      {{- if and .Values.components.zookeeper .Values.bookkeeper.metadata.waitZookeeperTimeout (gt (.Values.bookkeeper.metadata.waitZookeeperTimeout | int) 0) }}
+      - name: wait-zookeeper-ready
+        image: "{{ template "pulsar.imageFullName" (dict "image" .Values.images.bookie "root" .) }}"
+        imagePullPolicy: "{{ template "pulsar.imagePullPolicy" (dict "image" .Values.images.bookie "root" .) }}"
+        resources: {{ toYaml .Values.initContainer.resources | nindent 10 }}
+        command: ["timeout", "{{ .Values.bookkeeper.metadata.waitZookeeperTimeout }}", "sh", "-c"]
+        args:
+          - |
+            {{- if $zk:=.Values.pulsar_metadata.userProvidedZookeepers }}
+            export PULSAR_MEM="-Xmx128M";
+            until timeout 15 bin/pulsar zookeeper-shell -server {{ $zk }} ls {{ or .Values.metadataPrefix "/" }}; do
+              echo "user provided zookeepers {{ $zk }} are unreachable... check in 3 seconds ..." && sleep 3;
+            done;
+            {{ else }}
+            until nslookup {{ template "pulsar.fullname" . }}-{{ .Values.zookeeper.component }}-{{ add (.Values.zookeeper.replicaCount | int) -1 }}.{{ template "pulsar.fullname" . }}-{{ .Values.zookeeper.component }}.{{ template "pulsar.namespace" . }}; do
+              sleep 3;
+            done;
+            {{- end}}
+      {{- end}}
+      {{- if and .Values.components.oxia .Values.bookkeeper.metadata.waitOxiaTimeout (gt (.Values.bookkeeper.metadata.waitOxiaTimeout | int) 0) }}
+      - name: wait-oxia-ready
+        image: "{{ template "pulsar.imageFullName" (dict "image" .Values.images.bookie "root" .) }}"
+        imagePullPolicy: "{{ template "pulsar.imagePullPolicy" (dict "image" .Values.images.bookie "root" .) }}"
+        resources: {{ toYaml .Values.initContainer.resources | nindent 10 }}
+        command: ["timeout", "{{ .Values.bookkeeper.metadata.waitOxiaTimeout }}", "sh", "-c"]
+        args:
+          - |
+            until nslookup {{ template "pulsar.oxia.server.service" . }}; do
+              sleep 3;
+            done;
+      {{- end }}
+      containers:
+      - name: "{{ template "pulsar.fullname" . }}-{{ .Values.bookkeeper.component }}-init"
+        image: "{{ template "pulsar.imageFullName" (dict "image" .Values.images.bookie "root" .) }}"
+        imagePullPolicy: "{{ template "pulsar.imagePullPolicy" (dict "image" .Values.images.bookie "root" .) }}"
+      {{- if .Values.bookkeeper.metadata.resources }}
+        resources:
+{{ toYaml .Values.bookkeeper.metadata.resources | indent 10 }}
+      {{- end }}
+        command: ["timeout", "{{ .Values.bookkeeper.metadata.initTimeout | default 60 }}", "sh", "-c"]
+        args:
+          - |
+            bin/apply-config-from-env.py conf/bookkeeper.conf;
+            {{- include "pulsar.toolset.zookeeper.tls.settings" . | nindent 12 }}
+            export BOOKIE_MEM="-Xmx128M";
+            if timeout 15 bin/bookkeeper shell whatisinstanceid; then
+                echo "bookkeeper cluster already initialized";
+            else
+                {{- if and .Values.components.zookeeper (not (eq .Values.metadataPrefix "")) }}
+                bin/pulsar zookeeper-shell -server {{ template "pulsar.fullname" . }}-{{ .Values.zookeeper.component }} create {{ .Values.metadataPrefix }} && echo 'created for pulsar cluster "{{ template "pulsar.cluster.name" . }}"' &&
+                {{- end }}
+                bin/bookkeeper shell initnewcluster;
+            fi
+            {{- if .Values.extraInitCommand }}
+              {{ .Values.extraInitCommand }}
+            {{- end }}
+        envFrom:
+        - configMapRef:
+            name: "{{ template "pulsar.fullname" . }}-{{ .Values.bookkeeper.component }}"
+        volumeMounts:
+        {{- include "pulsar.toolset.certs.volumeMounts" . | nindent 8 }}
+      volumes:
+      {{- include "pulsar.toolset.certs.volumes" . | nindent 6 }}
+      restartPolicy: OnFailure
+{{- end }}
+{{- end }}
