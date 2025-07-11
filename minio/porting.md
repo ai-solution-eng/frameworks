@@ -19,8 +19,9 @@ ezua:
 
 These files have been added:
 - templates/virtualService.yaml
-- templates/virtualService.yaml
+- templates/virtualService2.yaml
 
+The second service exposes the REST API to external clients. The url is https://minio-api.${DOMAIN_NAME}
 
 # HPE notes
 
