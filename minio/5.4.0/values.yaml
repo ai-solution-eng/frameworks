@@ -291,10 +291,10 @@ podLabels: {}
 resources:
   requests:
     cpu: 500m
-    memory: 16Gi
+    memory: 1Gi
   limits:
-    cpu: 1
-    memory: 16Gi
+    cpu: 0.5
+    memory: 4Gi
     
 ## List of policies to be created after minio install
 ##
