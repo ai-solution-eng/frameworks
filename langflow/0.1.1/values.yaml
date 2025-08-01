@@ -194,6 +194,7 @@ langflow:
         #     cachingmode: ReadOnly
         storageClass: {}
 
+    # having autoLogin set to false enables multi user, if you set autoLogin to true it's single user - superuser is required then
     # autoLogin: true|false
     # superuser: <superuser login>
     # superuserPassword: <superuser password>
