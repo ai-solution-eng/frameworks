@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab
+  template:
+    metadata:
+      labels:
+        app: gitlab
+        hpe-ezua/app: gitlab
+        hpe-ezua/type: vendor-service
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: {{ .Chart.Name }}
+          image: gitlab/gitlab-ce:{{ .Chart.AppVersion }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GITLAB_HOME
+              value: "/srv/gitlab"
+            - name: GITLAB_OMNIBUS_CONFIG
+              value: 
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: ssh
+              containerPort: 22
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: storage
+              mountPath: /var/opt/gitlab
+              subPath: data
+            - name: storage
+              mountPath: /var/log/gitlab
+              subPath: log
+            - name: storage
+              mountPath: /etc/gitlab
+              subPath: etc
+            - name: shm
+              mountPath: "/dev/shm"
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: {{ .Chart.Name }}-pvc
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 1Gi

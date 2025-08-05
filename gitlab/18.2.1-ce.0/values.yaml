@@ -1,0 +1,22 @@
+
+service:
+  httpPort : 8080
+  sshPort  : 22
+
+resources:
+  requests:
+    cpu: 1
+    memory: 4Gi
+  limits:
+    cpu: 4
+    memory: 16Gi
+
+storage:
+  size: 100Gi
+  class: gl4f-filesystem
+
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  virtualService:
+    endpoint: "gitlab.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"

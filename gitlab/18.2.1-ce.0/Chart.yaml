@@ -1,0 +1,6 @@
+apiVersion: v2
+version: 0.0.5
+appVersion: 18.2.1-ce.0
+type: application
+name: gitlab
+description: Source version control system
