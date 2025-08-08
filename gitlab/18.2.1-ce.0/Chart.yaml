@@ -1,5 +1,5 @@
 apiVersion: v2
-version: 0.0.5
+version: 0.0.7
 appVersion: 18.2.1-ce.0
 type: application
 name: gitlab

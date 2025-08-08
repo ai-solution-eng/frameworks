@@ -15,6 +15,6 @@ spec:
         uri: /
       route:
         - destination:
-            host: {{ .Chart.Name }}.{{ .Release.Namespace }}.svc.cluster.local
+            host: {{ .Chart.Name }}-service.{{ .Release.Namespace }}.svc.cluster.local
             port:
               number: {{ .Values.service.httpPort }}
