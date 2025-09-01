@@ -1,0 +1,12 @@
+dependencies:
+- name: mysql
+  repository: https://charts.bitnami.com/bitnami
+  version: 9.7.2
+- name: opensearch
+  repository: https://opensearch-project.github.io/helm-charts/
+  version: 2.12.1
+- name: opensearch-dashboards
+  repository: https://opensearch-project.github.io/helm-charts/
+  version: 2.10.0
+digest: sha256:67f70ee2ebe3866f126cc35b48c1e76475129951dfbb656ea0efd72e7dd732ec
+generated: "2024-01-26T18:06:52.486253692+02:00"

@@ -1,0 +1,21 @@
+{{- $domainName := .Values.ezua.virtualService.endpoint | trimPrefix "openmetadata." -}}
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: openmetadata-opensearch-dashboard-vs
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway }}
+  hosts:
+    - openmetadata-opensearch-dashboard.{{ $domainName }}
+  http:
+    - match:
+        - uri:
+            prefix: /
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: opensearch-dashboard.openmetadata.svc.cluster.local
+            port:
+              number: 5601

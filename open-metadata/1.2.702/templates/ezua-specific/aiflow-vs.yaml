@@ -1,0 +1,21 @@
+{{- $domainName := .Values.ezua.virtualService.endpoint | trimPrefix "openmetadata." -}}
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: openmetadata-airflow-vs
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway }}
+  hosts:
+    - openmetadata-airflow.{{ $domainName }}
+  http:
+    - match:
+        - uri:
+            prefix: /
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: openmetadata-web.openmetadata.svc.cluster.local
+            port:
+              number: 8080
