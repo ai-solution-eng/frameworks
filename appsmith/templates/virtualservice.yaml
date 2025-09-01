@@ -1,0 +1,28 @@
+{{- if .Values.ezua.enabled }}
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "appsmith.fullname" . }}-vs
+  labels:
+    {{- include "appsmith.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway }}
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint }}
+  #The following VirtualService options are specific and depend on the application implementation.
+  #This example is a simple application with single service and simple match routes.
+  #The URL should point to the corresponding service.
+  #Kubernetes provides an internal DNS mapping for services using the format <ServiceName>.<ServiceNamespace>.svc.cluster.local.
+  http:
+    - match:
+        - uri:
+            prefix: /
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: {{ include "appsmith.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.service.port }}
+{{- end }}
