@@ -19,7 +19,8 @@ serviceAccount:
 
 ingress:
   enabled: false
-  annotations: {}
+  annotations:
+    {}
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
@@ -46,7 +47,6 @@ podSecurityContext:
   runAsNonRoot: true
   runAsGroup: 1000
 
-
 langflow:
   global:
     image:
@@ -59,7 +59,7 @@ langflow:
     backendOnly: true
     numWorkers: 1
     image:
-#      repository: langflowai/langflow
+      #      repository: langflowai/langflow
       repository: acarboni/langflow-ide
       imagePullPolicy: IfNotPresent
       tag: 1.4.2
@@ -90,6 +90,7 @@ langflow:
         value: "/app/db/alembic.log"
       - name: LANGFLOW_UPDATE_STARTER_PROJECTS
         value: "false"
+
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -238,7 +239,7 @@ langflow:
       - name: tmp
         mountPath: /tmp
         readOnly: false
-  
+
   podAnnotations:
     sidecar.istio.io/inject: "false"
 
@@ -266,3 +267,5 @@ ezua:
     providerName: "oauth2-proxy"
     matchLabels:
       app: "langflow-service"
+  selfsignedcert:
+    enabled: true
