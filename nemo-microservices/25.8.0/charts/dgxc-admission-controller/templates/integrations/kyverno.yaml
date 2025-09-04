@@ -1,0 +1,480 @@
+{{- if .Values.enableIntegrationsSupport }}
+# cluster roles required by kyverno to label cluster scoped resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kyverno:dgxc-integrations
+  labels:
+    app.kubernetes.io/component: background-controller
+    app.kubernetes.io/instance: kyverno
+    app.kubernetes.io/part-of: kyverno
+rules:
+{{- range .Values.clusterScopedKinds }}
+{{- if and (.systemResources) (gt (len .systemResources) 0) }}
+- apiGroups: [ {{ .apiGroup | quote }} ]
+  resources:
+  {{- range .resources }}
+  - {{ . | quote }}
+  {{- end }}
+  verbs: ['create', 'delete', 'deletecollection', 'get', 'list', 'patch', 'update', 'watch']
+{{- end }}
+{{- end }}
+- apiGroups: ['rbac.authorization.k8s.io']
+  resources: ['clusterroles']
+  verbs: ['escalate', 'bind']
+---
+# label system namespaces with dgxc/system-managed: "true"
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: dgxc-integrations-set-tolerations
+  labels:
+    dgxc/system-managed: "true"
+spec:
+  background: false # must be done as part of request
+  validationFailureAction: {{ .Values.validationFailureAction }}
+  rules:
+  - name: inject-system-pod-tolerations # inject system node tolerations on system pods
+    preconditions: # pod doesn't already have system toleration
+      any:
+      - key:
+        - NoExecute
+        - NoSchedule
+        operator: AnyNotIn
+        value: |
+          {{`{{`}} request.object.spec.tolerations[?(key == '{{ .Values.tolerations.system.key }}' && value == '{{ .Values.tolerations.system.value }}')].effect {{`}}`}}
+    match:
+      all:
+      - resources: # system pods
+          kinds: [ Pod ]
+          namespaceSelector:
+            matchExpressions: [ { key: kubernetes.io/metadata.name , operator: In, values: [ "runai" ] } ]
+    mutate:
+      patchesJson6902: |-
+        - op: add
+          path: "/spec/tolerations/-"
+          value:
+            key: {{ .Values.tolerations.system.key | quote }}
+            operator: Equal
+            value: {{ .Values.tolerations.system.value | quote }}
+            effect: NoSchedule
+        - op: add
+          path: "/spec/tolerations/-"
+          value:
+            key: {{ .Values.tolerations.system.key | quote }}
+            operator: Equal
+            value: {{ .Values.tolerations.system.value | quote }}
+            effect: NoExecute
+  - name: inject-customer-pod-tolerations
+    preconditions: # pod doesn't already have customer toleration
+      any:
+      - key:
+        - NoExecute
+        - NoSchedule
+        operator: AnyNotIn
+        value: |
+          {{`{{`}} request.object.spec.tolerations[?(key == '{{ .Values.tolerations.customer.key }}' && value == '{{ .Values.tolerations.customer.value }}')].effect {{`}}`}}
+    match:
+      all:
+      - resources:
+          kinds: [ Pod ]
+    exclude:
+      all:
+      - resources:
+          namespaceSelector:
+            matchExpressions: [ { key: dgxc/system-managed , operator: In, values: [ "true" ] } ]
+    mutate:
+      patchesJson6902: |-
+        - op: add
+          path: "/spec/tolerations/-"
+          value:
+            key: {{ .Values.tolerations.customer.key | quote }}
+            operator: Equal
+            value: {{ .Values.tolerations.customer.value | quote }}
+            effect: NoSchedule
+        - op: add
+          path: "/spec/tolerations/-"
+          value:
+            key: {{ .Values.tolerations.customer.key | quote }}
+            operator: Equal
+            value: {{ .Values.tolerations.customer.value | quote }}
+            effect: NoExecute
+  {{- if .Values.tolerations.gpu }}
+  - name: inject-customer-pod-gpu-tolerations
+    preconditions: # pod doesn't already have customer toleration
+      all:
+      - key: "{{ `{{ contains(keys(request.object.spec), 'resourceClaims') }}` }}"
+        operator: Equals
+        value: true
+      - key:
+        - NoExecute
+        - NoSchedule
+        operator: AnyNotIn
+        value: | 
+          {{`{{`}} request.object.spec.tolerations[?(key == '{{ .Values.tolerations.gpu.key }}')] {{`}}`}}
+    match:
+      all:
+      - resources:
+          kinds: [ Pod ]
+    exclude:
+      all:
+      - resources:
+          namespaceSelector:
+            matchExpressions: [ { key: dgxc/system-managed , operator: In, values: [ "true" ] } ]
+    mutate:
+      patchesJson6902: |-
+        - op: add
+          path: "/spec/tolerations/-"
+          value:
+            key: {{ .Values.tolerations.gpu.key | default "nvidia.com/gpu" | quote }}
+            operator: Equal
+            value: {{ .Values.tolerations.gpu.value | default "present" | quote }}
+            effect: NoSchedule
+  {{- end }}
+  - name: inject-customer-ds-tolerations
+    match:
+      all:
+      - resources:
+          kinds: [ DaemonSet ]
+    exclude:
+      all:
+      - resources:
+          namespaceSelector:
+            matchExpressions: [ { key: dgxc/system-managed , operator: In, values: [ "true" ] } ]
+    preconditions:
+      any:
+      - key:
+        - NoExecute
+        - NoSchedule
+        operator: AnyNotIn
+        value: |
+          {{`{{`}} request.object.spec.template.spec.tolerations[?(key=='{{ .Values.tolerations.customer.key }}' && value=='{{ .Values.tolerations.customer.value }}')].effect {{`}}`}}
+    mutate:
+      patchesJson6902: |-
+        - op: add
+          path: "/spec/template/spec/tolerations/-"
+          value:
+            key: {{ .Values.tolerations.customer.key | quote }}
+            operator: Equal
+            value: {{ .Values.tolerations.customer.value | quote }}
+            effect: NoSchedule
+        - op: add
+          path: "/spec/template/spec/tolerations/-"
+          value:
+            key: {{ .Values.tolerations.customer.key | quote }}
+            operator: Equal
+            value: {{ .Values.tolerations.customer.value | quote }}
+            effect: NoExecute
+  {{- if .Values.tolerations.gpu }}
+  - name: inject-customer-ds-gpu-tolerations
+    preconditions: # pod doesn't already have customer toleration
+      all:
+      - key: "{{ `{{ contains(keys(request.object.spec.template.spec), 'resourceClaims') }}` }}"
+        operator: Equals
+        value: true
+      - key:
+        - NoExecute
+        - NoSchedule
+        operator: AnyNotIn
+        value: | 
+          {{`{{`}} request.object.spec.template.spec.tolerations[?(key == '{{ .Values.tolerations.gpu.key }}')] {{`}}`}}
+    match:
+      all:
+      - resources:
+          kinds: [ DaemonSet ]
+    exclude:
+      all:
+      - resources:
+          namespaceSelector:
+            matchExpressions: [ { key: dgxc/system-managed , operator: In, values: [ "true" ] } ]
+    mutate:
+      patchesJson6902: |-
+        - op: add
+          path: "/spec/template/spec/tolerations/-"
+          value:
+            key: {{ .Values.tolerations.gpu.key | default "nvidia.com/gpu" | quote }}
+            operator: Equal
+            value: {{ .Values.tolerations.gpu.value | default "present" | quote }}
+            effect: NoSchedule
+  {{- end }}
+  - name: deny-customer-pod-tolerations
+    match:
+      all:
+      - resources:
+          kinds: [ Pod ]
+    exclude:
+      all:
+      - resources:
+          namespaceSelector: # resources in system namespaces
+            matchExpressions: [ { key: dgxc/system-managed , operator: In, values: [ "true" ] } ]
+    preconditions:
+      any:
+      - key:
+        - NoExecute
+        - NoSchedule
+        operator: AnyIn
+        value: | 
+          {{`{{ request.object.spec.tolerations[?(key==`}}'{{ .Values.tolerations.system.key }}'{{` && value==`}}'{{ .Values.tolerations.system.value }}'{{` || key=='' || key == null)].effect }}`}}
+      - key: "true" # explicitly bound to system node
+        operator: Equals
+        value: | 
+          {{`{{`}} spec.nodename && contains(spec.nodename, 'system') {{`}}`}}
+    validate:
+      message: "Customer pods may not have tolerations with an empty key or the key \"{{ .Values.tolerations.system.key }}\" or a nodeName containing 'system' as these allow them to schedule on system pods."
+      deny: {}
+  - name: deny-customer-ds-blanket-tolerations
+    match:
+      all:
+      - resources:
+          kinds: [ DaemonSet ]
+    exclude:
+      all:
+      - resources:
+          namespaceSelector: # resources in system namespaces
+            matchExpressions: [ { key: dgxc/system-managed , operator: In, values: [ "true" ] } ]
+    validate:
+      message: "Customer daemonsets may not have tolerations with an empty key or empty value."
+      pattern:
+        spec:
+          template:
+            spec:
+              =(tolerations):
+              - key: "?*"
+                value: "?*"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: dgxc-integrations-deny-changes-to-system-resources
+  labels:
+    dgxc/system-managed: "true"
+spec:
+  background: false
+  validationFailureAction: {{ .Values.validationFailureAction }}
+  rules:
+  # Deny all writes to resources to cluster scoped system resources not made by system accounts
+  - name: deny-cluster-scoped
+    match:
+      any:
+      # Only below resources are considered dgxc/system-managed
+      {{- range .Values.clusterScopedKinds }}
+      {{- if and (.systemResources) (gt (len .systemResources) 0) }}
+      - resources:
+          kinds: [ {{ .kind | quote }} ]
+          names:
+          {{- range .systemResources }}
+          - {{ . | quote }}
+          {{- end }}
+      {{- end }}
+      {{- end }}
+    exclude: # allow writes by system accounts
+      any:
+      - subjects:
+        # allow writes from service accounts in system namespaces
+        {{- range .Values.clusterScopedKinds }}
+        {{- if eq .kind "Namespace" }}
+        {{- range .systemResources}}
+        - kind: ServiceAccount
+          namespace: "{{ . }}"
+          name: "*"
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        # allow writes from system users and groups
+        {{- range $k, $v := .Values.systemSubjects }}
+        {{- range $v }}
+        - kind: {{ $k | quote }}
+          name: {{ . | quote }}
+        {{- end }}
+        {{- end }}
+        # allow writes from system CSP service accounts
+        {{- range $k, $v := .Values.cspSubjects }}
+        {{- range $v }}
+        - kind: {{ $k | quote }}
+          name: {{ . | quote }}
+        {{- end }}
+        {{- end }}
+    validate:
+      message: "Changes to system resources are not allowed."
+      deny: {}
+  # Deny all writes to resources in system namespaces not made by system accounts
+  - name: deny-namespace-scoped 
+    match:
+      any:
+      - resources:
+          namespaceSelector: # resources in system namespaces
+            matchExpressions: [ { key: dgxc/system-managed , operator: In, values: [ "true" ] } ]
+          kinds:
+          {{- $kinds := dict }}
+          {{- range .Values.namespacedKinds }}
+          {{- if .kind }}
+          {{- if not (hasKey $kinds .kind) }}
+          - {{ .kind | quote }}
+            {{ $_ := set $kinds .kind .kind }}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          - 'ServiceAccount/token'
+    exclude: # allow writes by system accounts
+      any:
+      - subjects:
+        # allow writes from service accounts in system namespaces
+        {{- range .Values.clusterScopedKinds }}
+        {{- if eq .kind "Namespace" }}
+        {{- range .systemResources}}
+        - kind: ServiceAccount
+          namespace: "{{ . }}"
+          name: "*"
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        # allow writes from system users and groups
+        {{- range $k, $v := .Values.systemSubjects }}
+        {{- range $v }}
+        - kind: {{ $k | quote }}
+          name: {{ . | quote }}
+        {{- end }}
+        {{- end }}
+        # allow writes from system CSP service accounts
+        {{- range $k, $v := .Values.cspSubjects }}
+        {{- range $v }}
+        - kind: {{ $k | quote }}
+          name: {{ . | quote }}
+        {{- end }}
+        {{- end }}
+    validate:
+      message: "Changes to system resources are not allowed."
+      deny: {}
+  # Deny customer from applying the dgxc/system-managed label
+  - name: deny-system-label-on-user-namespaces
+    match:
+      any:
+    {{- range .Values.clusterScopedKinds }}
+    {{- if and (.systemResources) (gt (len .systemResources) 0) }}
+    {{- if eq .kind "Namespace" }}
+      - resources:
+          kinds: [ {{ .kind | quote }} ]
+          names:
+          {{- range .systemResources }}
+          - {{ . | quote }}
+          {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    exclude: # allow writes by system accounts
+      any:
+      - subjects:
+        # allow writes from service accounts in system namespaces
+        {{- range .Values.clusterScopedKinds }}
+        {{- if eq .kind "Namespace" }}
+        {{- range .systemResources}}
+        - kind: ServiceAccount
+          namespace: "{{ . }}"
+          name: "*"
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        # allow writes from system users and groups
+        {{- range $k, $v := .Values.systemSubjects }}
+        {{- range $v }}
+        - kind: {{ $k | quote }}
+          name: {{ . | quote }}
+        {{- end }}
+        {{- end }}
+        # allow writes from system CSP service accounts
+        {{- range $k, $v := .Values.cspSubjects }}
+        {{- range $v }}
+        - kind: {{ $k | quote }}
+          name: {{ . | quote }}
+        {{- end }}
+        {{- end }}
+    validate:
+      message: "Setting label dgxc/system-managed not allowed"
+      deny:
+        conditions:
+          - key: "{{`{{ request.object.metadata.labels.\"dgxc/system-managed\" || '' }}`}}"
+            operator: Equals
+            value: "true"
+  - name: deny-system-connect
+    match:
+      any:
+      - resources:
+          kinds: [ 'Pod/exec', 'Pod/portforward', 'Pod/attach', 'Pod/ephemeralcontainers', 'Pod/proxy' ]
+          namespaceSelector: # resources in system namespaces
+            matchExpressions: [ { key: dgxc/system-managed , operator: In, values: [ "true" ] } ]
+    exclude: # allow writes by system accounts
+      any:
+      - subjects:
+        # allow writes from service accounts in system namespaces
+        {{- range .Values.clusterScopedKinds }}
+        {{- if eq .kind "Namespace" }}
+        {{- range .systemResources}}
+        - kind: ServiceAccount
+          namespace: "{{ . }}"
+          name: "*"
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        # allow writes from system users and groups
+        {{- range $k, $v := .Values.systemSubjects }}
+        {{- range $v }}
+        - kind: {{ $k | quote }}
+          name: {{ . | quote }}
+        {{- end }}
+        {{- end }}
+        # allow writes from system CSP service accounts
+        {{- range $k, $v := .Values.cspSubjects }}
+        {{- range $v }}
+        - kind: {{ $k | quote }}
+          name: {{ . | quote }}
+        {{- end }}
+        {{- end }}
+    preconditions:
+      all:
+      - key: "{{`{{ request.operation || 'BACKGROUND' }}`}}"
+        operator: Equals
+        value: CONNECT
+    validate:
+      message: "Changes to system resources are not allowed."
+      deny: {}
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: dgxc-integrations-generate-rbac
+  annotations:
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+  labels:
+    dgxc/system-managed: "true"
+spec:
+  rules:
+  - name: generate-rbac-for-crd
+    match: { any: [ resources: { kinds: [ "CustomResourceDefinition" ] } ] }
+    exclude:
+      any:
+      - resources:
+          names:
+          {{- range .Values.clusterScopedKinds }}
+          {{- if eq .kind "CustomResourceDefinition" }}
+          {{- range .systemResources }}
+          - {{ . | quote }}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+    generate:
+      synchronize: true
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      name: "dgxc-customer-app-admin-{{ `{{ request.object.spec.names.plural }}` }}"
+      data:
+        metadata:
+          labels:
+            dgxc/customer-app-admin: "true"
+            dgxc/system-managed: "true"
+            dgxc/generated: "true"
+        rules:
+        - apiGroups: [ "{{ `{{request.object.spec.group}}` }}" ]
+          resources: [ "{{ `{{request.object.spec.names.plural}}` }}", "{{ `{{request.object.spec.names.plural}}` }}/finalizers", "{{ `{{request.object.spec.names.plural}}` }}/status", "{{ `{{request.object.spec.names.plural}}` }}/scale" ]
+          verbs: ['create', 'delete', 'deletecollection', 'get', 'list', 'patch', 'update', 'watch']
+---
+{{- end }}

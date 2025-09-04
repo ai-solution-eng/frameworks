@@ -1,0 +1,362 @@
+{{- if .Values.enabledComponents.dgxcAdmissionController }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.dgxcController.name}}-config
+data:
+  config.yaml: |-
+    apiVersion: runai.dgxc.nvidia.com/v1
+    kind: DGXCRunaiMutatingWebhook
+    certs:
+      namespace: dgxc-admission-controller
+      service: {{ .Values.serviceName }}
+      port: 9443
+
+      organization: {{ .Values.webhooks.organization }}
+
+      mountPath: {{ .Values.dgxcController.certs.mountPath }}
+      certName: {{ .Values.dgxcController.certs.certName }}
+      keyName: {{ .Values.dgxcController.certs.keyName }}
+
+    podMutatingConfig:
+      name: dgxc-create-pod-mwh
+      kind: {{ .Values.webhooks.podMutatingWebhook.kind }}
+      fqdn:  {{ .Values.webhooks.podMutatingWebhook.fqdn }}
+      path:  {{ .Values.webhooks.podMutatingWebhook.path }}
+      failurePolicy:  {{ .Values.webhooks.podMutatingWebhook.failurePolicy }}
+      timeoutSeconds:  {{ .Values.webhooks.podMutatingWebhook.timeoutSeconds }}
+      fqdn:  {{ .Values.webhooks.podMutatingWebhook.fqdn }}
+      sideEffects:  {{ .Values.webhooks.podMutatingWebhook.sideEffects | default "NoneOnDryRun" }}
+      admissionReviewVersions:
+      {{- range $i, $value := .Values.webhooks.podMutatingWebhook.admissionReviewVersions }}
+        - {{ $value }}
+      {{- end }}
+      rules:
+      {{- range $i, $value := .Values.webhooks.podMutatingWebhook.rules }}
+        - apiGroups:
+          {{- range $j, $value2 := $value.apiGroups }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          apiVersions:
+          {{- range $j, $value2 := $value.apiVersions }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          operations:
+          {{- range $j, $value2 := $value.operations }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          resources:
+          {{- range $j, $value2 := $value.resources }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          scope: {{ $value.scope | quote }}
+      {{- end }}
+      nsExcludeLabels:
+      - key: kubernetes.io/metadata.name
+        values:
+        - dgxc-admission-controller
+        - argocd
+        - nvdiag
+      objectMatchLabels:
+      {{- range $i, $value := .Values.webhooks.podMutatingWebhook.objectLabelSelector }}
+      - key: {{ $value.key}}
+        values:
+          {{- range $j, $value2 := $value.values }}
+          - {{ $value2 | quote }}
+          {{- end }}
+      {{- end }}
+
+    podMutatingSpec:
+      {{- with (first .Values.webhooks.podMutatingWebhook.customSettings) }}
+      addRdmaEnabled: {{ .addRdmaEnabled }}
+      rdmaResourcePerGpu: {{ .rdmaResourcePerGpu }}
+      networkAttachmentDefinition: {{ .networkAttachmentDefinition }}
+      rdmaResourceName: {{ .rdmaResourceName }}
+      addScratchEnabled: {{ .scratchEnabled }}
+      scratchVolName: {{ .scratchVolName | quote }}
+      scratchMountPath: {{ .scratchMountpath | quote }}
+      scratchVolSize: {{ .scratchVolSize | quote }}
+      scratchVolSizePerGpu: {{ .scratchVolSizePerGpu }}
+      scratchVolEnforceLimit: {{ .scratchVolEnforceLimit }}
+      {{- if .scratchVolSource }}
+      scratchVolSource:
+        {{ .scratchVolSource | toYaml | nindent 8 }}
+      {{- end}}
+      scratchOnCpu: {{ .scratchOnCpu | default false }}
+      addTcpxSidecarEnabled: {{ .addTcpxSidecarEnabled }}
+      addTcpxoSidecarEnabled: {{ .addTcpxoSidecarEnabled }}
+      addTcpxNcclVars: {{ .addTcpxNCCLVars }}
+      addTcpxoNcclVars: {{ .addTcpxoNCCLVars }}
+      addNcclVars: {{ .addNcclVars }}
+      csp: {{ .csp}}
+      addGcpFuseAnnotation: {{ .addGcpFuseAnnotation}}
+      gcpFuseAnnotationKey: {{ .gcpFuseAnnotationKey | quote }}
+      gcpFuseWICredentialConfigMapAnnotationKey: {{ .gcpFuseWICredentialConfigMapAnnotationKey | quote }}
+      gcpFuseStorageClasses:
+      {{- range .gcpFuseStorageClasses}}
+      - {{ . | quote }}
+      {{- end }}
+      clusterName: {{ .clusterName }}
+      injectRunaiJob: true
+      {{- end}}
+      systemNamespaceNames:
+      {{- range .Values.clusterScopedKinds }}
+      {{- if eq .kind "Namespace" }}
+      {{- range .systemResources}}
+      - {{ . | quote }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
+
+
+    pvcMutatingConfig:
+      name: dgxc-create-pvc-mwh
+      kind: {{ .Values.webhooks.pvcMutatingWebhook.kind }}
+      fqdn:  {{ .Values.webhooks.pvcMutatingWebhook.fqdn }}
+      path:  {{ .Values.webhooks.pvcMutatingWebhook.path }}
+      failurePolicy:  {{ .Values.webhooks.pvcMutatingWebhook.failurePolicy }}
+      timeoutSeconds:  {{ .Values.webhooks.pvcMutatingWebhook.timeoutSeconds }}
+      fqdn:  {{ .Values.webhooks.pvcMutatingWebhook.fqdn }}
+      sideEffects:  {{ .Values.webhooks.pvcMutatingWebhook.sideEffects | default "NoneOnDryRun" }}
+      admissionReviewVersions:
+      {{- range $i, $value := .Values.webhooks.pvcMutatingWebhook.admissionReviewVersions }}
+        - {{ $value }}
+      {{- end }}
+      rules:
+      {{- range $i, $value := .Values.webhooks.pvcMutatingWebhook.rules }}
+        - apiGroups:
+          {{- range $j, $value2 := $value.apiGroups }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          apiVersions:
+          {{- range $j, $value2 := $value.apiVersions }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          operations:
+          {{- range $j, $value2 := $value.operations }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          resources:
+          {{- range $j, $value2 := $value.resources }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          scope: {{ $value.scope | quote }}
+      {{- end }}
+      nsMatchLabels:
+      {{- range $i, $value := .Values.webhooks.pvcMutatingWebhook.namespaceLabelSelector }}
+        - key: {{ $value.key}}
+          values:
+          {{- range $j, $value2 := $value.values }}
+            - {{ $value2 | quote }}
+          {{- end }}
+      {{- end }}
+      objectMatchLabels:
+      {{- range $i, $value := .Values.webhooks.pvcMutatingWebhook.objectLabelSelector }}
+      - key: {{ $value.key}}
+        values:
+          {{- range $j, $value2 := $value.values }}
+          - {{ $value2 | quote }}
+          {{- end }}
+      {{- end }}
+
+    pvcMutatingSpec:
+      rules:
+      {{- range $i, $value := .Values.webhooks.pvcMutatingWebhook.customSettings }}
+      - storageClasses:
+        {{- range $j, $value2 := $value.storageClasses }}
+        - {{ $value2 | quote }}
+        {{- end }}
+        incrementAdjustmentEnabled: {{ $value.incrementCheckEnabled }}
+        incrementAdjustmentValue: {{ $value.incrementValue | quote }}
+        unitConversionEnabled: {{ $value.unitConversionEnabled }}
+        unitConversionFormat: {{ $value.unitConversionFormat }}
+        {{- if $value.minSizeValue }}
+        adjustedMinimumSize: {{ $value.minSizeValue | quote }}
+        {{- end }}
+      {{- end }}
+
+    pvcValidatingConfig:
+      name: dgxc-create-pvc-vwh
+      kind: {{ .Values.webhooks.pvcValidatingWebhook.kind }}
+      fqdn:  {{ .Values.webhooks.pvcValidatingWebhook.fqdn }}
+      path:  {{ .Values.webhooks.pvcValidatingWebhook.path }}
+      failurePolicy:  {{ .Values.webhooks.pvcValidatingWebhook.failurePolicy }}
+      timeoutSeconds:  {{ .Values.webhooks.pvcValidatingWebhook.timeoutSeconds }}
+      fqdn:  {{ .Values.webhooks.pvcValidatingWebhook.fqdn }}
+      sideEffects:  {{ .Values.webhooks.pvcValidatingWebhook.sideEffects | default "NoneOnDryRun" }}
+      admissionReviewVersions:
+      {{- range $i, $value := .Values.webhooks.pvcValidatingWebhook.admissionReviewVersions }}
+        - {{ $value }}
+      {{- end }}
+      rules:
+      {{- range $i, $value := .Values.webhooks.pvcValidatingWebhook.rules }}
+        - apiGroups:
+          {{- range $j, $value2 := $value.apiGroups }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          apiVersions:
+          {{- range $j, $value2 := $value.apiVersions }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          operations:
+          {{- range $j, $value2 := $value.operations }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          resources:
+          {{- range $j, $value2 := $value.resources }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          scope: {{ $value.scope | quote }}
+      {{- end }}
+      nsMatchLabels:
+        {{- range $i, $value := .Values.webhooks.pvcValidatingWebhook.namespaceLabelSelector }}
+        - key: {{ $value.key}}
+          values:
+            {{- range $j, $value2 := $value.values }}
+            - {{ $value2 | quote }}
+            {{- end }}
+        {{- end }}
+      objectMatchLabels:
+      {{- range $i, $value := .Values.webhooks.pvcValidatingWebhook.objectLabelSelector }}
+      - key: {{ $value.key}}
+        values:
+          {{- range $j, $value2 := $value.values }}
+          - {{ $value2 | quote }}
+          {{- end }}
+      {{- end }}
+
+    pvcValidatingSpec:
+      rules:
+        {{- range $i, $value := .Values.webhooks.pvcValidatingWebhook.customSettings }}
+        - name: {{ $value.name }}
+          storageClasses:
+          {{- range $j, $value2 := $value.storageClasses }}
+          - {{ $value2 | quote }}
+          {{- end }}
+          minsizeCheckEnabled: {{ $value.minSizeCheckEnabled }}
+          minsizeValue: {{ $value.minSizeValue | quote }}
+          maxsizeCheckEnabled: {{ $value.maxSizeCheckEnabled }}
+          maxsizeValue: {{ $value.maxSizeValue | quote }}
+        {{- end }}
+    
+    {{- if .Values.nvStorage.enabled }}
+    nvslValidatingConfig:
+      name: dgxc-create-nvsl-vwh
+      kind: {{ .Values.webhooks.nvslValidatingWebhook.kind }}
+      fqdn:  {{ .Values.webhooks.nvslValidatingWebhook.fqdn }}
+      path:  {{ .Values.webhooks.nvslValidatingWebhook.path }}
+      failurePolicy:  {{ .Values.webhooks.nvslValidatingWebhook.failurePolicy }}
+      timeoutSeconds:  {{ .Values.webhooks.nvslValidatingWebhook.timeoutSeconds }}
+      fqdn:  {{ .Values.webhooks.nvslValidatingWebhook.fqdn }}
+      sideEffects:  {{ .Values.webhooks.nvslValidatingWebhook.sideEffects | default "NoneOnDryRun" }}
+      admissionReviewVersions:
+      {{- range $i, $value := .Values.webhooks.nvslValidatingWebhook.admissionReviewVersions }}
+        - {{ $value }}
+      {{- end }}
+      rules:
+      {{- range $i, $value := .Values.webhooks.nvslValidatingWebhook.rules }}
+        - apiGroups:
+          {{- range $j, $value2 := $value.apiGroups }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          apiVersions:
+          {{- range $j, $value2 := $value.apiVersions }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          operations:
+          {{- range $j, $value2 := $value.operations }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          resources:
+          {{- range $j, $value2 := $value.resources }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          scope: {{ $value.scope | quote }}
+      {{- end }}
+      nsMatchLabels:
+        {{- range $i, $value := .Values.webhooks.nvslValidatingWebhook.namespaceLabelSelector }}
+        - key: {{ $value.key}}
+          values:
+            {{- range $j, $value2 := $value.values }}
+            - {{ $value2 | quote }}
+            {{- end }}
+        {{- end }}
+
+    nvslValidatingSpec:
+      {{- if and (hasKey .Values.webhooks.nvslValidatingWebhook "customSettings") (hasKey .Values.webhooks.nvslValidatingWebhook.customSettings "nvslMountOptionRules") }}
+      nvslMountOptionRules:
+        {{- range $i, $value := .Values.webhooks.nvslValidatingWebhook.customSettings.nvslMountOptionRules }}
+        - cloudProvider: {{ $value.cloudProvider }}
+          allowedMountOptions:
+          {{- range $j, $value2 := $value.allowedMountOptions }}
+          - {{ $value2 | quote }}
+          {{- end }}
+          disallowedMountOptions:
+          {{- range $j, $value2 := $value.disallowedMountOptions }}
+          - {{ $value2 | quote }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+
+    {{- if .Values.nvStorage.pvcReplicatorMutatingWebhookEnabled }}
+    multiNamespacePvcMutatingConfig:
+      name: dgxc-create-multi-namespace-pvc-mwh
+      kind: {{ .Values.webhooks.multiNamespacePvcMutatingWebhook.kind }}
+      fqdn:  {{ .Values.webhooks.multiNamespacePvcMutatingWebhook.fqdn }}
+      path:  {{ .Values.webhooks.multiNamespacePvcMutatingWebhook.path }}
+      failurePolicy:  {{ .Values.webhooks.multiNamespacePvcMutatingWebhook.failurePolicy }}
+      timeoutSeconds:  {{ .Values.webhooks.multiNamespacePvcMutatingWebhook.timeoutSeconds }}
+      fqdn:  {{ .Values.webhooks.multiNamespacePvcMutatingWebhook.fqdn }}
+      sideEffects:  {{ .Values.webhooks.multiNamespacePvcMutatingWebhook.sideEffects | default "NoneOnDryRun" }}
+      admissionReviewVersions:
+      {{- range $i, $value := .Values.webhooks.multiNamespacePvcMutatingWebhook.admissionReviewVersions }}
+        - {{ $value }}
+      {{- end }}
+      rules:
+      {{- range $i, $value := .Values.webhooks.multiNamespacePvcMutatingWebhook.rules }}
+        - apiGroups:
+          {{- range $j, $value2 := $value.apiGroups }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          apiVersions:
+          {{- range $j, $value2 := $value.apiVersions }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          operations:
+          {{- range $j, $value2 := $value.operations }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          resources:
+          {{- range $j, $value2 := $value.resources }}
+            - {{ $value2 | quote }}
+          {{- end }}
+          scope: {{ $value.scope | quote }}
+      {{- end }}
+      nsMatchLabels:
+      {{- range $i, $value := .Values.webhooks.multiNamespacePvcMutatingWebhook.namespaceLabelSelector }}
+        - key: {{ $value.key}}
+          values:
+          {{- range $j, $value2 := $value.values }}
+            - {{ $value2 | quote }}
+          {{- end }}
+      {{- end }}
+      objectMatchLabels:
+      {{- range $i, $value := .Values.webhooks.multiNamespacePvcMutatingWebhook.objectLabelSelector }}
+      - key: {{ $value.key}}
+        values:
+          {{- range $j, $value2 := $value.values }}
+          - {{ $value2 | quote }}
+          {{- end }}
+      {{- end }}
+    {{- end }}
+
+    systemNamespaceNames:
+    {{- range .Values.clusterScopedKinds }}
+    {{- if eq .kind "Namespace" }}
+    {{- range .systemResources}}
+    - {{ . | quote }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+{{ end }}

@@ -1,0 +1,13 @@
+{{ if .Values.enabledComponents.dgxcRunaiController }}
+{{- if .Values.controllerServiceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.controllerServiceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+  {{- if .Values.controllerServiceAccount.annotations }}
+  annotations:
+    {{ toYaml .Values.controllerServiceAccount.annotations }}
+  {{- end }}
+{{ end }}
+{{ end }}

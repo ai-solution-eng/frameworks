@@ -1,0 +1,6 @@
+{{- if .Values.enableDGXCAPIBootstrap }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dgxc-tenant-cluster-policies
+{{- end }}

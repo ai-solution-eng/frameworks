@@ -1,0 +1,162 @@
+{{ if .Values.enabledComponents.dgxcRunaiController }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dgxc-runai-controller
+  namespace: {{ .Release.Namespace }}
+data:
+  config.yaml: |-
+    apiVersion: runai.dgxc.nvidia.com/v1
+    kind: Controller
+{{- if .Values.prober }}
+    prober:
+      intervalInSeconds: {{ .Values.prober.intervalInSeconds }}
+      timeoutInSeconds: {{ .Values.prober.timeoutInSeconds }}
+      endpoints:
+      {{- range .Values.prober.endpoints }}
+        - name: {{ .name }}
+          url: {{ .url }}
+      {{- end }}
+{{- end }}
+{{- if .Values.sso }}
+    cluster: {{ .Values.sso.cluster }}
+    sso:
+      controlPlaneDomain: {{ .Values.sso.controlPlaneDomain }}
+      realm: {{ .Values.sso.realm }}
+      pollIntervalSeconds: {{ .Values.sso.pollIntervalSeconds }}
+      pollAttempts: {{ .Values.sso.pollAttempts }}
+{{- end }}
+    tenantMetadata:
+      cluster: {{ .Values.tenantMetadata.cluster }}
+      platform: {{ .Values.tenantMetadata.platform }}
+      orgName: {{ .Values.tenantMetadata.orgName }}
+      tenantName: {{ .Values.tenantMetadata.tenantName }}
+      tenantType: {{ .Values.tenantMetadata.tenantType }}
+      startDate: {{ .Values.tenantMetadata.startDate }}
+      endDate: {{ .Values.tenantMetadata.endDate }}
+      CSP: {{ .Values.tenantMetadata.CSP }}
+      allocatedCapacityGPU: {{ .Values.tenantMetadata.allocatedCapacityGPU }}
+      allocatedCapacityCPU: {{ .Values.tenantMetadata.allocatedCapacityCPU }}
+      committedCapacityGPU: {{ .Values.tenantMetadata.committedCapacityGPU }}
+      committedCapacityCPU: {{ .Values.tenantMetadata.committedCapacityCPU }}
+      CSPProject: {{ .Values.tenantMetadata.CSPProject }}
+      dataCenterRegion: {{ .Values.tenantMetadata.dataCenterRegion }}
+      storageType: {{ .Values.tenantMetadata.storageType }}
+      storageQuota: {{ .Values.tenantMetadata.storageQuota }}
+{{- if .Values.initSettings }}
+    appID: {{ .Values.initSettings.appID }}
+    tenant: {{ .Values.initSettings.tenant }}
+    controlPlane: {{ .Values.initSettings.controlPlane }}
+    initSettings:
+      supportEmailAddress: {{ .Values.initSettings.supportEmailAddress }}
+      customerEmailAddress: {{ .Values.initSettings.customerEmailAddress }}
+      bootstrapEmailAddress: {{ .Values.initSettings.bootstrapEmailAddress }}
+{{- end }}
+    dgxcAdmins:
+    {{- range .Values.dgxcAdmins }}
+      - {{ . }}
+    {{- end }}
+    tenantSubjects:
+    {{- range .Values.tenantSubjects.User }}
+      - {{ . }}
+    {{- end }}
+    reservedCPU: {{ .Values.reserved.CPU }}
+    reservedMemory: {{ .Values.reserved.Memory }}
+    maxCPUJobs: {{ .Values.maxCPUJobs }}
+    cloudProviderSpec:
+      includeOriginValuesInFileShare: {{ .Values.cloudProviderSpec.includeOriginValuesInFileShare | default false}}
+      type: {{ .Values.cloudProviderSpec.type }}
+{{- if eq .Values.cloudProviderSpec.type "gcp" }}
+      gcp:
+        projectId: {{ .Values.cloudProviderSpec.gcp.projectId }}
+        projectNumber: {{ .Values.cloudProviderSpec.gcp.projectNumber | int64 }}
+        securityPolicyRuleName: {{ .Values.cloudProviderSpec.gcp.securityPolicyRuleName }}
+        region: {{ .Values.cloudProviderSpec.gcp.region }}
+{{- else if eq .Values.cloudProviderSpec.type "aws" }}
+      aws:
+        accountName: {{ .Values.cloudProviderSpec.aws.accountName }}
+        clusterName: {{ .Values.cloudProviderSpec.aws.clusterName }}
+        region: {{ .Values.cloudProviderSpec.aws.region }}
+        securityGroupARN: {{ .Values.cloudProviderSpec.aws.securityGroupARN }}
+        statefulRuleGroupName: {{ .Values.cloudProviderSpec.aws.statefulRuleGroupName }}
+{{- else if eq .Values.cloudProviderSpec.type "oci" }}
+      oci:
+        compartmentID: {{ .Values.cloudProviderSpec.oci.compartmentID }}
+        clusterID: {{ .Values.cloudProviderSpec.oci.clusterID }}
+        fssAvailabilityDomain: "{{ .Values.cloudProviderSpec.oci.fssAvailabilityDomain }}"
+        publicSubnetFirewallID: "{{ .Values.cloudProviderSpec.oci.publicSubnetFirewallID }}"
+        privateSubnetFirewallID: "{{ .Values.cloudProviderSpec.oci.privateSubnetFirewallID }}"
+        baseFirewallPolicyID: "{{ .Values.cloudProviderSpec.oci.baseFirewallPolicyID }}"
+{{- else if eq .Values.cloudProviderSpec.type "azure" }}
+      azure:
+        subscriptionId: {{ .Values.cloudProviderSpec.azure.subscriptionId }}
+        resourceGroupName: {{ .Values.cloudProviderSpec.azure.resourceGroupName }}
+        ingressNsgName: {{ .Values.cloudProviderSpec.azure.ingressNsgName }}
+        egressNsgName: {{ .Values.cloudProviderSpec.azure.egressNsgName }}
+        standardStorageAccountName: {{ .Values.cloudProviderSpec.azure.standardStorageAccountName }}
+        premiumStorageAccountName: {{ .Values.cloudProviderSpec.azure.premiumStorageAccountName }}
+        logExporterAnalyticsWorkspaceId: {{ .Values.cloudProviderSpec.azure.logExporterAnalyticsWorkspaceId }}
+{{- end }}
+    logExporterControllerSpec:
+      enabled: {{ .Values.logExporterControllerSpec.enabled }}
+      exportFrequency: {{ .Values.logExporterControllerSpec.exportFrequency }}
+      exportBuffer: {{ .Values.logExporterControllerSpec.exportBuffer }}
+      fetchTimeout: {{ .Values.logExporterControllerSpec.fetchTimeout }}
+      systemResources:
+        {{- range $i, $csk := .Values.clusterScopedKinds }}
+        {{- $group := $csk.apiGroup | default "core" -}}
+        {{- range $j, $kind := $csk.resources }}
+        {{- range $csk.systemResources}}
+        {{- if and (eq $kind "namespaces") (eq . "dgxc-tenant-cluster-policies") | not }}
+        - {{ print $group "/" $kind "/" . | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+    networkControllerSpec:
+      enabled: {{ .Values.networkControllerSpec.enabled }}
+      defaultIngressCIDRs:
+      {{- .Values.bootstrapIngressCIDR | toYaml | nindent 6 }}
+{{- if eq .Values.cloudProviderSpec.type "gcp" }}
+    storageControllerSpec:
+      enabled: {{ .Values.storageControllerSpecGCP.enabled }}
+      defaultCustomerPVReclaimPolicy: {{ .Values.storageControllerSpecGCP.defaultCustomerPVReclaimPolicy | default "Retain" }}
+      defaultStorageTypes:
+      {{- .Values.storageControllerSpecGCP.defaultStorageTypes | toYaml | nindent 6 }}
+{{- else if eq .Values.cloudProviderSpec.type "aws" }}
+    storageControllerSpec:
+      enabled: {{ .Values.storageControllerSpecAWS.enabled }}
+      defaultCustomerPVReclaimPolicy: {{ .Values.storageControllerSpecAWS.defaultCustomerPVReclaimPolicy | default "Retain" }}
+      defaultStorageTypes:
+      {{- .Values.storageControllerSpecAWS.defaultStorageTypes | toYaml | nindent 6 }}
+{{- else if eq .Values.cloudProviderSpec.type "oci" }}
+    storageControllerSpec:
+      enabled: {{ .Values.storageControllerSpecOCI.enabled }}
+      defaultCustomerPVReclaimPolicy: {{ .Values.storageControllerSpecOCI.defaultCustomerPVReclaimPolicy | default "Retain" }}
+      defaultStorageTypes:
+      {{- .Values.storageControllerSpecOCI.defaultStorageTypes | toYaml | nindent 6 }}
+{{- else if eq .Values.cloudProviderSpec.type "azure" }}
+    storageControllerSpec:
+      enabled: {{ .Values.storageControllerSpecAzure.enabled }}
+      defaultCustomerPVReclaimPolicy: {{ .Values.storageControllerSpecAzure.defaultCustomerPVReclaimPolicy | default "Retain" }}
+      defaultStorageTypes:
+      {{- .Values.storageControllerSpecAzure.defaultStorageTypes | toYaml | nindent 6 }}
+{{- end }}
+    nvStorageControllerSpec:
+      enabled: {{ .Values.nvStorage.enabled }}
+      storageClass: {{ .Values.nvStorage.storageClass }}
+      {{- if .Values.nvStorage.platform }}
+      platform:
+        provider: {{ .Values.nvStorage.platform.provider }}
+        clusterName: {{ .Values.nvStorage.platform.clusterName }}
+        config:
+        {{- .Values.nvStorage.platform.config | toYaml | nindent 10 }}
+      {{- end }}
+      {{- if .Values.nvStorage.csi }}
+      csi:
+        driver: {{ .Values.nvStorage.csi.driver }}
+        volumeAttributes:
+        {{- .Values.nvStorage.csi.volumeAttributes | toYaml | nindent 10 }}
+      {{- end}}
+
+{{ end}}
