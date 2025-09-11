@@ -1,0 +1,21 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "nemo-deployment-management-service.fullname" . }}
+  labels:
+    release: prometheus
+    {{- include "nemo-deployment-management-service.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "nemo-deployment-management-service.labels" . | nindent 4 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.monitoring.interval }}
+      path: {{ .Values.monitoring.path }}
+      scheme: {{ .Values.monitoring.scheme }}
+{{- end }}

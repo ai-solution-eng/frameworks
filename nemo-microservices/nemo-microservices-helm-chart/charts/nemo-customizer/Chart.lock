@@ -1,0 +1,12 @@
+dependencies:
+- name: postgresql
+  repository: oci://dockerhub.nvidia.com/bitnamicharts
+  version: 13.3.1
+- name: opentelemetry-collector
+  repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+  version: 0.93.3
+- name: nemo-common
+  repository: file://../../../library/
+  version: 0.2.0
+digest: sha256:d0215924ea50c43a7a77649f7957c049a21b01b33c0d5670f6f254dabc40569c
+generated: "2025-08-06T16:13:57.561827926Z"
