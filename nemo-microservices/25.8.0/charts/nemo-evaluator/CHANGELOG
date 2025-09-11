@@ -1,0 +1,127 @@
+# CHANGELOG
+
+## v0.2.8 - 27 June 2025
+
+Bump up milvus chart version to bring fix for ARM based deployment.
+
+## v0.2.7 - 15 May 2025
+
+Removing legacy Similarity Metrics (eval-tool backed) evaluations.
+
+## v0.2.6 - 13 May 2025
+
+Removing legacy MTBench and LLM-as-a-Judge (evaltool-backed) evaluations with preference for LLM-as-a-Judge with custom evaluation.
+
+## v0.2.5 - 02 May 2025
+
+Adding BFCL and Agentic eval support 
+
+## v0.2.4 - 25 March 2025
+
+Updating LM Eval Harness image to 0.12.15 version with support for harness fewshot params.
+
+## v0.2.3 - 25 March 2025
+
+Updating mt_bench / llm_as_a_judge benchmark image to 0.12.15 version with high OSS vulnerabilities addressed.
+
+## v0.2.2 - 19 March 2025
+
+Updating benchmark images to 0.12.13 version with CVE-2025-0395 and CVE-2024-8176 addressed.
+
+## v0.2.1 - 14 March 2025
+
+Updating benchmark images to 0.12.11 version.
+
+## v0.1.22 - 20 February 2025
+
+Changing benchmark image env vars to uppercase
+Changing DATA_STORE_HOST to DATA_STORE_URL env var for the evaluator container
+Adding ENTITY_STORE_URL and NIM_PROXY_URL env vars and default values
+
+## v0.1.21 - 15 February 2025
+
+Adding a value for MTBench container image
+
+## v0.1.20 - 14 February 2025
+
+Introducing config map which contains images for various evaluation types
+
+## v0.1.19 - 3 December 2024
+
+Removing MongoDB completely
+
+## v0.1.18 - 25 November 2024
+
+Updating storage classes to empty explicitly
+
+## v0.1.17 - 12 November 2024
+
+Removing setting of obsolete INFERENCE_URL env var and value
+
+## v0.1.16 - 29 October 2024
+
+Adding MongoDB parameters to the DB migration init container for data migration script
+
+## v0.1.15 - 29 October 2024
+
+Adding init container with DB Migration tool
+
+## v0.1.14 - 10 October 2024
+Adding pod permissions to nemo-evaluator service account
+
+## v0.1.13 - 27 September 2024
+
+Adding Postgres database to the Helm chart.
+Updating prefixes in helpers templates.
+
+## v0.1.12 - 9 September 2024
+
+Fixing OpenTelemetry collector default values and configuration
+
+## v0.1.11 - 22 August 2024
+
+Adding Milvus for retriever pipelines evaluation
+
+## v0.1.10 - 15 August 2024
+
+Abstracting OTel configurations
+
+## v0.1.9 - 7 August 2024
+
+Removing development environment values
+
+## v0.1.8 - 9 July 2024
+
+Overriding name for argo-workflows according to naming conventions
+
+## v0.1.7 - 26 June 2024
+
+Minor values modifications for compliance with the parent Helm chart
+
+## v0.1.6 - 26 June 2024
+
+Update README.md for NIM 24.05 API.
+
+## v0.1.5 - 22 May 2024
+
+Enabling tracing, logging and metrics via OpenTelemetry
+
+## v0.1.4 - 6 May 2024
+
+MongoDB persistence enabled by default (via persistence volume claim within mongodb chart)
+
+## v0.1.3 - 15 April 2024
+
+OpenTelemetry (tracing) added
+
+## v0.1.2 - 13 March 2024
+
+Eval tool validation enabled
+
+## v0.1.1 - 13 March 2024
+
+Service account role updated
+
+## v0.1.0 - 7 March 2024
+
+Initial setup for EA participants

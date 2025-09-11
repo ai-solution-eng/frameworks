@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eval-factory-init-container-template
+data:
+  init-container.yaml: |
+    name: dataset-download-container
+    image: {{ include "nemo-common.mainimage" . | quote }}
+    command: download-dataset-placeholder-command
+    env:
+      - name: NAMESPACE
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.namespace            
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.name
+      - name: CONTAINER_NAME
+        value: "dataset-download-container"
+      - name: DATA_STORE_URL
+        value: "{{ .Values.external.dataStore.endpoint }}"
+      - name: DATA_STORE_TOKEN
+        value: ""
+    volumeMounts:
+      - name: jobs-storage
+        mountPath: /jobs

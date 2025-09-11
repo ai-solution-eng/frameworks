@@ -1,0 +1,299 @@
+{{- if .Values.enableNetworkPolicies }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kyverno:watch-update-services
+  labels:
+    app.kubernetes.io/component: background-controller
+    app.kubernetes.io/instance: kyverno
+    app.kubernetes.io/part-of: kyverno
+rules:
+  - apiGroups:
+    - ""
+    resources:
+    - services
+    verbs: ["get", "watch", "list", "patch", "update"]
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-runai-cluster-redis-networkpolicy
+spec:
+  generateExisting: true
+  rules:
+    - generate:
+        apiVersion: networking.k8s.io/v1
+        data:
+          metadata:
+            labels:
+              dgxc/generated: "true"
+          spec:
+            ingress:
+            - from:
+              - namespaceSelector:
+                  matchExpressions:
+                  - key: runai/queue
+                    operator: Exists
+                  podSelector:
+                    matchLabels:
+                      run.ai/control-plane-managed: "true"
+                ports:
+                - port: 6379
+                  protocol: TCP
+            podSelector:
+              matchLabels:
+                app: cluster-redis
+            policyTypes:
+            - Ingress
+        kind: NetworkPolicy
+        name: allow-runai-cluster-redis-ingress
+        namespace: "{{`{{request.object.metadata.name}}`}}"
+        synchronize: true
+      match:
+        any:
+        - resources:
+            kinds:
+            - Namespace
+            selector:
+              matchLabels:
+                kubernetes.io/metadata.name: "runai"
+      name: allow-runai-cluster-redis-ingress
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-networkpolicy-allow-system-ingress
+spec:
+  generateExisting: true
+  rules:
+  {{- if and (.Values.cloudProviderSpec) (eq .Values.cloudProviderSpec.type "oci") }}
+  - name: allow-system-ingress-via-ciliumnetworkpolicy
+    match:
+      any:
+      - resources:
+          kinds:
+          - Namespace
+          selector:
+            matchLabels:
+              dgxc/system-managed: "true"
+    generate:
+      apiVersion: cilium.io/v2
+      kind: CiliumNetworkPolicy
+      name: allow-system-ingress
+      synchronize: true
+      namespace: "{{`{{request.object.metadata.name}}`}}"
+      data:
+        metadata:
+          labels:
+            dgxc/generated: "true"
+        spec:
+          endpointSelector: {}
+          ingress:
+          - fromEntities:
+            - remote-node
+  {{- end }}
+  - name: allow-system-ingress-via-clusterpolicy
+    match:
+      any:
+      - resources:
+          kinds:
+          - Namespace
+          selector:
+            matchLabels:
+              dgxc/system-managed: "true"
+    generate:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      name: allow-system-ingress
+      synchronize: true
+      namespace: "{{`{{request.object.metadata.name}}`}}"
+      data:
+        metadata:
+          labels:
+            dgxc/generated: "true"
+        spec:
+          podSelector: {}
+          policyTypes:
+          - Ingress
+          ingress:
+          - from:
+            {{- range .Values.network.systemCIDRs }}
+            - ipBlock:
+                cidr: {{ . | quote }}
+            {{- end }}
+            - namespaceSelector:
+                matchExpressions:
+                - key: dgxc/system-managed
+                  operator: In
+                  values: ["true"]
+  - name: default-deny-ingress-via-clusterpolicy
+    match:
+      any:
+      - resources:
+          kinds:
+          - Namespace
+          selector:
+            matchLabels:
+              dgxc/system-managed: "true"
+    generate:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      name: default-deny
+      namespace: "{{`{{request.object.metadata.name}}`}}"
+      synchronize: true
+      data:
+        metadata:
+          labels:
+            dgxc/generated: "true"
+        spec:
+          podSelector: {}
+          policyTypes:
+          - Ingress
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: manage-loadbalancer-networkpolicy
+spec:
+  generateExisting: true
+  rules:
+    - name: allow-internet-access-for-loadbalancer
+      match:
+        resources:
+          kinds:
+            - Service
+      preconditions:
+        any:
+          - key: "{{`{{request.object.spec.type}}`}}"
+            operator: Equals
+            value: "LoadBalancer"
+          - key: "{{`{{request.object.spec.type}}`}}"
+            operator: Equals
+            value: "NodePort"
+      generate:
+        kind: NetworkPolicy
+        name: allow-internet-access
+        apiVersion: networking.k8s.io/v1
+        namespace: "{{`{{request.object.metadata.namespace}}`}}"
+        synchronize: true
+        data:
+          metadata:
+            labels:
+              dgxc/generated: "true"
+          spec:
+            podSelector:
+              matchLabels: "{{`{{request.object.spec.selector}}`}}"
+            policyTypes:
+              - Ingress
+            ingress:
+              - {}
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: deny-metadata-access-policy
+  annotations:
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+spec:
+  generateExisting: true
+  rules:
+  - name: deny-metadata-access-rule
+    match:
+      any:
+      - resources:
+          kinds:
+          - Namespace
+    exclude:
+      any:
+        {{- range .Values.clusterScopedKinds }}
+        {{- if and (.systemResources) (gt (len .systemResources) 0) }}
+        {{- if eq .kind "Namespace" }}
+          - resources:
+              kinds: [ {{ .kind | quote }} ]
+              names:
+              {{- range .systemResources }}
+              - {{ . | quote }}
+              {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+    generate:
+      kind: NetworkPolicy
+      name: deny-metadata-access
+      apiVersion: networking.k8s.io/v1
+      namespace: "{{`{{request.object.metadata.name}}`}}"
+      synchronize: true
+      data:
+        metadata:
+          labels:
+            dgxc/generated: "true"
+        spec:
+          podSelector: {}
+          policyTypes:
+          - Egress
+          egress:
+          - to:
+            - ipBlock:
+                cidr: 0.0.0.0/0
+                except:
+                - 169.254.0.0/16
+            {{- if and (.Values.cloudProviderSpec) (or (eq .Values.cloudProviderSpec.type "gcp") (eq .Values.cloudProviderSpec.type "oci") (eq .Values.cloudProviderSpec.type "azure")) }}
+            - namespaceSelector: {}
+            - podSelector: {}
+            {{- end }}
+{{- if and (.Values.cloudProviderSpec) (eq .Values.cloudProviderSpec.type "aws")}}
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: deny-node-traffic
+spec:
+  generateExisting: true
+  rules:
+  - name: deny-node-traffic
+    match:
+      any:
+      - resources:
+          kinds:
+          - Namespace
+    exclude:
+      any:
+        {{- range .Values.clusterScopedKinds }}
+        {{- if and (.systemResources) (gt (len .systemResources) 0) }}
+        {{- if eq .kind "Namespace" }}
+          - resources:
+              kinds: [ {{ .kind | quote }} ]
+              names:
+              {{- range .systemResources }}
+              - {{ . | quote }}
+              {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+    context:
+    - name: nodesIPs
+      apiCall:
+        urlPath: "/api/v1/nodes"
+        jmesPath: |
+          map(&join('', [@, '/32']), items[].status[].addresses[?type=='InternalIP'].address | [])
+    generate:
+      synchronize: true
+      kind: NetworkPolicy
+      name: deny-node-access
+      apiVersion: networking.k8s.io/v1
+      namespace: "{{`{{request.object.metadata.name}}`}}"
+      data:
+        metadata:
+          labels:
+            dgxc/generated: "true"
+        spec:
+          podSelector: {}
+          policyTypes:
+          - Egress
+          egress:
+          - to:
+            - ipBlock:
+                cidr: 0.0.0.0/0
+                except: "{{`{{ nodesIPs }}`}}"
+{{- end }}
+{{- end }}

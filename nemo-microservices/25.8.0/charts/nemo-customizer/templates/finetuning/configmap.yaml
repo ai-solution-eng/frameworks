@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ft.fullname" .}}-config
+data:
+    config.yaml: |-
+      namespace: {{ .Release.Namespace }}
+      entity_store_url: {{ .Values.customizerConfig.entityStoreURL | toYaml }}
+      nemo_data_store_url: {{ .Values.customizerConfig.nemoDataStoreURL | toYaml }}
+      mlflow_tracking_url: {{ .Values.customizerConfig.mlflowURL | toYaml }}
+
+      wandb:
+        entity: {{ .Values.customizerConfig.wandb.entity | toYaml }}
+        project: {{ .Values.customizerConfig.wandb.project | default "nvidia-nemo-customizer" }}
+
+      training:
+        queue: "{{ .Values.customizerConfig.training.queue }}"
+        image: "{{ include "nemo-common.mainimage" . }}"
+        imagePullSecrets:
+          {{ include "nemo-common.imagepullsecrets" . | nindent 10 | trim }}
+        pvc:
+          storageClass: {{ .Values.customizerConfig.training.pvc.storageClass }}
+          size: {{ .Values.customizerConfig.training.pvc.size }}
+          volumeAccessMode: {{ .Values.customizerConfig.training.pvc.volumeAccessMode }}
+          name: {{ .Values.customizerConfig.training.pvc.name | toYaml }}
+        env:
+          - name: LOG_LEVEL
+            value: {{ .Values.logging.logLevel }}
+          {{- with .Values.customizerConfig.training.container_defaults.env }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+
+        workspace_dir: {{ .Values.customizerConfig.training.workspace_dir }}
+        # volumes reference pre-existing PVCs
+        volumes:
+          # Model cache PVC
+          - name: models
+            persistentVolumeClaim:
+              claimName: finetuning-ms-models-pvc
+              readOnly: True
+          - name: dshm
+            emptyDir:
+              medium: Memory
+        volumeMounts:
+          - name: models
+            mountPath: "/mount/models"
+            readOnly: True
+          - name: dshm
+            mountPath: "/dev/shm"
+
+        # Network configuration for multi node training specific to CSP
+        training_networking:
+          {{- range $v := .Values.customizerConfig.trainingNetworking }}
+          - name: {{ $v.name | quote }}
+            value: {{ $v.value }}
+          {{- end}}
+
+        {{- if .Values.customizerConfig.training.poll_interval_seconds }}
+        poll_interval_seconds: {{ .Values.customizerConfig.training.poll_interval_seconds }}
+        {{- end }}
+
+        {{- if .Values.customizerConfig.training.ttl_seconds_after_finished }}
+        ttl_seconds_after_finished: {{ .Values.customizerConfig.training.ttl_seconds_after_finished }}
+        {{- end }}
+
+        {{- if .Values.customizerConfig.training.training_timeout }}
+        training_timeout: {{ .Values.customizerConfig.training.training_timeout }}
+        {{- end }}
+
+        tolerations:
+          {{- toYaml .Values.customizerConfig.tolerations | nindent 12 }}
+        nodeSelectors:
+          {{- toYaml .Values.customizerConfig.nodeSelectors | nindent 12 }}
+
+        container_defaults:
+          {{- toYaml .Values.customizerConfig.training.container_defaults | nindent 12 }}
+
+        use_run_ai_executor: {{ default .Values.useRunAIExecutor false }}
+
+      model_download_jobs:
+        image: "{{ .Values.apiImage.registry }}/{{ .Values.apiImage.repository }}:{{ default .Chart.AppVersion .Values.apiImage.tag }}"
+        imagePullPolicy: {{ default "IfNotPresent" .Values.apiImage.imagePullPolicy }}
+        imagePullSecrets:
+          {{ include "nemo-common.imagepullsecrets" . | nindent 10 | trim }}
+        ngcSecretName: {{ .Values.ngcAPISecret }}
+        ngcSecretKey: {{ .Values.ngcAPISecretKey }}
+        hfSecretName: {{ .Values.hfAPISecret | toYaml }}
+        hfSecretKey: {{ .Values.hfAPISecretKey | toYaml }}
+        securityContext:
+          {{- toYaml .Values.modelDownloader.securityContext | nindent 12 }}
+        ttlSecondsAfterFinished: {{ .Values.modelDownloader.ttlSecondsAfterFinished }}
+
+      nemo_data_store_tools:
+        image: {{ .Values.nemoDataStoreTools.registry }}/{{ .Values.nemoDataStoreTools.repository }}:{{ default .Chart.AppVersion .Values.nemoDataStoreTools.tag }}
+        imagePullSecret: {{ .Values.nemoDataStoreTools.imagePullSecret }}
+
+      customizationTargets:
+        {{- toYaml .Values.customizationTargets | nindent 12 }}
+
+      customizationConfigTemplates:
+        {{- toYaml .Values.customizationConfigTemplates | nindent 12 }}

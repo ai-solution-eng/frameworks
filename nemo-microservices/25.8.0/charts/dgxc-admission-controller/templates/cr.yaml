@@ -1,0 +1,13 @@
+{{ if .Values.enabledComponents.dgxcAdmissionController }}
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Values.dgxcController.name }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "secrets", "configmaps", "persistentvolumeclaims", "storageclass"]
+    verbs: ["*"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    verbs: ["*"]
+{{ end }}

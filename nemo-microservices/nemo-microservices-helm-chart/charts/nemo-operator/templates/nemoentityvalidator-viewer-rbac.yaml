@@ -1,0 +1,21 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "nemo-kubernetes-operator.fullname" . }}-nemoentityvalidator-viewer-role
+  labels:
+  {{- include "nemo-kubernetes-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - nvidia.com
+  resources:
+  - nemoentityvalidators
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - nvidia.com
+  resources:
+  - nemoentityvalidators/status
+  verbs:
+  - get

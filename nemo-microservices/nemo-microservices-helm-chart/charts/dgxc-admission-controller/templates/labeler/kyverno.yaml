@@ -1,0 +1,102 @@
+{{- if .Values.enableLabeler }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kyverno:watch-update-namespaces
+  labels:
+    app.kubernetes.io/component: background-controller
+    app.kubernetes.io/instance: kyverno
+    app.kubernetes.io/part-of: kyverno
+rules:
+  - apiGroups:
+    - ""
+    resources:
+      - namespaces
+    verbs: ["get", "watch", "list", "patch", "update"]
+---
+# label system namespaces with dgxc/system-managed: "true"
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: dgxc-label-system-resources
+  labels:
+    dgxc/system-managed: "true"
+spec:
+  mutateExistingOnPolicyUpdate: true
+  rules:
+  - name: label-cluster-scoped-system-resources
+    mutate:
+      targets:
+        - apiVersion: "{{`{{request.object.apiVersion}}`}}"
+          kind: "{{`{{request.object.kind}}`}}"
+          name: "{{`{{request.object.metadata.name}}`}}"
+      patchStrategicMerge:
+        metadata:
+          labels:
+            "dgxc/system-managed": "true"
+    match:
+      any:
+    {{- range .Values.clusterScopedKinds }}
+    {{- if and (.systemResources) (gt (len .systemResources) 0) }}
+    {{- if eq .kind "Namespace" }}
+      - resources:
+          kinds: [ {{ .kind | quote }} ]
+          names:
+          {{- range .systemResources }}
+          - {{ . | quote }}
+          {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: dgxc-copy-node-group-to-node-role
+spec:
+  rules:
+    - name: cleanup-node-roles
+      match:
+        any:
+        - resources:
+            kinds:
+            - Node
+      context:
+      - name: nodeGroup
+        variable:
+          jmesPath: request.object.metadata.labels.nodeGroup
+          default: ""
+      mutate:
+        foreach:
+        - list: keys(request.object.metadata.labels)[?starts_with(@, 'node-role.kubernetes.io')]
+          patchesJson6902: |-
+            - op: remove
+              path: "/metadata/labels/{{`{{ replace_all('{{ element }}', '/', '~1') }}`}}"
+          preconditions:
+            all:
+            - key: "{{`{{ element }}`}}"
+              operator: NotEquals
+              value: "{{`{{ nodeGroup }}`}}"
+    - name: copy-node-role
+      match:
+        any:
+        - resources:
+            kinds:
+            - Node
+      context:
+      - name: nodeGroup
+        variable:
+          jmesPath: request.object.metadata.labels.nodeGroup
+          default: ""
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              node-role.kubernetes.io/{{`{{ nodeGroup }}`}}: ""
+      preconditions:
+        all:
+        - key: "{{`{{ nodeGroup }}`}}"
+          operator: NotEquals
+          value: ""
+---
+{{- end }}

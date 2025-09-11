@@ -1,0 +1,106 @@
+---
+kubernetesAffinity:
+  enabled: true
+  # we will make an effort to not take up valuable GPU resources
+  # so try and run on a CPU node that is not reserved for the Kubernetes Master.
+
+  # matchExpressions:
+  #- key: "node-role.kubernetes.io/fss-workload"
+  #  operator: Exists
+  # matchExpressions:
+  #- key: "kubernetes.io/role"
+  #  operator: In
+  #  values: ["fss-workload"]
+  #
+  # The below configurationa replaces the match expressions.
+  # The default setting is the handle legacy clusters without the above
+  # matching updated label.
+  antiAffinityKey: cloud.google.com/gke-gpu
+  antiAffinityValue: true
+  # The below is used for pod anti-affinity to ensure pods are running on
+  # different nodes
+  topologyKey: kubernetes.io/hostname
+  # Run on Masters should remain false unless there is a very specific need
+  # (ie. if you have been given a minimal dev cluster, with _only_ masters)
+  runOnMasters: false
+systemTolerationKeyName: components.gke.io/gke-managed-components
+systemTolerationValueName: "true"
+
+tolerations:
+  customer:
+    key: "dedicated"
+    value: "user-workload"
+  system:
+    key: "components.gke.io/gke-managed-components"
+    value: "true"
+  gpu:
+    key: "nvidia.com/gpu"
+    value: "present"
+
+cloudProviderSpec:
+  type: gcp
+  gcp:
+    projectId: proj-dgxc-runai-np-dev-mega
+    projectNumber: 574718269555
+    securityPolicyRuleName: dgxc-runai-us-east5-ngc-00546849-system-lb-backend-policy
+    region: us-east5
+
+storageControllerSpecGCP:
+  enabled: false
+  defaultStorageTypes:
+  - apiVersion: runai.dgxc.nvidia.com/v1beta1
+    kind: RunaiDGXCStorage
+    metadata:
+      name: "filestore-enterprise"
+      namespace: dgxc-tenant-cluster-policies
+    spec:
+      quotaID: "EnterpriseStorageGibPerRegion"
+    status:
+      altNames: [ "enterprise" ]
+      storageClasses:
+      - enterprise-multishare-rwx
+      - enterprise-rwx
+      storageClassesDisplayString: "enterprise-multishare-rwx,enterprise-rwx"
+      docs: https://cloud.google.com/filestore/docs/service-tiers
+  - apiVersion: runai.dgxc.nvidia.com/v1beta1
+    kind: RunaiDGXCStorage
+    metadata:
+      name: "filestore-premium"
+      namespace: dgxc-tenant-cluster-policies
+    spec:
+      quotaID: "PremiumStorageGbPerRegion"
+    status:
+      altNames: [ "premium" ]
+      storageClasses:
+      - premium-rwo
+      - premium-rwx
+      storageClassesDisplayString: "premium-rwo,premium-rwx"
+      docs: https://cloud.google.com/filestore/docs/service-tiers
+  - apiVersion: runai.dgxc.nvidia.com/v1beta1
+    kind: RunaiDGXCStorage
+    metadata:
+      name: "filestore-standard"
+      namespace: dgxc-tenant-cluster-policies
+    spec:
+      quotaID: "StandardStorageGbPerRegion"
+    status:
+      altNames: [ "filestore-standard" ]
+      storageClasses:
+      - standard
+      - standard-rwo
+      - standard-rwx
+      storageClassesDisplayString: "standard,standard-rwo,standard-rwx"
+      docs: https://cloud.google.com/filestore/docs/service-tiers
+  - apiVersion: runai.dgxc.nvidia.com/v1beta1
+    kind: RunaiDGXCStorage
+    metadata:
+      name: "filestore-high-scale"
+      namespace: dgxc-tenant-cluster-policies
+    spec:
+      quotaID: "HighScaleSSDStorageGibPerRegion"
+    status:
+      altNames: [ "zonal" ]
+      storageClasses:
+      - zonal-rwx
+      storageClassesDisplayString: "zonal-rwx"
+      docs: https://cloud.google.com/filestore/docs/service-tiers

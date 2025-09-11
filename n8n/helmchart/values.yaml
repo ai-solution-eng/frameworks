@@ -1,0 +1,52 @@
+replicaCount: 1
+
+image:
+  repository: n8nio/n8n
+  tag: latest
+  pullPolicy: Always
+
+resources:
+  requests:
+    memory: "1Gi"
+    cpu: "500m"
+  limits:
+    memory: "2Gi"
+    cpu: "1000m"
+
+ezua:
+  virtualService:
+    endpoint: "n8n.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+
+n8n:
+  # Basic configuration
+  basicAuth:
+    user: "admin"
+    password: "changeme"
+  
+  # Database configuration (using SQLite by default, can be changed to PostgreSQL)
+  database:
+    type: "sqlite"
+    # For PostgreSQL:
+    # type: "postgres"
+    # host: "postgresql"
+    # port: 5432
+    # name: "n8n"
+    # user: "n8n"
+    # password: "n8n-password"
+  
+  # Webhook and editor URLs
+  webhookUrl: "https://n8n.${DOMAIN_NAME}/"
+  editorBaseUrl: "https://n8n.${DOMAIN_NAME}/"
+  
+  # Timezone
+  timezone: "Europe/Berlin"  # CET timezone
+  
+  # Security (required - n8n won't start without this)
+  encryptionKey: "demo-encryption-key-12345"  # Change for production
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce

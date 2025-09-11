@@ -1,0 +1,68 @@
+{{ if .Values.enabledComponents.dgxcRunaiController }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "dgxc-runai-controller"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: "dgxc-runai-controller"
+    helm.sh/chart: {{ include "dgxcController.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "dgxc-runai-controller"
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: "dgxc-runai-controller"
+        app.kubernetes.io/name: "dgxc-runai-controller"
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with .Values.extraControllerPodLabels }}
+        {{ toYaml . }}
+        {{- end }}
+    spec:
+      serviceAccountName: dgxc-runai-controller
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecret | required ".Values.imagePullSecret" }}
+      containers:
+        - name: controller
+          image: {{ .Values.dgxcController.image | required "dgxcController.image is required." | quote }}
+          args:
+            - controller
+            - --zap-log-level=debug
+          imagePullPolicy: Always
+          {{- if eq .Values.cloudProviderSpec.type "oci" }}
+          env:
+          - name: OCI_RESOURCE_PRINCIPAL_VERSION
+            value: {{ .Values.cloudProviderSpec.oci.resourcePrincipalVersion | quote }}
+          - name: OCI_RESOURCE_PRINCIPAL_REGION
+            value: {{ .Values.cloudProviderSpec.oci.region }}
+          {{ end }}
+          ports:
+            - containerPort: 8080
+          {{- if and (hasKey .Values.nvStorage "platform") (eq  .Values.nvStorage.platform.provider "runai" )}}
+          volumeMounts:
+            - name: run-ai-secret
+              mountPath: {{ .Values.nvStorage.platform.config.secret_path | required "config.secret_path is required for runai setup" | quote }}
+              readOnly: true
+          {{- end }}
+      tolerations:
+      - effect: NoSchedule
+        key: "{{ .Values.systemTolerationKeyName }}"
+        operator: Equal
+        value: "{{ .Values.systemTolerationValueName }}"
+      - effect: NoExecute
+        key: "{{ .Values.systemTolerationKeyName }}"
+        operator: Equal
+        value: "{{ .Values.systemTolerationValueName }}"
+  {{- if and (hasKey .Values.nvStorage "platform") (eq  .Values.nvStorage.platform.provider "runai" )}}
+      volumes:
+        - name: run-ai-secret
+          secret:
+            secretName: run-ai-secret
+      {{- end}}
+  {{ end }}

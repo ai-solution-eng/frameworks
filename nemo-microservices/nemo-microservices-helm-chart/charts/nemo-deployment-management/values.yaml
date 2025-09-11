@@ -1,0 +1,188 @@
+# Default values for nemo-deployment-management-service.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# -- The number of replicas for the NeMo Deployment Management service.
+replicaCount: 1
+
+# -- Specifies a namespace to restrict the NeMo Deployment Management microservice to watch NIMs in. Leave it empty to watch all namespaces.
+nimNamespace: ""
+
+image:
+  # -- The repository of the NeMo Deployment Management container image.
+  repository: nvcr.io/nvidia/nemo-microservices/deployment-management
+  # -- The container image pull policy for the NeMo Deployment Management container.
+  pullPolicy: IfNotPresent
+  # -- The container image tag. If not set, the default value is `appVersion` from the `Chart.yaml` file.
+  tag: ""
+
+# -- (list) Image pull secrets for accessing the NGC container registry.
+imagePullSecrets:
+  - name: nvcrimagepullsecret
+# -- String to partially override name on resulting Kubernetes objects when the NeMo Deployment Management microservice is deployed.
+nameOverride: ""
+# -- String to fully override the name on resulting Kubernetes objects when the NeMo Deployment Management microservice is deployed.
+fullnameOverride: ""
+
+# -- Additional environment variables to pass to the NeMo Deployment Management microservice container. The format is `NAME: value` or `NAME: valueFrom: {object}`.
+env:
+  {}
+# -- Configures service account for RBAC for the NeMo Deployment Management microservice. Use the default setup, unless you understand what changes in RBAC settings you want to apply to the service.
+serviceAccount:
+  # -- Whether to create a service account for the NeMo Deployment Management microservice. This is for setting RBAC up.
+  create: true
+  # -- Automatically mount a ServiceAccount's API credentials.
+  automount: true
+  # -- Annotations to add to the service account.
+  annotations: {}
+  # -- The name of the service account to use. If not set and create is true, a name is generated using the fullname template.
+  name: ""
+
+# -- Pod annotations.
+podAnnotations: {}
+# -- Pod labels.
+podLabels: {}
+
+# -- Pod security context settings. Use the default settings, unless you understand what changes in the pod security context settings you want to apply.
+podSecurityContext: {}
+  # fsGroup: 2000
+
+# -- Security context settings. Use the default settings, unless you understand what changes in the security context settings you want to apply.
+securityContext:
+  # -- Enable read-only root filesystem. You can also add any values for [Kubernetes security context](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#securitycontext-v1-core) in this field.
+  readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  deploymentPort:
+    # -- The service type of the deployment port.
+    type: ClusterIP
+    # -- The port number for the service.
+    port: 8000
+
+ingress:
+  # -- Whether to enable the ingress controller resource.
+  enabled: false
+  # -- The ingress class to use.
+  className: ""
+  # -- Ingress annotations.
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  # -- (list) A list of maps, each containing the keys `host` and `paths` for the ingress resource. You must specify a list for configuring ingress for the microservice.
+  # @default -- []
+  hosts: {}
+  #   - host: chart-example.local
+  #     paths:
+  #       - path: /
+  #         pathType: ImplementationSpecific
+  # -- Ingress TLS configuration.
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+# -- Configures Kubernetes resource requests and limits for the NeMo Deployment Management microservice. Use the default settings and leave it with the empty object as is, unless you understand what changes you want to make.
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+livenessProbe:
+  httpGet:
+    # -- The HTTP path for the Kubernetes liveness probe. Do not change this.
+    path: /health
+    # -- The port name for the Kubernetes liveness probe. Do not change this.
+    port: http
+readinessProbe:
+  httpGet:
+    # -- The HTTP path for the Kubernetes readiness probe. Do not change this.
+    path: /health
+    # -- The port name for the Kubernetes readiness probe. Do not change this.
+    port: http
+
+autoscaling:
+  # -- Whether to enable autoscaling for the NeMo Deployment Management microservice.
+  enabled: false
+  # -- The minimum number of replicas.
+  minReplicas: 1
+  # -- The maximum number of replicas.
+  maxReplicas: 100
+  # -- The target CPU utilization percentage.
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# -- Additional volumes for the NeMo Deployment Management microservice. Use the default settings and leave it with the empty list as is, unless you understand what changes you want to make.
+volumes: []
+
+# -- Additional volume mounts for the NeMo Deployment Management microservice. Use the default settings and leave it with the empty list as is, unless you understand what changes you want to make.
+volumeMounts: []
+
+# -- Specifies labels to ensure that the microservice is deployed only on certain nodes. To learn more, refer to the [Node Selector](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector) in the Kubernetes documentation.
+nodeSelector: {}
+
+# -- Specifies tolerations for pod assignment. To learn more, refer to the [Taint and Toleration](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) in the Kubernetes documentation.
+tolerations: []
+
+# -- Specifies affinity settings for the deployment. To learn more, refer to the [Affinity and Anti-Affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity) in the Kubernetes documentation.
+affinity: {}
+
+# -- Prometheus metrics collection configuration for monitoring the NeMo Deployment Management microservice. To enable this, you should install the Prometheus operator before deploying the NeMo Deployment Management microservice.
+monitoring:
+  # -- Whether to enable monitoring for the NeMo Deployment Management microservice.
+  enabled: false
+
+dataStore:
+  # -- The URL for the NeMo Data Store service.
+  url: http://nemo-data-store:3000
+  secret:
+    # -- Whether to create a secret for the data store huggingface token. If false, the secret must be created manually.
+    create: true
+    # -- The name of the secret that will be created. If create is false, a secret with this name must be created manually and have the HF_TOKEN key set.
+    name: "nemo-deployment-management-service-ds-hf-token"
+
+# -- Properties to configure NIM deployments for the NeMo Deployment Management microservice.
+deployments:
+  # -- The default storage class for NIM deployments.
+  defaultStorageClass: ""
+  # -- The URL for PEFT model sources (typically points to NeMo Entity Store)
+  nimPeftSource: http://nemo-entity-store:8000
+  # -- The URL for the NeMo Entity Store service.
+  entityStoreUrl: http://nemo-entity-store:8000
+  # -- The period in seconds for model synchronization.
+  modelSyncPeriod: "30"
+  metrics:
+    # -- Whether to enable metrics collection for the NIM deployments.
+    enabled: false
+  # -- The size of the PVC for the NIM deployments.
+  nimPvcSize: 25Gi
+  # -- The image to use for pulling models from NeMo Data Store. Must have the huggingface-cli binary installed.
+  modelPullerImage: nvcr.io/nvidia/nemo-microservices/nds-v2-huggingface-cli:25.06
+  # -- The pull secret used to pull the model puller image.
+  modelPullerPullSecret: nvcrimagepullsecret
+
+  autoscaling:
+    # -- Whether to enable autoscaling for the NIM deployments.
+    enabled: false
+    # -- Autoscaling specification for the NIM deployments.
+    spec:
+      maxReplicas: 5
+      metrics:
+      - pods:
+          metric:
+            name: gpu_cache_usage_perc
+          target:
+            averageValue: 750m
+            type: AverageValue
+        type: Pods
+      minReplicas: 1
+  # -- List of image pull secrets for the NIM deployments.
+  nimImagePullSecrets: []

@@ -1,0 +1,637 @@
+# Default values for NeMo Data Store.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# -- Global parameters to override the same settings in all subcharts of this Helm chart.
+global:
+  # -- Global image registry.
+  imageRegistry: ""
+  ## E.g.
+  ## imagePullSecrets:
+  ##   - myRegistryKeySecretName
+  ##
+  # -- Global image pull secrets.
+  imagePullSecrets: []
+  # -- Global storage class that applies to persistent volumes.
+  storageClass: ""
+  # -- Global host aliases which will be added to the pod's hosts files.
+  hostAliases: []
+  # - ip: 192.168.137.2
+  #   hostnames:
+  #   - example.com
+
+# -- Number of replicas for the deployment.
+replicaCount: 1
+
+# -- Strategy configuration for controlling how pod updates are performed.
+# @default -- This object has the following default values for the strategy configuration.
+strategy:
+  # -- The strategy type for pod updates. Use `RollingUpdate` if you use `ReadWriteMany` persistent storage or deploying on a single node. Otherwise, use `Recreate` to allow upgrades, although it causes downtime during the upgrade process.
+  type: "RollingUpdate"
+  rollingUpdate:
+    # -- Maximum number of pods that can be created above the desired amount during an update.
+    maxSurge: "100%"
+    # -- Maximum number of pods that can be unavailable during an update.
+    maxUnavailable: 0
+
+# -- Kubernetes cluster domain name.
+clusterDomain: cluster.local
+
+# -- Container image configuration settings
+# @default -- This object has the following default values for the image configuration.
+image:
+  # -- The registry where the NeMo Data Store image is located.
+  registry: "nvcr.io"
+  # -- The repository path of the NeMo Data Store image.
+  repository: "nvidia/nemo-microservices/datastore"
+  # -- The image tag to use.
+  tag: ""
+  # -- The image digest to use for more precise version control.
+  digest: ""
+  # -- The image pull policy determining when to pull new images.
+  pullPolicy: IfNotPresent
+  # -- Whether to run the container with rootless security context.
+  rootless: true
+  # -- Complete override string for the image specification.
+  fullOverride: ""
+
+# -- Configuration for image pull secrets to access private registries.
+imagePullSecrets:
+  # -- Name of the secret containing registry credentials.
+  - name: nvcrimagepullsecret
+
+# -- Pod-level security context settings
+podSecurityContext:
+  # -- The file system group ID to use for all containers.
+  fsGroup: 1000
+  # -- Set the permission change policy for mounted PVCs.
+  fsGroupChangePolicy: OnRootMismatch
+
+# -- Container-level security context settings
+containerSecurityContext: {}
+#   allowPrivilegeEscalation: false
+#   capabilities:
+#     drop:
+#       - ALL
+#   # Add the SYS_CHROOT capability for root and rootless images if you intend to
+#   # run pods on nodes that use the container runtime cri-o. Otherwise, you will
+#   # get an error message from the SSH server that it is not possible to read from
+#   # the repository.
+#     add:
+#       - SYS_CHROOT
+#   privileged: false
+#   readOnlyRootFilesystem: true
+#   runAsGroup: 1000
+#   runAsNonRoot: true
+#   runAsUser: 1000
+
+# -- **DEPRECATED** Run init and NeMo Data Store containers as a specific securityContext. The securityContext variable has been split two: `containerSecurityContext` and `podSecurityContext`.
+securityContext: {}
+
+# -- Pod disruption budget configuration.
+podDisruptionBudget: {}
+#  maxUnavailable: 1
+#  minAvailable: 1
+
+# -- Service configuration for exposing the application.
+# @default -- This object has the following default values for the service configuration.
+service:
+  # -- HTTP service configuration.
+  http:
+    # -- The Kubernetes service type to create for HTTP traffic.
+    type: ClusterIP
+    # -- The port number to expose for HTTP traffic.
+    port: 3000
+    # -- The cluster IP address to assign to the service.
+    clusterIP: ""
+    # -- The static IP address for LoadBalancer service type.
+    loadBalancerIP:
+    # -- The node port number when using NodePort service type
+    nodePort:
+    # -- External traffic policy for controlling source IP preservation
+    externalTrafficPolicy:
+    # -- List of external IP addresses to assign to the service
+    externalIPs:
+    # -- IP family policy for dual-stack support
+    ipFamilyPolicy:
+    # -- List of IP families to use for the service
+    ipFamilies:
+    # -- List of CIDR ranges allowed to access the LoadBalancer
+    loadBalancerSourceRanges: []
+    # -- Additional annotations for the HTTP service
+    annotations: {}
+    # -- Additional labels for the HTTP service
+    labels: {}
+  # -- SSH service configuration.
+  # @default -- This object has the following default values for the SSH service configuration.
+  ssh:
+    # -- Whether to enable SSH service.
+    enabled: false
+    # -- The Kubernetes service type to create for SSH traffic.
+    type: ClusterIP
+    # -- The port number to expose for SSH traffic.
+    port: 22
+    # -- The cluster IP address to assign to the service.
+    clusterIP: None
+    # -- The static IP address for LoadBalancer service type.
+    loadBalancerIP:
+    # -- The node port number when using NodePort service type.
+    nodePort:
+    # -- The external traffic policy for controlling source IP preservation.
+    externalTrafficPolicy:
+    # -- List of external IP addresses to assign to the service.
+    externalIPs:
+    # -- IP family policy for dual-stack support.
+    ipFamilyPolicy:
+    # -- List of IP families to use for the service.
+    ipFamilies:
+    # -- The host port number when using HostPort service type.
+    hostPort:
+    # -- List of CIDR ranges allowed to access the LoadBalancer.
+    loadBalancerSourceRanges: []
+    # -- Additional annotations for the SSH service.
+    annotations: {}
+    # -- Additional labels for the SSH service.
+    labels: {}
+
+# -- Ingress configuration.
+# @default -- This object has the following default values for the ingress configuration.
+ingress:
+  # -- Whether to enable ingress.
+  enabled: false
+  # -- The Ingress class name.
+  className:
+  # -- Additional annotations for the Ingress. For example, `kubernetes.io/ingress.class: nginx`, `kubernetes.io/tls-acme: "true"`.
+  annotations:
+    {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  # -- (list) A list of maps, each containing the keys `host` and `paths` for the ingress resource. You must specify a list for configuring ingress for the microservice.
+  hosts: {}
+  #   - host: datastore.example.com
+  #     paths:
+  #       - path: /
+  #         pathType: Prefix
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - datastore.example.com
+  # Mostly for argocd or any other CI that uses `helm template | kubectl apply` or similar
+  # If helm doesn't correctly detect your ingress API version you can set it here.
+  # apiVersion: networking.k8s.io/v1
+
+# -- Kubernetes deployment resources configuration.
+# It is recommended to not specify default resources and to leave this as a conscious
+# choice. This also increases chances that the chart will run on environments with little
+# resources, such as minikube. If you want to specify resources, use the following
+# example, adjust the values as necessary, and remove the empty curly braces `{}`.
+# `limits:
+#   cpu: 100m
+#   memory: 128Mi
+# requests:
+#   cpu: 100m
+#   memory: 128Mi`
+resources:
+  {}
+
+# -- The name of the alternate scheduler to use. For more information, see [Configure Multiple Schedulers](https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/).
+schedulerName: ""
+
+# -- NodeSelector configuration for the deployment.
+nodeSelector: {}
+
+# -- Tolerations configuration for the deployment.
+tolerations: []
+
+# -- Affinity configuration for the deployment.
+affinity: {}
+
+# -- TopologySpreadConstraints configuration for the deployment.
+topologySpreadConstraints: []
+
+# -- dnsConfig configuration for the deployment.
+dnsConfig: {}
+
+# -- priorityClassName configuration for the deployment.
+priorityClassName: ""
+
+# -- Deployment configuration.
+deployment:
+  # -- How long to wait until forcefully kill the pod.
+  terminationGracePeriodSeconds: 60
+  # -- Labels for the deployment.
+  labels: {}
+  # -- Annotations for the Datastore deployment to be created.
+  annotations: {}
+
+# -- Additional environment variables to pass to containers. This is an object formatted like NAME: value or NAME: valueFrom: {object}.
+env:
+  {}
+
+# -- Service account configuration.
+serviceAccount:
+  # -- Whether to create a service account.
+  create: false
+  # -- Name of the created service account, defaults to release name. Can also link to an externally provided service account that should be used.
+  name: ""
+  # -- Enable/disable auto mounting of the service account token.
+  automountServiceAccountToken: false
+  # -- Image pull secrets, available to the service account. To add a list of image pull secrets, remove `[]`use the following format: - name: private-registry-access.
+  imagePullSecrets: []
+  # -- Custom annotations for the service account.
+  annotations: {}
+  # -- Custom labels for the service account.
+  labels: {}
+
+# -- Persistence volume configuration.
+# @default -- This object has the following default values for the persistence volume configuration.
+persistence:
+  # -- Whether to enable persistent volume.
+  enabled: true
+  # -- Whether to create the persistent volume claim for shared storage.
+  create: true
+  # -- Whether to mount the persistent volume claim.
+  mount: true
+  # -- Name of the persistent volume claim. You can use an existing claim to store repository information.
+  claimName: datastore-shared-storage
+  # -- Size of the persistent volume.
+  size: 5Gi
+  # -- Access modes for the persistent volume.
+  accessModes:
+    - ReadWriteOnce
+  # -- Labels for the persistence volume claim.
+  labels: {}
+  # -- Name of the storage class to use.
+  storageClass:
+  # -- Subdirectory of the volume to mount at.
+  subPath:
+  # -- Name of persistent volume in PVC.
+  volumeName: ""
+  # -- Annotations for the persistence volume claim.
+  annotations:
+    helm.sh/resource-policy: keep
+
+# -- Additional volumes to mount to the Datastore deployment.
+extraVolumes: []
+# - name: postgres-ssl-vol
+#   secret:
+#     secretName: Datastore-postgres-ssl
+
+# -- Mounts that are only mapped into the Datastore runtime/main container, to e.g. override custom templates.
+extraContainerVolumeMounts: []
+
+# -- Mounts that are only mapped into the init-containers. Can be used for additional preconfiguration.
+extraInitVolumeMounts: []
+
+# -- **DEPRECATED** Additional volume mounts for init containers and the Datastore main container. This value is split into the following two variables: `extraContainerVolumeMounts` and `extraInitVolumeMounts`.
+extraVolumeMounts: []
+# - name: postgres-ssl-vol
+#   readOnly: true
+#   mountPath: "/pg-ssl"
+
+# -- Init container Bash shell scripts. For example, to mount a client certificate when connecting to an external Postgres server, you might add commands similar to the following:
+#   `mkdir -p /data/git/.postgresql`,
+#   `cp /pg-ssl/* /data/git/.postgresql/`,
+#   `chown -R git:git /data/git/.postgresql/`,
+#   `chmod 400 /data/git/.postgresql/postgresql.key`
+initPreScript: ""
+
+# -- Kubernetes resource limits for init containers.
+initContainers:
+  resources:
+    # -- Kubernetes resource limits for init containers.
+    limits: {}
+    # -- Kubernetes cpu resource limits for init containers.
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# -- Signing configuration.
+signing:
+  # -- Enable commit/action signing.
+  enabled: false
+  # -- GPG home directory.
+  gpgHome: /data/git/.gnupg
+  # -- Inline private GPG key for signed NeMo Data Store actions.
+  privateKey: ""
+  # privateKey: |-
+  #   -----BEGIN PGP PRIVATE KEY BLOCK-----
+  #   ...
+  #   -----END PGP PRIVATE KEY BLOCK-----
+  # -- Use an existing secret to store the value of `signing.privateKey`.
+  existingSecret: ""
+
+# -- Admin user configuration settings.
+admin:
+  # -- Username for the NeMo Data Store admin user.
+  username: datastore_admin
+  # -- Use an existing secret to store admin user credentials. For example, `datastore-admin-secret`.
+  existingSecret:
+  # -- Password for the NeMo Data Store admin user.
+  password: s3aJPHD9!bt6d0I
+  # -- Email for the NeMo Data Store admin user.
+  email: "datastore@local.domain"
+
+metrics:
+  # -- Enable NeMo Data Store metrics. Also requires setting env variable GITEA__metrics__ENABLED: "true"
+  enabled: false
+  serviceMonitor:
+    # -- Enable NeMo Data Store metrics service monitor.
+    enabled: false
+
+# -- LDAP configuration.
+ldap:
+  []
+  # - name: "LDAP 1"
+  #  existingSecret:
+  #  securityProtocol:
+  #  host:
+  #  port:
+  #  userSearchBase:
+  #  userFilter:
+  #  adminFilter:
+  #  emailAttribute:
+  #  bindDn:
+  #  bindPassword:
+  #  usernameAttribute:
+  #  publicSSHKeyAttribute:
+
+# Either specify inline `key` and `secret` or refer to them via `existingSecret`
+# -- OAuth configuration.
+oauth:
+  []
+  # - name: 'OAuth 1'
+  #   provider:
+  #   key:
+  #   secret:
+  #   existingSecret:
+  #   autoDiscoverUrl:
+  #   useCustomUrls:
+  #   customAuthUrl:
+  #   customTokenUrl:
+  #   customProfileUrl:
+  #   customEmailUrl:
+
+# -- NeMo Data Store configuration.
+# @default -- This object has the following default values for the NeMo Data Store configuration.
+config:
+  # -- Application name.
+  APP_NAME: "Datastore"
+  # -- Runtime mode (prod/dev).
+  RUN_MODE: prod
+  server:
+    # -- HTTP port for web interface.
+    HTTP_PORT: 3000
+    # -- Enable SSH server.
+    START_SSH_SERVER: false
+    # -- Enable LFS server.
+    LFS_START_SERVER: true
+  cron.GIT_GC_REPOS:
+    # -- Enable git garbage collection.
+    enabled: false
+  lfs:
+    # -- Storage type for LFS (local/s3).
+    STORAGE_TYPE: local
+  session:
+    # -- Session provider type.
+    PROVIDER: memory
+  cache:
+    # -- Cache adapter type.
+    ADAPTER: memory
+  queue:
+    # -- Queue type.
+    TYPE: dummy
+  database:
+    # -- Database type.
+    DB_TYPE: postgres
+
+# -- Additional configuration from secret or configmap.
+additionalConfigSources: []
+#   - secret:
+#       secretName: Datastore-app-ini-oauth
+#   - configMap:
+#       name: Datastore-app-ini-plaintext
+
+# -- Additional configuration sources from environment variables.
+additionalConfigFromEnvs: []
+
+# -- Annotations for the Datastore pod.
+podAnnotations: {}
+
+# -- Configure OpenSSH's log level. Only available for root-based Datastore image.
+ssh:
+  logLevel: "INFO"
+
+# -- Liveness probe configuration.
+# @default -- This object has the following default values for the liveness probe configuration.
+livenessProbe:
+  # -- Enable liveness probe.
+  enabled: true
+  httpGet:
+    # -- HTTP path for liveness probe.
+    path: /v1/health
+    # -- Port for liveness probe.
+    port: http
+  # -- Initial delay before liveness probe is initiated.
+  initialDelaySeconds: 10
+  # -- Timeout for liveness probe.
+  timeoutSeconds: 5
+  # -- Period for liveness probe.
+  periodSeconds: 30
+  # -- Success threshold for liveness probe.
+  successThreshold: 1
+  # -- Failure threshold for liveness probe.
+  failureThreshold: 20
+
+# -- Readiness probe configuration.
+# @default -- This object has the following default values for the readiness probe configuration.
+readinessProbe:
+  # -- Enable readiness probe.
+  enabled: true
+  httpGet:
+    # -- HTTP path for readiness probe.
+    path: /v1/health
+    # -- Port for readiness probe.
+    port: http
+  # -- Initial delay before readiness probe is initiated.
+  initialDelaySeconds: 30
+  # -- Timeout for readiness probe.
+  timeoutSeconds: 30
+  # -- Period for readiness probe.
+  periodSeconds: 20
+  # -- Success threshold for readiness probe.
+  successThreshold: 1
+  # -- Failure threshold for readiness probe.
+  failureThreshold: 40
+
+# -- Start-up probe configuration.
+# @default -- This object has the following default values for the start-up probe configuration.
+startupProbe:
+  # -- Enable start-up probe.
+  enabled: false
+  # -- TCP socket configuration for start-up probe.
+  tcpSocket:
+    port: http
+  # -- Initial delay before start-up probe is initiated.
+  initialDelaySeconds: 60
+  # -- Timeout for start-up probe.
+  timeoutSeconds: 1
+  # -- Period for start-up probe.
+  periodSeconds: 10
+  # -- Success threshold for start-up probe.
+  successThreshold: 1
+  # -- Failure threshold for start-up probe.
+  failureThreshold: 10
+
+# -- Redis cluster configuration.
+# @default -- This object has the following default values for the Redis cluster configuration.
+redis-cluster:
+  # -- Enable Redis cluster.
+  enabled: false
+  # -- Whether to use password authentication.
+  usePassword: false
+  # -- Number of redis cluster master nodes.
+  cluster:
+    nodes: 3 # default: 6
+    replicas: 0 # default: 1
+
+# -- PostgreSQL high availability (HA) configuration.
+# @default -- This object has the following default values for the PostgreSQL HA configuration.
+postgresql-ha:
+  global:
+    postgresql:
+      # -- Global PostgreSQL database name.
+      database: datastore
+      # -- Global password for the `datastore` user.
+      password: datastore
+      # -- Global username for the `datastore` user.
+      username: datastore
+  # -- Enable PostgreSQL HA. If enabled, configures PostgreSQL HA using the [bitnami/postgresql-ha](https://github.com/bitnami/charts/tree/main/bitnami/postgresql-ha) chart.
+  enabled: false
+  postgresql:
+    # -- Repmgr password for the `datastore` user.
+    repmgrPassword: changeme2
+    # -- Postgres password for the `datastore` user.
+    postgresPassword: changeme1
+    # -- Password for the `datastore` user.
+    password: changeme4
+  pgpool:
+    # -- Pgpool admin password.
+    adminPassword: changeme3
+  service:
+    # -- PostgreSQL service port.
+    ports:
+      postgresql: 5432
+  primary:
+    # -- PVC storage request for PostgreSQL HA volume.
+    persistence:
+      size: 10Gi
+
+postgresql:
+  # -- Enable or disable the built-in PostgreSQL database.
+  enabled: true
+  global:
+    postgresql:
+      auth:
+        # -- Password for the datastore database user.
+        password: datastore
+        # -- Name of the database to create.
+        database: datastore
+        # -- Username for the database user.
+        username: datastore
+      service:
+        ports:
+          # -- Port number for PostgreSQL service.
+          postgresql: 5432
+  primary:
+    persistence:
+      # -- Storage size request for the PostgreSQL persistent volume.
+      size: 1Gi
+
+test:
+  # -- Enable or disable the test-connection Pod.
+  enabled: false
+  image:
+    # -- Image name for the wget container used in the test-connection Pod.
+    name: busybox
+    # -- Image tag for the wget container used in the test-connection Pod.
+    tag: latest
+
+# -- Set to false to skip the basic validation check.
+checkDeprecation: true
+
+# -- Array of extra objects to deploy with the release.
+extraDeploy: []
+
+# -- Whether to serve traffic directly from an object storage service.
+serveDirect: true
+
+# -- Object Store configuration settings for accessing external Object Storage.
+# @default -- This object has the following default values for the object store configuration.
+objectStore:
+  # -- Enable or disable object storage integration.
+  enabled: false
+  # -- Object storage service endpoint URL.
+  endpoint: ""
+  # -- Access key credential for object storage authentication.
+  accessKey: ""
+  # -- Secret key credential for object storage authentication.
+  accessSecret: ""
+  # -- Name of the bucket to use for object storage.
+  bucketName: "datastore"
+  # -- Geographic region for the object storage service.
+  region: ""
+  # -- Enable or disable SSL/TLS for object storage connections.
+  ssl: false
+  # -- Name of existing Kubernetes secret containing object storage credentials.
+  existingSecret: ""
+  # -- Key in existing secret that contains the access key.
+  existingSecretAccessKey: ""
+  # -- Key in existing secret that contains the secret key.
+  existingSecretAccessSecret: ""
+
+# -- External URL configuration for the NeMo Data Store microservice.
+external:
+  # -- The external URL where users will access the NeMo Data Store microservice.
+  rootUrl: ""
+  # -- The external URL's domain name.
+  domain: ""
+
+# -- External PostgreSQL configuration settings. These values are only used when postgresql.enabled is set to false.
+# @default -- This object has the following default values for the external PostgreSQL configuration.
+externalDatabase:
+  # -- External database host address.
+  host: ""
+  # -- External database port number.
+  port: 5432
+  # -- Non-root username for Datastore service.
+  user: ""
+  # -- Datastore database name.
+  database: ""
+  # -- Name of an existing secret resource containing the database credentials.
+  existingSecret: ""
+  # -- Name of an existing secret key containing the database credentials.
+  existingSecretPasswordKey: ""
+  # -- SSL mode for external database connection.
+  sslMode: "disable"
+
+# -- JWT secret configuration settings.
+# @default -- This object has the following default values for the JWT secret configuration.
+jwtSecret:
+  # -- User specified LFS JWT secret - this will be stored in a secret.
+  value: ""
+  # -- Name of an existing secret resource containing the LFS JWT secret.
+  existingSecret: ""
+  # -- Key in existing secret containing the LFS JWT secret.
+  existingSecretKey: ""
+
+
+# -- Parameters for the demo mode.
+# @default -- This object has the following default values for the demo parameters.
+demo:
+  # -- Enable or disable the demo mode.
+  enabled: false
+  # -- Name of the secret containing the NGC image pull secret.
+  ngcImagePullSecret: ngc-image-pull-secret
+  # -- NGC API key.
+  ngcApiKey: ""
