@@ -1,3 +1,0 @@
-{{- if .Values.nvStorage.enabled }}
-{{ $.Files.Get "files/storage.dgxc.nvidia.com_nvstoragelocations.yaml" }}
-{{- end }}

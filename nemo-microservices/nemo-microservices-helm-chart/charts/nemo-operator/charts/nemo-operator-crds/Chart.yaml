@@ -1,5 +1,0 @@
-apiVersion: v2
-description: A Helm chart for CRDs of nemo operator
-name: nemo-operator-crds
-type: application
-version: 0.1.2
