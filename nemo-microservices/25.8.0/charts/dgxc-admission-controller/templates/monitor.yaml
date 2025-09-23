@@ -1,0 +1,19 @@
+{{- if .Values.enableServiceMonitor }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dgxc-admission-controller
+  labels:
+    app: {{ .Values.dgxcController.name }}-metrics
+spec:
+  endpoints:
+  - interval: 30s
+    path: /metrics
+    port: metrics
+  namespaceSelector:
+    matchNames:
+    - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      app: {{ .Values.dgxcController.name }}-metrics
+{{- end }}

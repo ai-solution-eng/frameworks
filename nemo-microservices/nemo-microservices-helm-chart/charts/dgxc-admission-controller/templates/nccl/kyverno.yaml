@@ -1,0 +1,400 @@
+{{- if and (.Values.cloudProviderSpec) (eq .Values.cloudProviderSpec.type "aws") ((.Values.cloudProviderSpec.aws).efa)}}
+# EFA config changes:
+# add volume /opt/amazon-efa-ofi to pod, env vars and volumeMount to applicable containers in pod
+# Applies to:
+# 1) Worker pods resulting from MPIJob or PyTorchJob, and containers only when requested GPUs == gpuAllocatable
+# 2) Batch Jobs - these act as launchers for MPIJob and PyTorchJob. Generally no GPU requested.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  labels:
+    dgxc/system-managed: "true"
+  name: dgxc-eks-efa-configs
+spec:
+  background: false
+  rules:
+  # attach hostpath volume to Pytorch and MPI workers that are full GPU
+  - match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          operations:
+          - CREATE
+    exclude:
+      any:
+      - resources:
+          annotations:
+            disable-auto-efa: "true"
+    mutate:
+      patchStrategicMerge:
+        spec:
+          volumes:
+            - hostPath:
+                path: /opt/amazon-efa-ofi
+                type: Directory
+              name: amazon-efa
+    preconditions:
+      all:
+      - key: "{{`{{ request.object.spec.containers[].resources.requests.\"nvidia.com/gpu\" || '' }}`}}"
+        operator: AnyIn
+        value: [ "{{ .Values.cloudProviderSpec.aws.gpuNode.gpuAllocatable }}" ]
+      - key: "{{`{{ request.object.metadata.ownerReferences[].kind || '' }}`}}"
+        operator: AnyIn
+        value: [ "PyTorchJob", "MPIJob", "Job", "RunaiJob" ]
+      - key: "{{`{{ request.object.metadata.ownerReferences[].apiVersion.split(@, '/')[0]  }}`}}"
+        operator: AnyIn
+        value: [ "batch.volcano.sh", "kubeflow.org", "run.ai" ]
+    name: efa-pod-volumes-workers
+  # PyTorch and MPI launchers can be CPU-only Job, still need the hostpath volume
+  - match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          operations:
+          - CREATE
+    exclude:
+      any:
+      - resources:
+          annotations:
+            disable-auto-efa: "true"
+    mutate:
+      patchStrategicMerge:
+        spec:
+          volumes:
+            - hostPath:
+                path: /opt/amazon-efa-ofi
+                type: Directory
+              name: amazon-efa
+    preconditions:
+      all:
+      - key: "{{`{{ request.object.metadata.ownerReferences[].kind || '' }}`}}"
+        operator: AnyIn
+        value: [ "Job" ]
+    name: efa-pod-volumes-launchers
+  # Make container changes for EFA - mount and resources
+  - match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          operations:
+          - CREATE
+    exclude:
+      any:
+      - resources:
+          annotations:
+            disable-auto-efa: "true"
+    preconditions:
+      all:
+      - key: "{{`{{ request.object.spec.containers[].resources.requests.\"nvidia.com/gpu\" || '' }}`}}"
+        operator: AnyIn
+        value: [ "{{ .Values.cloudProviderSpec.aws.gpuNode.gpuAllocatable }}" ]
+      - key: "{{`{{ request.object.metadata.ownerReferences[].kind || '' }}`}}"
+        operator: AnyIn
+        value: [ "PyTorchJob", "MPIJob", "Job", "RunaiJob" ]
+      - key: "{{`{{ request.object.metadata.ownerReferences[].apiVersion.split(@, '/')[0]  }}`}}"
+        operator: AnyIn
+        value: [ "batch.volcano.sh", "kubeflow.org", "run.ai" ]
+    mutate:
+      foreach:
+      - list: "request.object.spec.containers"
+        patchStrategicMerge:
+          spec:
+            containers:
+            - (name): "{{`{{ element.name }}`}}"
+              volumeMounts:
+              - mountPath: /opt/amazon-efa-ofi
+                name: amazon-efa
+                readOnly: true
+              resources:
+                requests:
+                  "vpc.amazonaws.com/efa": "{{ .Values.cloudProviderSpec.aws.gpuNode.efaAllocatable }}"
+                  hugepages-2Mi: "{{`{{ element.resources.requests.\"hugepages-2Mi\" || '`}}{{ .Values.cloudProviderSpec.aws.gpuNode.hugePagesAllocatable }}{{`' }}`}}"
+                  cpu: "{{`{{ element.resources.requests.cpu || '100m' }}`}}"
+                limits:
+                  "vpc.amazonaws.com/efa": "{{ .Values.cloudProviderSpec.aws.gpuNode.efaAllocatable }}"
+                  hugepages-2Mi: "{{`{{ element.resources.limits.\"hugepages-2Mi\" || '`}}{{ .Values.cloudProviderSpec.aws.gpuNode.hugePagesAllocatable }}{{`' }}`}}"
+        preconditions:
+          any:
+          - key: "{{`{{ element.resources.requests.\"nvidia.com/gpu\" || '' }}`}}"
+            operator: Equals
+            value: "{{ .Values.cloudProviderSpec.aws.gpuNode.gpuAllocatable }}"
+    name: container-efa-volume-mounts-worker
+  # We treat the launcher differently, doesn't have GPU
+  - match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          operations:
+          - CREATE
+    exclude:
+      any:
+      - resources:
+          annotations:
+            disable-auto-efa: "true"
+    preconditions:
+      all:
+      - key: "{{`{{ request.object.metadata.ownerReferences[].kind || '' }}`}}"
+        operator: AnyIn
+        value: [ "Job" ]
+    mutate:
+      foreach:
+      - list: "request.object.spec.containers"
+        patchStrategicMerge:
+          spec:
+            containers:
+            - (name): "{{`{{ element.name }}`}}"
+              volumeMounts:
+              - mountPath: /opt/amazon-efa-ofi
+                name: amazon-efa
+                readOnly: true
+    name: container-efa-volume-mounts-launcher
+  # worker pods need LD_LIBRARY_PATH updated, but we limit this to containers that have gpuAllocatable GPU
+  - match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          operations:
+          - CREATE
+    exclude:
+      any:
+      - resources:
+          annotations:
+            disable-auto-efa: "true"
+    preconditions:
+      all:
+      - key: "{{`{{ request.object.spec.containers[].resources.requests.\"nvidia.com/gpu\" || '' }}`}}"
+        operator: AnyIn
+        value: [ "{{ .Values.cloudProviderSpec.aws.gpuNode.gpuAllocatable }}" ]
+      - key: "{{`{{ request.object.metadata.ownerReferences[].kind || '' }}`}}"
+        operator: AnyIn
+        value: [ "PyTorchJob", "MPIJob", "Job", "RunaiJob" ]
+      - key: "{{`{{ request.object.metadata.ownerReferences[].apiVersion.split(@, '/')[0]  }}`}}"
+        operator: AnyIn
+        value: [ "batch.volcano.sh", "kubeflow.org", "run.ai" ]
+    mutate:
+      foreach:
+      - list: "request.object.spec.containers"
+        context:
+        - name: baselibpath
+          variable:
+            jmesPath: element.env[?(name=='LD_LIBRARY_PATH')].value | [0]
+            default: "/usr/lib:/usr/lib64"
+        - name: extralibpathprefix
+          variable:
+            value: "/opt/amazon-efa-ofi/ofi/lib:/opt/amazon-efa-ofi/efa/lib:/opt/amazon-efa-ofi/openmpi/lib:/usr/local/nvidia/lib64"
+        - name: extralibpathsuffix
+          variable:
+            value: "/usr/lib/x86_64-linux-gnu"
+        patchStrategicMerge:
+          spec:
+            containers:
+            - (name): "{{`{{ element.name }}`}}"
+              env:
+              - name: LD_LIBRARY_PATH
+                value: "{{`{{ extralibpathprefix }}:{{ baselibpath }}:{{ extralibpathsuffix }}`}}"
+        preconditions:
+          all:
+          - key: "{{`{{ element.resources.requests.\"nvidia.com/gpu\" || '' }}`}}"
+            operator: Equals
+            value: "{{ .Values.cloudProviderSpec.aws.gpuNode.gpuAllocatable }}"
+          - key: "{{`{{ element.[env[?(name=='LD_LIBRARY_PATH' && contains(value, 'amazon'))] || `}}`[]`{{` ][] | length(@) }}`}}"
+            operator: Equals
+            value: 0
+    name: container-worker-library-path
+  # launcher pods need LD_LIBRARY_PATH updated
+  - match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          operations:
+          - CREATE
+    exclude:
+      any:
+      - resources:
+          annotations:
+            disable-auto-efa: "true"
+    preconditions:
+      all:
+      - key: "{{`{{ request.object.metadata.ownerReferences[].kind || '' }}`}}"
+        operator: AnyIn
+        value: [ "Job" ]
+      - key: "{{`{{ request.object.metadata.ownerReferences[].apiVersion.split(@, '/')[0]  }}`}}"
+        operator: AnyIn
+        value: [ "batch" ]
+    mutate:
+      foreach:
+      - list: "request.object.spec.containers"
+        context:
+        - name: baselibpath
+          variable:
+            jmesPath: element.env[?(name=='LD_LIBRARY_PATH')].value | [0]
+            default: "/usr/lib:/usr/lib64"
+        - name: extralibpathprefix
+          variable:
+            value: "/opt/amazon-efa-ofi/ofi/lib:/opt/amazon-efa-ofi/efa/lib:/opt/amazon-efa-ofi/openmpi/lib:/usr/local/nvidia/lib64"
+        - name: extralibpathsuffix
+          variable:
+            value: "/usr/lib/x86_64-linux-gnu"
+        patchStrategicMerge:
+          spec:
+            containers:
+            - (name): "{{`{{ element.name }}`}}"
+              env:
+              - name: LD_LIBRARY_PATH
+                value: "{{`{{ extralibpathprefix }}:{{ baselibpath }}:{{ extralibpathsuffix }}`}}"
+        preconditions:
+          all:
+          - key: "{{`{{ element.[env[?(name=='LD_LIBRARY_PATH' && contains(value, 'amazon'))] || `}}`[]`{{` ][] | length(@) }}`}}"
+            operator: Equals
+            value: 0
+    name: container-launcher-library-path
+  {{- if and ((.Values.cloudProviderSpec.aws).efa) (((.Values.envVars).user).efa)}}
+  - match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          operations:
+          - CREATE
+    exclude:
+      any:
+      - resources:
+          annotations:
+            disable-auto-efa: "true"
+    preconditions:
+      all:
+      - key: "{{`{{ request.object.metadata.ownerReferences[].kind || '' }}`}}"
+        operator: AnyIn
+        value: [ "PyTorchJob", "MPIJob", "Job", "RunaiJob" ]
+      - key: "{{`{{ request.object.metadata.ownerReferences[].apiVersion.split(@, '/')[0]  }}`}}"
+        operator: AnyIn
+        value: [ "batch.volcano.sh", "kubeflow.org", "run.ai" ]
+    mutate:
+      foreach:
+      {{- range $e := .Values.envVars.user.efa }}
+      - list: "request.object.spec.containers"
+        patchStrategicMerge:
+          spec:
+            containers:
+            - (name): "{{`{{ element.name }}`}}"
+              env:
+              - name: {{ $e.name }}
+                value: "{{ $e.value }}"
+        preconditions:
+          all:
+          - key: {{ $e.name }}
+            operator: AnyNotIn
+            value: "{{`{{ element.env[].name || '' }}`}}"
+          - key: "{{`{{ element.resources.requests.\"nvidia.com/gpu\" || '' }}`}}"
+            operator: Equals
+            value: "{{ $.Values.cloudProviderSpec.aws.gpuNode.gpuAllocatable }}"
+      {{- end }}
+    name: extra-gpu-env-vars-workers
+  - match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          operations:
+          - CREATE
+    exclude:
+      any:
+      - resources:
+          annotations:
+            disable-auto-efa: "true"
+    preconditions:
+      all:
+      - key: "{{`{{ request.object.metadata.ownerReferences[].kind || '' }}`}}"
+        operator: AnyIn
+        value: [ "Job" ]
+      - key: "{{`{{ request.object.metadata.ownerReferences[].apiVersion.split(@, '/')[0]  }}`}}"
+        operator: AnyIn
+        value: [ "batch" ]
+    mutate:
+      foreach:
+      {{- range $e := .Values.envVars.user.efa }}
+      - list: "request.object.spec.containers"
+        patchStrategicMerge:
+          spec:
+            containers:
+            - (name): "{{`{{ element.name }}`}}"
+              env:
+              - name: {{ $e.name }}
+                value: "{{ $e.value }}"
+        preconditions:
+          all:
+          - key: {{ $e.name }}
+            operator: AnyNotIn
+            value: "{{`{{ element.env[].name || '' }}`}}"
+      {{- end }}
+    name: extra-gpu-env-vars-launchers
+    {{- end}}
+---
+{{- end}}
+
+{{- if and (.Values.cloudProviderSpec) (eq .Values.cloudProviderSpec.type "azure") (eq .Values.cloudProviderSpec.azure.instanceType "Standard_ND96amsr_A100_v4")}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: nccl-topo-configmap-policy
+spec:
+  generateExisting: true
+  rules:
+    - name: generate-nccl-topo-configmap
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              name: "{{ .Values.ncclTopoConfigMapNamespaces }}"
+      generate:
+        apiVersion: v1
+        kind: ConfigMap
+        name: nccl-topo
+        synchronize: true
+        namespace: "{{`{{request.object.metadata.name}}`}}"
+        data:
+          data:
+            nccl-topo.xml: |
+              <system version="1">
+                <cpu numaid="0" affinity="0000ffff,0000ffff" arch="x86_64" vendor="AuthenticAMD" familyid="23" modelid="49">
+                  <pci busid="ffff:ff:01.0" class="0x060400" link_speed="16 GT/s" link_width="16">
+                    <pci busid="0003:00:00.0" class="0x030200" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="0103:00:00.0" class="0x020700" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="0004:00:00.0" class="0x030200" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="0104:00:00.0" class="0x020700" link_speed="16 GT/s" link_width="16"/>
+                  </pci>
+                </cpu>
+                <cpu numaid="1" affinity="0000ffff,0000ffff" arch="x86_64" vendor="AuthenticAMD" familyid="23" modelid="49">
+                  <pci busid="ffff:ff:02.0" class="0x060400" link_speed="16 GT/s" link_width="16">
+                    <pci busid="0001:00:00.0" class="0x030200" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="0101:00:00.0" class="0x020700" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="0002:00:00.0" class="0x030200" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="0102:00:00.0" class="0x020700" link_speed="16 GT/s" link_width="16"/>
+                  </pci>
+                </cpu>
+                <cpu numaid="2" affinity="0000ffff,0000ffff" arch="x86_64" vendor="AuthenticAMD" familyid="23" modelid="49">
+                  <pci busid="ffff:ff:03.0" class="0x060400" link_speed="16 GT/s" link_width="16">
+                    <pci busid="000d:00:00.0" class="0x030200" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="0107:00:00.0" class="0x020700" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="000e:00:00.0" class="0x030200" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="0108:00:00.0" class="0x020700" link_speed="16 GT/s" link_width="16"/>
+                  </pci>
+                </cpu>
+                <cpu numaid="3" affinity="0000ffff,0000ffff" arch="x86_64" vendor="AuthenticAMD" familyid="23" modelid="49">
+                  <pci busid="ffff:ff:04.0" class="0x060400" link_speed="16 GT/s" link_width="16">
+                    <pci busid="000b:00:00.0" class="0x030200" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="0105:00:00.0" class="0x020700" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="000c:00:00.0" class="0x030200" link_speed="16 GT/s" link_width="16"/>
+                    <pci busid="0106:00:00.0" class="0x020700" link_speed="16 GT/s" link_width="16"/>
+                  </pci>
+                </cpu>
+              </system>
+---
+{{- end}}

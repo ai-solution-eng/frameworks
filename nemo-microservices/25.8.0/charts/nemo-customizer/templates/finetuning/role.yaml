@@ -1,0 +1,282 @@
+# Please edit the object below. Lines beginning with a '#' will be ignored,
+# and an empty file will abort the edit. If an error occurs while saving this file will be
+# reopened with the relevant failures.
+#
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ft.fullname" . }}-job-creator
+  namespace: {{ .Release.Namespace }}
+##### !!! TODO Nick - revise rules: LLM-4038 !!! #####
+rules:
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - delete
+# Create and monitor jobs for hydrating model cache
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - batch
+  resources:
+  - jobs/status
+  verbs:
+  - get
+  - list
+  - watch
+# End
+{{- if not .Values.useRunAIExecutor }}
+- apiGroups:
+  - batch.volcano.sh
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - delete
+  - create
+  - patch
+- apiGroups:
+  - batch.volcano.sh
+  resources:
+  - jobs/status
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - delete
+  - create
+  - patch
+- apiGroups:
+  - nodeinfo.volcano.sh
+  resources:
+  - numatopologies
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - bind
+  - updateStatus
+  - delete
+- apiGroups:
+  - scheduling.incubator.k8s.io
+  - scheduling.volcano.sh
+  resources:
+  - queues
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - bind
+  - updateStatus
+  - delete
+- apiGroups:
+  - scheduling.incubator.k8s.io
+  - scheduling.volcano.sh
+  resources:
+  - podgroups
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - bind
+  - updateStatus
+  - delete
+- apiGroups:
+  - scheduling.incubator.k8s.io
+  - scheduling.volcano.sh
+  resources:
+  - queues/status
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - bind
+  - updateStatus
+  - delete
+{{- end }}
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - delete
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - pods/status
+  - pods/log
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - bind
+  - updateStatus
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - pods/binding
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - bind
+  - updateStatus
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - bind
+  - updateStatus
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - services
+  - replicationcontrollers
+  verbs:
+  - list
+  - watch
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - resourcequotas
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - bind
+  - updateStatus
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - list
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - scheduling.k8s.io
+  resources:
+  - priorityclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - bind
+  - updateStatus
+  - delete
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  - replicasets
+  - statefulsets
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - bind
+  - updateStatus
+  - delete
+- apiGroups:
+  - nvidia.com
+  resources:
+  - nemotrainingjobs
+  - nemotrainingjobs/status
+  - nemoentityhandlers
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - delete
+  - create
+  - patch

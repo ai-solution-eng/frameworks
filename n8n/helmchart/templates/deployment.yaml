@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+    {{- include "hpe-ezua.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+        {{- include "hpe-ezua.labels" . | nindent 8 }}
+    spec:
+      # Add security context to run as the correct user
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+      - name: n8n
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        # Add container-level security context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+        ports:
+        - containerPort: 5678
+        env:
+        # Basic authentication
+        - name: N8N_BASIC_AUTH_ACTIVE
+          value: "true"
+        - name: N8N_BASIC_AUTH_USER
+          value: {{ .Values.n8n.basicAuth.user | quote }}
+        - name: N8N_BASIC_AUTH_PASSWORD
+          value: {{ .Values.n8n.basicAuth.password | quote }}
+        
+        # Database configuration
+        - name: DB_TYPE
+          value: {{ .Values.n8n.database.type | quote }}
+        {{- if eq .Values.n8n.database.type "postgres" }}
+        - name: DB_POSTGRESDB_HOST
+          value: {{ .Values.n8n.database.host | quote }}
+        - name: DB_POSTGRESDB_PORT
+          value: {{ .Values.n8n.database.port | quote }}
+        - name: DB_POSTGRESDB_DATABASE
+          value: {{ .Values.n8n.database.name | quote }}
+        - name: DB_POSTGRESDB_USER
+          value: {{ .Values.n8n.database.user | quote }}
+        - name: DB_POSTGRESDB_PASSWORD
+          value: {{ .Values.n8n.database.password | quote }}
+        {{- end }}
+        
+        # URLs
+        - name: WEBHOOK_URL
+          value: {{ .Values.n8n.webhookUrl | quote }}
+        - name: N8N_EDITOR_BASE_URL
+          value: {{ .Values.n8n.editorBaseUrl | quote }}
+        
+        # Timezone
+        - name: GENERIC_TIMEZONE
+          value: {{ .Values.n8n.timezone | quote }}
+        
+        # Security
+        - name: N8N_ENCRYPTION_KEY
+          value: {{ .Values.n8n.encryptionKey | quote }}
+        
+        # Data directory
+        - name: N8N_USER_FOLDER
+          value: "/home/node/.n8n"
+        
+        volumeMounts:
+        - name: n8n-data
+          mountPath: /home/node/.n8n
+        
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      
+      volumes:
+      - name: n8n-data
+        {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-pvc
+        {{- else }}
+        emptyDir: {}
+        {{- end }}

@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "gitea.fullname" . }}-setting
+  labels:
+    {{- include "gitea.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  GITEA__LFS__SERVE_DIRECT: {{ .Values.serveDirect | quote }}
+  {{- if .Values.objectStore.enabled }}
+  {{- with .Values.objectStore }}
+  GITEA__LFS__STORAGE_TYPE: "minio"
+  GITEA__LFS__MINIO_ENDPOINT: {{ .endpoint | quote}}
+  GITEA__LFS__MINIO_BUCKET: {{ .bucketName | quote }}
+  GITEA__LFS__MINIO_LOCATION: {{ .region | quote }}
+  GITEA__LFS__MINIO_USE_SSL: {{ .ssl | quote }}
+  {{- end }}
+  {{- else }}
+  GITEA__LFS__STORAGE_TYPE: "local"
+  {{- end }}
+  {{- if not (index .Values "postgresql" "enabled") -}}
+  {{- with .Values.externalDatabase }}
+  GITEA__DATABASE__SSL_MODE:  {{ .sslMode | quote }}
+  GITEA__DATABASE__NAME: {{ .database | quote }}
+  GITEA__DATABASE__HOST: {{ (printf "%s:%v" .host .port) | quote }}
+  GITEA__DATABASE__USER: {{ .user | quote }}
+  {{- end }}
+  {{- end }}
+  GITEA__SERVER__DOMAIN: {{ include "datastore.gitea.domain" . | quote }}
+  GITEA__SERVER__ROOT_URL: {{ include "datastore.gitea.root-url" . | quote }}

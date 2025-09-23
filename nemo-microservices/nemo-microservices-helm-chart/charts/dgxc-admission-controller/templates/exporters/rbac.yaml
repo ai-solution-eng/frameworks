@@ -1,0 +1,32 @@
+{{ if .Values.enabledComponents.dgxcExporter }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dgxc-exporter
+  namespace: {{ .Release.Namespace }}
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: dgxc-exporter
+rules:
+  - apiGroups: [kyverno.io]
+    resources: [updaterequests]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: dgxc-exporter
+subjects:
+  - kind: ServiceAccount
+    name: dgxc-exporter
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: dgxc-exporter
+  apiGroup: rbac.authorization.k8s.io
+{{ end }}

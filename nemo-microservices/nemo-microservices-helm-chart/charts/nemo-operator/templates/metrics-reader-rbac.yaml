@@ -1,0 +1,17 @@
+{{- if and .Values.metricsService.enabled (not .Values.restrictedNamespace) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "nemo-kubernetes-operator.fullname" . }}-metrics-reader
+  labels:
+    app.kubernetes.io/component: kube-rbac-proxy
+    app.kubernetes.io/created-by: nemo-kubernetes-operator
+    app.kubernetes.io/part-of: nemo-kubernetes-operator
+  {{- include "nemo-kubernetes-operator.labels" . | nindent 4 }}
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+{{- end }}

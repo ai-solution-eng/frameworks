@@ -1,0 +1,42 @@
+dependencies:
+- name: nemo-guardrails
+  repository: file://components/guardrails
+  version: 0.2.0
+- name: nemo-entity-store
+  repository: file://components/entity-store
+  version: 0.2.0
+- name: nemo-datastore
+  repository: file://components/datastore
+  version: 0.5.1
+- name: nemo-customizer
+  repository: file://components/customizer
+  version: 0.11.0-alpha.19
+- name: nemo-evaluator
+  repository: file://components/evaluator
+  version: 0.2.8
+- name: nemo-operator
+  repository: file://components/nemo-operator
+  version: 0.2.0
+- name: nemo-deployment-management
+  repository: file://components/deployment-management
+  version: 0.2.1
+- name: nemo-nim-proxy
+  repository: file://components/nim-proxy
+  version: 0.2.0
+- name: nemo-auditor
+  repository: file://components/auditor
+  version: 0.1.0
+- name: nim-llm
+  repository: https://helm.ngc.nvidia.com/nvidian/nemo-llm
+  version: 1.7.0-rc1
+- name: k8s-nim-operator
+  repository: https://helm.ngc.nvidia.com/nvidia/
+  version: 2.0.2
+- name: dgxc-admission-controller
+  repository: https://helm.ngc.nvidia.com/nvidian/nemo-llm
+  version: 1.801.0
+- name: volcano
+  repository: https://volcano-sh.github.io/helm-charts
+  version: 1.9.0
+digest: sha256:3f747c3c601eec3fc871dbe9043eecff629f6c73d76eb1f2e564a7198a6cca1c
+generated: "2025-08-06T16:54:41.585149033Z"

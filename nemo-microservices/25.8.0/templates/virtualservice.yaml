@@ -1,0 +1,82 @@
+{{- if .Values.virtualService.enabled }}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ include "nemo-microservices.name" . }}
+  labels:
+    {{- include "nemo-microservices.labels" . | nindent 4 }}
+    {{- with .Values.virtualService.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.virtualService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.virtualService.main.gateways }}
+  gateways:
+    {{- range .Values.virtualService.main.gateways }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  {{- if .Values.virtualService.main.hosts }}
+  hosts:
+    {{- range .Values.virtualService.main.hosts }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  http:
+  {{- range $k, $v := .Values.virtualService.main.entries }}
+  - name: {{ $k }}
+    {{- if $v.corsPolicy }}
+    corsPolicy:
+      {{ $v.corsPolicy | toYaml | nindent 6 }}
+    {{- end }}
+    match:
+    {{ $v.match | toYaml | nindent 4 }}
+    route:
+    {{ $v.route | toYaml | nindent 4 }}
+  {{- end }}
+{{ range $k, $v := .Values.virtualService.additional }}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ $k }}
+  labels:
+    {{- include "nemo-microservices.labels" $ | nindent 4 }}
+    {{- with $.Values.virtualService.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $.Values.virtualService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if $v.gateways }}
+  gateways:
+    {{- range $v.gateways }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  {{- if $v.hosts }}
+  hosts:
+    {{- range $v.hosts }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  http:
+  {{- range $i, $j := $v.entries }}
+  - name: {{ $i }}
+    {{- if $j.corsPolicy }}
+    corsPolicy:
+      {{ $j.corsPolicy | toYaml | nindent 6 }}
+    {{- end }}
+    match:
+    {{ $j.match | toYaml | nindent 4 }}
+    route:
+    {{ $j.route | toYaml | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}
