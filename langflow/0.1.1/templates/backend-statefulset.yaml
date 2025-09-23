@@ -47,14 +47,30 @@ spec:
         {{- with .Values.langflow.backend.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- if .Values.ezua.selfsignedcert.enabled }}
-        - name: ingress-ca
+        # Private CA certificate should be copied from istio-system namespace to release namespace
+        {{- if .Values.ezua.selfSignedCert }}
+        - name: ingress-cert
           secret:
-            secretName: ingress-cert
-            items:
-              - key: ca.crt
-                path: ingress-ca.crt
+            secretName: platform-ingress-cert
+        - name: ca-certs
+          emptyDir: {}
         {{- end }}
+
+      {{- if .Values.ezua.selfSignedCert }}
+      initContainers:
+        - name: copy-ca-certs
+          image: alpine:latest
+          volumeMounts:
+            - name: ca-certs
+              mountPath: /certs
+            - name: ingress-cert
+              mountPath: /usr/local/share/ca-certificates/ca.crt
+              subPath: ca.crt
+              readOnly: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - cat /etc/ssl/certs/ca-certificates.crt /usr/local/share/ca-certificates/ca.crt >> /certs/ca-certificates.crt
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
@@ -90,9 +106,9 @@ spec:
             {{- with .Values.langflow.backend.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-            {{- if .Values.ezua.selfsignedcert.enabled }}
-            - name: ingress-ca
-              mountPath: /etc/ssl/custom-ca
+            {{- if .Values.ezua.selfSignedCert }}
+            - name: ca-certs
+              mountPath: /etc/ssl/certs
               readOnly: true
             {{- end }}
           {{- end }}
@@ -100,7 +116,6 @@ spec:
             httpGet:
               path: /health
               port: http
-              
             initialDelaySeconds: {{ .Values.langflow.backend.probe.initialDelaySeconds }}
             periodSeconds: {{ .Values.langflow.backend.probe.periodSeconds }}
             timeoutSeconds: {{ .Values.langflow.backend.probe.timeoutSeconds }}
@@ -121,14 +136,6 @@ spec:
             {{- if .Values.langflow.backend.sqlite.enabled }}
             - name: LANGFLOW_DATABASE_URL
               value: "sqlite:////data/langflow.db"
-            {{- end }}
-            {{- if .Values.ezua.selfsignedcert.enabled }}
-            - name: REQUESTS_CA_BUNDLE
-              value: /etc/ssl/custom-ca/ingress-ca.crt
-            - name: SSL_CERT_FILE
-              value: /etc/ssl/custom-ca/ingress-ca.crt
-            - name: CURL_CA_BUNDLE
-              value: /etc/ssl/custom-ca/ingress-ca.crt
             {{- end }}
             {{- with .Values.langflow.backend.env }}
             {{- toYaml . | nindent 12 }}
@@ -161,6 +168,7 @@ spec:
             {{- end }}
           resources:
             {{- toYaml .Values.langflow.backend.resources | nindent 12 }}
+
       {{- with .Values.langflow.backend.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -192,3 +200,4 @@ spec:
       {{- end }}
       
   {{- end }}
+

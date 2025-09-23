@@ -151,8 +151,7 @@ Finally, we've added following to the `ezua` section to indicate self-signed cer
 
 ```yaml
 ezua:
-  selfsignedcert:
-    enabled: true
+  selfSignedCert: true
 ```
 
 ## backend-statefulset.yaml
@@ -162,36 +161,44 @@ Following changes are mode to the StatefulSet to enable copied secret for Self-s
 At line 50, following code is added to attach the copied secret as a volume:
 
 ```yaml
-        {{- if .Values.ezua.selfsignedcert.enabled }}
-        - name: ingress-ca
-        secret:
-          secretName: ingress-cert
-          items:
-            - key: ca.crt
-              path: ingress-ca.crt
+        # Private CA certificate should be copied from istio-system namespace to release namespace
+        {{- if .Values.ezua.selfSignedCert }}
+        - name: ingress-cert
+          secret:
+            secretName: platform-ingress-cert
+        - name: ca-certs
+          emptyDir: {}
         {{- end }}
+
 ```
 
-At line 93, following code is added to mount the secret into `/etc/ssl/custom-ca` folder:
+And deployed initContainer to copy the certificate onto system ca-certificates.crt file:
 
-```yaml
-            {{- if .Values.ezua.selfsignedcert.enabled }}
-            - name: ingress-ca
-              mountPath: /etc/ssl/custom-ca
+```
+      {{- if .Values.ezua.selfSignedCert }}
+      initContainers:
+        - name: copy-ca-certs
+          image: alpine:latest
+          volumeMounts:
+            - name: ca-certs
+              mountPath: /certs
+            - name: ingress-cert
+              mountPath: /usr/local/share/ca-certificates/ca.crt
+              subPath: ca.crt
               readOnly: true
-            {{- end }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - cat /etc/ssl/certs/ca-certificates.crt /usr/local/share/ca-certificates/ca.crt >> /certs/ca-certificates.crt
+      {{- end }}
 ```
 
-At line 125, following environment variables are added to allow various libraries (ie, `libcurl` and python `requests`) to use the injected certificate:
+At line 109, following code is added to mount the certificates into `/etc/ssl/certs` folder:
 
 ```yaml
-            {{- if .Values.ezua.selfsignedcert.enabled }}
-            - name: REQUESTS_CA_BUNDLE
-              value: /etc/ssl/custom-ca/ingress-ca.crt
-            - name: SSL_CERT_FILE
-              value: /etc/ssl/custom-ca/ingress-ca.crt
-            - name: CURL_CA_BUNDLE
-              value: /etc/ssl/custom-ca/ingress-ca.crt
+            {{- if .Values.ezua.selfSignedCert }}
+            - name: ca-certs
+              mountPath: /etc/ssl/certs
+              readOnly: true
             {{- end }}
 ```
 
@@ -199,9 +206,10 @@ At line 125, following environment variables are added to allow various librarie
 
 The following new files has been added to complete the configuration:
 
-- templates/authpolicy.yaml
-- templates/kyverno.yaml
-- templates/virtualService.yaml
+- templates/ezua/authpolicy.yaml
+- templates/ezua/kyverno.yaml
+- templates/ezua/virtualService.yaml
+- templates/ezua/cert-copy.yaml
 
 
 # HPE notes
