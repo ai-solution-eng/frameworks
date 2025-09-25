@@ -1,3 +1,17 @@
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  #Use next options in order to configure the application endpoint.
+  #Example of a VirtualService is here:
+  virtualService:
+    endpoint: "langflow.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    matchLabels:
+      app: "langflow-service"
+  selfSignedCert: true
+
 imagePullSecrets: []
 
 nameOverride: "langflow-service"
@@ -9,6 +23,7 @@ fullnameOverride: "langflow-service"
 
 serviceAccount:
   # Specifies whether a service account should be created
+  # SHOULD BE TRUE FOR SELF-SIGNED CERTIFICATE COPY
   create: true
   # Annotations to add to the service account
   annotations: {}
@@ -253,19 +268,3 @@ postgresql:
     username: "langflow"
     password: "langflow-postgres"
     database: "langflow-db"
-
-ezua:
-  domainName: "${DOMAIN_NAME}"
-  #Use next options in order to configure the application endpoint.
-  #Example of a VirtualService is here:
-  virtualService:
-    endpoint: "langflow.${DOMAIN_NAME}"
-    istioGateway: "istio-system/ezaf-gateway"
-
-  authorizationPolicy:
-    namespace: "istio-system"
-    providerName: "oauth2-proxy"
-    matchLabels:
-      app: "langflow-service"
-  selfsignedcert:
-    enabled: true
