@@ -1,4 +1,4 @@
-FROM langflowai/langflow:1.4.2
+FROM docker://langflowai/langflow:1.5.1
 
 WORKDIR /app
 
