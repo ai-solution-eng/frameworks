@@ -1,9 +1,9 @@
-lapiVersion: v2
+apiVersion: v2
 dependencies:
 - alias: guardrails
   condition: guardrails.enabled
   name: nemo-guardrails
-  repository: file://components/guardrails
+  repository: file://charts/nemo-guardrails
   tags:
   - platform
   - guardrails
@@ -11,7 +11,7 @@ dependencies:
 - alias: entity-store
   condition: entity-store.enabled
   name: nemo-entity-store
-  repository: file://components/entity-store
+  repository: file://charts/nemo-entity-store
   tags:
   - platform
   - customizer
@@ -20,7 +20,7 @@ dependencies:
 - alias: data-store
   condition: data-store.enabled
   name: nemo-datastore
-  repository: file://components/datastore
+  repository: file://charts/nemo-datastore
   tags:
   - platform
   - customizer
@@ -29,7 +29,7 @@ dependencies:
 - alias: customizer
   condition: customizer.enabled
   name: nemo-customizer
-  repository: file://components/customizer
+  repository: file://charts/nemo-customizer
   tags:
   - platform
   - customizer
@@ -37,7 +37,7 @@ dependencies:
 - alias: evaluator
   condition: evaluator.enabled
   name: nemo-evaluator
-  repository: file://components/evaluator
+  repository: file://charts/nemo-evaluator
   tags:
   - platform
   - evaluator
@@ -45,7 +45,7 @@ dependencies:
 - alias: nemo-operator
   condition: nemo-operator.enabled
   name: nemo-operator
-  repository: file://components/nemo-operator
+  repository: file://charts/nemo-operator
   tags:
   - platform
   - customizer
@@ -53,7 +53,7 @@ dependencies:
 - alias: deployment-management
   condition: deployment-management.enabled
   name: nemo-deployment-management
-  repository: file://components/deployment-management
+  repository: file://charts/nemo-deployment-management
   tags:
   - platform
   - guardrails
@@ -61,7 +61,7 @@ dependencies:
 - alias: nim-proxy
   condition: nim-proxy.enabled
   name: nemo-nim-proxy
-  repository: file://components/nim-proxy
+  repository: file://charts/nemo-nim-proxy
   tags:
   - platform
   - guardrails
@@ -69,7 +69,7 @@ dependencies:
 - alias: auditor
   condition: auditor.enabled
   name: nemo-auditor
-  repository: file://components/auditor
+  repository: file://charts/nemo-auditor
   tags:
   - auditor
   version: '>=0.1.0-0'
