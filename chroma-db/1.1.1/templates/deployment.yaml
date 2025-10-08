@@ -27,7 +27,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: storage
-              mountPath: /chroma
+              mountPath: /data
       volumes:
       - name: storage
         persistentVolumeClaim:
