@@ -1,0 +1,6 @@
+apiVersion: v2
+version: 0.0.3
+appVersion: 1.1.1
+type: application
+name: chroma-db
+description: Vector database
