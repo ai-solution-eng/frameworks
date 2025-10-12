@@ -97,7 +97,7 @@ diagnosticMode:
 ##
 image:
   registry: docker.io
-  repository: bitnami/postgresql
+  repository: bitnamilegacy/postgresql
   tag: 16.1.0-debian-11-r20
   digest: ""
   ## Specify a imagePullPolicy

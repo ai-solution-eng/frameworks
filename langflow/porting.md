@@ -218,3 +218,9 @@ Chart has been downloaded from [here](https://github.com/langflow-ai/langflow-he
 
 The documentation on how to configure LangFlow with PostgreSQL is [here](https://github.com/langflow-ai/langflow-helm-charts/blob/main/examples/langflow-ide/dev-values-postgres.yaml)
 
+To build the patched image, use the following commands:
+
+```
+podman build --tag docker.io/acarboni/langflow-ide:1.5.1 .
+podman push docker.io/acarboni/langflow-ide:1.5.1
+```

@@ -6,7 +6,7 @@ annotations:
     - name: postgres-exporter
       image: docker.io/bitnami/postgres-exporter:0.15.0-debian-11-r9
     - name: postgresql
-      image: docker.io/bitnami/postgresql:16.2.0-debian-11-r1
+      image: docker.io/bitnamilegacy/postgresql:16.2.0-debian-11-r1
   licenses: Apache-2.0
 apiVersion: v2
 appVersion: 16.2.0

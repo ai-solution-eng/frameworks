@@ -1,0 +1,270 @@
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  #Use next options in order to configure the application endpoint.
+  #Example of a VirtualService is here:
+  virtualService:
+    endpoint: "langflow.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    matchLabels:
+      app: "langflow-service"
+  selfSignedCert: false
+
+imagePullSecrets: []
+
+nameOverride: "langflow-service"
+# Override for the name of the helm deployment
+# Note: using `langflow` as service name causes
+# env var collision when deploying on openshift
+# https://github.com/langflow-ai/langflow/issues/4330#issuecomment-2459097917
+fullnameOverride: "langflow-service"
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  # SHOULD BE TRUE FOR SELF-SIGNED CERTIFICATE COPY
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the
+  # fullname template
+  name: ""
+
+ingress:
+  enabled: false
+  annotations:
+    {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: chart-example.local
+      paths: []
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  runAsGroup: 1000
+
+podSecurityContext:
+  fsGroup: 1000
+  runAsUser: 1000
+  runAsNonRoot: true
+  runAsGroup: 1000
+
+langflow:
+  global:
+    image:
+      tag: "latest"
+  backend:
+    replicaCount: 1
+    service:
+      type: ClusterIP
+      port: 7860
+    backendOnly: true
+    numWorkers: 1
+    image:
+      #      repository: langflowai/langflow
+      repository: acarboni/langflow-ide
+      imagePullPolicy: IfNotPresent
+      tag: 1.5.1
+    command:
+      - python
+      - -m
+      - langflow
+      - run
+      - --host
+      - 0.0.0.0
+      - --backend-only
+    resources:
+      requests:
+        cpu: 2
+        memory: 2Gi
+      limits:
+        cpu: 4
+        memory: 4Gi
+    probe:
+      failureThreshold: 3
+      periodSeconds: 10
+      timeoutSeconds: 10
+      initialDelaySeconds: 30
+    env:
+      - name: LANGFLOW_PORT
+        value: "7860"
+      - name: LANGFLOW_ALEMBIC_LOG_FILE
+        value: "/app/db/alembic.log"
+      - name: LANGFLOW_UPDATE_STARTER_PROJECTS
+        value: "false"
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    podAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: 9090
+      prometheus.io/path: "/metrics"
+
+    securityContext:
+      capabilities:
+        drop:
+          - ALL
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 1000
+      allowPrivilegeEscalation: false
+      runAsGroup: 1000
+
+    podSecurityContext:
+      fsGroup: 1000
+      runAsUser: 1000
+      runAsNonRoot: true
+      runAsGroup: 1000
+
+    externalDatabase:
+      # Compose in the SQLAlchemy format:
+      # https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls
+      enabled: true
+      driver:
+        value: "postgresql"
+      host:
+        value: "langflow-ide-postgresql-service"
+      port:
+        value: "5432"
+      database:
+        value: "langflow-db"
+      user:
+        value: "langflow"
+      password:
+        valueFrom:
+          secretKeyRef:
+            key: "password"
+            name: "langflow-ide-postgresql-service"
+    volumes:
+      - name: flows
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+      - name: data
+        emptyDir: {}
+      - name: db
+        emptyDir: {}
+
+    volumeMounts:
+      - name: flows
+        mountPath: /app/flows
+        readOnly: false
+      - name: tmp
+        mountPath: /tmp
+        readOnly: false
+      - name: data
+        mountPath: /app/data
+        readOnly: false
+      - name: db
+        mountPath: /app/db
+        readOnly: false
+
+    sqlite:
+      enabled: false
+      volume:
+        size: "1Gi"
+        existingStorageClassName: "default"
+        # If you want the chart to create storage classes, then don't set
+        # existingStorageClassName name and provide configuration values
+        # for the storage class. The settings vary based on cloud
+        # provider. Below are examples for AWS, GCP, and Azure.
+
+        # For AWS
+        # storageClass:
+        #  provisioner: kubernetes.io/aws-ebs
+        #  type: gp2
+        #  fsType: ext4
+        #  extraParams:
+        #     iopsPerGB: "10"
+
+        # For GCP
+        # storageClass:
+        #   provisioner: kubernetes.io/gce-pd
+        #   type: pd-ssd
+        #   fsType: ext4
+        #   extraParams:
+        #      replication-type: none
+
+        # For Azure
+        # storageClass:
+        #   provisioner: kubernetes.io/azure-disk
+        #   fsType: ext4
+        #   type: managed-premium
+        #   extraParams:
+        #     storageaccounttype: Premium_LRS
+        #     kind: Managed
+        #     cachingmode: ReadOnly
+        storageClass: {}
+
+    # having autoLogin set to false enables multi user, if you set autoLogin to true it's single user - superuser is required then
+    # autoLogin: true|false
+    # superuser: <superuser login>
+    # superuserPassword: <superuser password>
+    # secretKey: <encryption key, optional>
+    # newUserIsActive: true|false
+
+  frontend:
+    enabled: true
+    replicaCount: 1
+    service:
+      type: ClusterIP
+      port: 8080
+    image:
+      repository: langflowai/langflow-frontend
+      imagePullPolicy: IfNotPresent
+      tag: latest
+    resources:
+      requests:
+        cpu: 1
+        memory: 512Mi
+      limits:
+        cpu: 2
+        memory: 4Gi
+    probe:
+      failureThreshold: 3
+      periodSeconds: 10
+      timeoutSeconds: 5
+      initialDelaySeconds: 5
+    nodeSelector: {}
+
+    tolerations: []
+
+    affinity: {}
+    podAnnotations: {}
+
+    volumes:
+      - name: tmp
+        emptyDir: {}
+
+    volumeMounts:
+      - name: tmp
+        mountPath: /tmp
+        readOnly: false
+
+  podAnnotations:
+    sidecar.istio.io/inject: "false"
+
+secretProvider:
+  enabled: false
+
+postgresql:
+  enabled: true
+  fullnameOverride: "langflow-ide-postgresql-service"
+  auth:
+    username: "langflow"
+    password: "langflow-postgres"
+    database: "langflow-db"
