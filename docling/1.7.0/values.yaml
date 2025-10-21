@@ -1,0 +1,21 @@
+
+service:
+  httpPort : 5001
+
+resources:
+  requests:
+    cpu: 1
+    memory: 1Gi
+  limits:
+    cpu: 4
+    memory: 8Gi
+
+storage:
+  size: 100Gi
+  class: gl4f-filesystem
+
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  virtualService:
+    endpoint: "docling.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"

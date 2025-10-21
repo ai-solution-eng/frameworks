@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Chart.Name }}
+        hpe-ezua/app: {{ .Chart.Name }}
+        hpe-ezua/type: vendor-service
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: {{ .Chart.Name }}
+          image: quay.io/docling-project/docling-serve:{{ .Chart.AppVersion }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DOCLING_SERVE_ENABLE_UI
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 5001
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: storage
+              mountPath: /data
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: {{ .Chart.Name }}-pvc

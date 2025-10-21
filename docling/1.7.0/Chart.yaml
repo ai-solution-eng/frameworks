@@ -1,0 +1,6 @@
+apiVersion: v2
+version: 0.0.1
+appVersion: v1.7.0
+type: application
+name: docling
+description: Document processing
