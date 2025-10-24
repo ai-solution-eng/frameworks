@@ -145,7 +145,7 @@ persistence:
       storageClass: ""
       subPath: ""
       accessMode: ReadWriteOnce
-      size: 5Gi
+      size: 200Gi
       annotations: {}
     jobservice:
       jobLog:
@@ -503,7 +503,7 @@ nginx:
   revisionHistoryLimit: 10
   resources:
     limilts:
-      memory: 512Mi
+      memory: 1024Mi
       cpu: 250m
     requests:
       memory: 256Mi
@@ -537,7 +537,7 @@ portal:
   revisionHistoryLimit: 10
   resources:
     limits:
-      memory: 512Mi
+      memory: 1024Mi
       cpu: 250m
     requests:
       memory: 256Mi
