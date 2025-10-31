@@ -104,13 +104,7 @@ websocket:
     args: []
     # -- Redis resources
     # @section -- Websocket configuration
-    resources: 
-      requests:
-        cpu: "1"
-        memory: "500Mi"
-      limits:
-        cpu: "10"
-        memory: "5Gi"
+    resources: []
     service:
       # -- Redis container/target port
       # @section -- Websocket configuration
@@ -256,7 +250,13 @@ startupProbe: {}
 #   failureThreshold: 20
 
 # -- Resource requests and limits for the Open WebUI container
-resources: {}
+resources: 
+  requests:
+    cpu: "1"
+    memory: "500Mi"
+  limits:
+    cpu: "10"
+    memory: "5Gi"
 
 copyAppData:
   # -- Open WebUI copy-app-data init container command (overrides default)
