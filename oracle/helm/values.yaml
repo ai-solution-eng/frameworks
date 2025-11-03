@@ -1,0 +1,103 @@
+#
+# Copyright (c) 2020, Oracle and/or its affiliates. All rights reserved.
+# Licensed under the Universal Permissive License v 1.0 as shown at http://oss.oracle.com/licenses/upl.
+#
+
+# Default values for oracle-db. Please check README for more information about below parameters
+nameOverride: "oracle-db"
+fullnameOverride: "oracle-db"
+##This parameter changes the ORACLE_SID of the database. The default value is set to ORCLCDB.
+oracle_sid: FREE
+
+##This parameter modifies the name of the PDB. The default value is set to ORCLPDB1.
+oracle_pdb: FREEPDB1
+
+## The Oracle Database SYS, SYSTEM and PDBADMIN password. Defaults to a randomly generated password
+oracle_pwd: prueba123
+
+## The character set to use when creating the database. Defaults to AL32UTF8
+oracle_characterset: AL32UTF8
+
+## The database edition (default: enterprise)
+oracle_edition: free
+
+## Enable archive log mode when creating the database
+enable_archivelog: false
+
+oracleservice:
+  port: 1521 
+
+## Enable persistence using Persistent Volume Claims
+## ref: http://kubernetes.io/docs/user-guide/persistent-volumes/
+## Override 'persistence' to 'null' using '--set' option, if persistence is not desired (e.g. using the extended image with 'prebuiltdb' extension)
+persistence:
+  enable: true
+  ## Oracle Database data Persistent Volume Storage Class, nfs or block
+  storageClass: "nfs-csi"
+  size: 100Gi
+
+## Deploy only on nodes in a particular availability domain, eg PHX-AD-1 on OCI
+## Leave empty if there is no such requirement
+availabilityDomain: false
+
+## Deploy multiple replicas for fast fail over
+## If 'persistence' is 'null' then fast fail over will not happen even if replicas>1 (as no persistence)
+replicas: 1
+
+## deploy LoadBalancer service
+loadBalService: false
+
+## name of image
+image: docker.io/alexispinpar1234/pcai:oracle-db-single
+
+## image pull policy, IfNotPresent or Always
+imagePullPolicy: Always
+
+## container registry login/password
+imagePullSecrets: alexis-registry
+
+ingress:
+  enabled: false
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: chart-example.local
+      paths: []
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  #Use next options in order to configure the application endpoint.
+  #Example of a VirtualService is here:
+  virtualService:
+    endpoint: "oracle.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    matchLabels:
+      app: "oracle-db"
+  selfSignedCert: false
+
+
+
+
+## Deploy only on nodes having required labels .
+## Format label_name : label_value . eg pool: sidb
+## Leave empty if there is no such requirement
+
+#  pool: sidb
+

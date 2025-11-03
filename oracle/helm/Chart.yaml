@@ -1,0 +1,16 @@
+# Copyright (c) 2020, Oracle Corporation and/or its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl.
+
+apiVersion: v1
+appVersion: 1.5.1
+description: Oracle Database Server
+maintainers:
+  - name: Alexis Gomez Chimeno
+    email: alexis.gomez1@hpe.com
+home: http://www.oracle.com
+type: application
+name: oracle-db
+version: 1.2.0
+keywords:
+- oracle
+- database

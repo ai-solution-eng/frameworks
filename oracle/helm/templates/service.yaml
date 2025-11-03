@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "fullname" . }}-headless
+{{- include "oracle-db-labels" . | indent 2 }}
+spec:
+# {{- if .Values.loadBalService }}
+#   type: LoadBalancer
+# {{- else}}
+#   type: ClusterIP
+# {{- end }}
+  clusterIP: None
+  ports:
+  - name: listener
+    port: 1521
+  - name: xmldb
+    port: 5500
+  selector:
+    {{- include "oracle-db-fullname.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "fullname" . }}
+{{- include "oracle-db-labels" . | indent 2 }}
+spec:
+{{- if .Values.loadBalService }}
+  type: LoadBalancer
+{{- else}}
+  type: ClusterIP
+{{- end }}
+  ports:
+  - name: listener
+    port: 1521
+    protocol: TCP
+  - name: xmldb
+    port: 5500
+    protocol: TCP
+  selector:
+    {{- include "oracle-db-fullname.selectorLabels" . | nindent 4 }}
+
