@@ -24,6 +24,7 @@ oracle_edition: free
 ## Enable archive log mode when creating the database
 enable_archivelog: false
 
+
 oracleservice:
   port: 1521 
 
@@ -48,13 +49,13 @@ replicas: 1
 loadBalService: false
 
 ## name of image
-image: docker.io/alexispinpar1234/pcai:oracle-db-single
+image: registry.oracle.com/database/free:latest
 
 ## image pull policy, IfNotPresent or Always
 imagePullPolicy: Always
 
 ## container registry login/password
-imagePullSecrets: alexis-registry
+imagePullSecrets: your-registry-secret
 
 ingress:
   enabled: false

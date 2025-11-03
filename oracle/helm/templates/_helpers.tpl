@@ -93,6 +93,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "oracle-db-fullname.selectorLabels" -}}
+{{ include "hpe-ezua.labels" . }}
 app: {{ include "fullname" . }}
 app.kubernetes.io/name: {{ include "name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
