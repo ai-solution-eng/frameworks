@@ -35,7 +35,7 @@ The following tables lists the configurable parameters of the Oracle  Database c
 | oracle_characterset                  | The character set to use                   | AL32UTF8                                                   |
 | oracle_edition                       | The database edition                       | free                                                 |
 | persistence.size                     | Size of persistence storage                | 100g                                                       |
-| persistence.storageClass             | Storage Class for PVC                      |                                                            |
+| persistence.storageClass             | Storage Class for PVC                      | nfs-csi                                                   |
 | loadBalService                       | Create a load balancer service instead of NodePort | false                                              |
 | image                                | Image to pull                              | registry.oracle.com/database/free:latest |
 | imagePullPolicy                      | Image pull policy                          | Always                                                     |
