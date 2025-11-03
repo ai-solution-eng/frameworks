@@ -93,7 +93,23 @@ ezua:
   selfSignedCert: false
 
 
+containerSecurityContext:
+  # IMPORTANT: Enforces that the container cannot run as root.
+  runAsNonRoot: true
+  
+  # IMPORTANT: Must match the USER_ID from your Dockerfile.
+  runAsUser: 54321
+  
+  # IMPORTANT: Must match the GROUP_ID from your Dockerfile.
+  runAsGroup: 54321
+  
+    # Disables privilege escalation (e.g., via sudo) for added security.
+  allowPrivilegeEscalation: false
 
+specSecurityContext:
+  runAsUser: 54321
+  runAsGroup: 54321     
+  fsGroup: 54321
 
 ## Deploy only on nodes having required labels .
 ## Format label_name : label_value . eg pool: sidb
