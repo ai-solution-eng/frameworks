@@ -97,8 +97,8 @@ ragflow:
   service:
     # Use LoadBalancer to expose the web interface externally
     type: ClusterIP
-    #port: 80
-    #containerPort: 80
+    port: 80
+    containerPort: 80
     #nodePort: ""
     #labels: {}
     #loadBalancerClass: ""
