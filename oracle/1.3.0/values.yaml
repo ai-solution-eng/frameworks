@@ -28,14 +28,11 @@ enable_archivelog: false
 oracleservice:
   port: 1521 
 
-## Enable persistence using Persistent Volume Claims
-## ref: http://kubernetes.io/docs/user-guide/persistent-volumes/
-## Override 'persistence' to 'null' using '--set' option, if persistence is not desired (e.g. using the extended image with 'prebuiltdb' extension)
 persistence:
   enable: true
-  ## Oracle Database data Persistent Volume Storage Class, nfs or block
-  storageClass: "gl4f-filesystem"
-  size: 100Gi
+  useCustomSC: false # If this parameter is left on false the default cluster storage class will be used
+  storageClass: "" # Left blank if above parameter is false
+  size: 20Gi
 
 ## Deploy only on nodes in a particular availability domain, eg PHX-AD-1 on OCI
 ## Leave empty if there is no such requirement
@@ -104,7 +101,7 @@ containerSecurityContext:
   # IMPORTANT: Must match the GROUP_ID from your Dockerfile.
   runAsGroup: 54321
   
-    # Disables privilege escalation (e.g., via sudo) for added security.
+  # Disables privilege escalation (e.g., via sudo) for added security.
   allowPrivilegeEscalation: false
 
 specSecurityContext:
