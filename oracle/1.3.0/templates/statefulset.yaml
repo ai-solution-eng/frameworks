@@ -87,7 +87,9 @@ spec:
         - ReadWriteMany
       resources:
         requests:
-          storage: 20Gi
+          storage: {{ .Values.persistence.size}}
+      {{- if .Values.persistence.useCustomSC -}}
       storageClassName: {{ .Values.persistence.storageClass | quote }}
+      {{- end }}
   {{- end }}
 

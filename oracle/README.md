@@ -6,6 +6,8 @@ Database 26ai is an industry leading relational database server.
 The provided **Helm Chart** in this repo is a modified version of the one available in the official [Oracle GitHub repository](https://github.com/oracle/docker-images/tree/main/OracleDatabase/SingleInstance/helm-charts/oracle-db)
 
 
+
+
 ## Introduction
 
 The Oracle Database Chart contains the Oracle Database 26ai running on Oracle Linux 8. 
