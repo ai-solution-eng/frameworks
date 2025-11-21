@@ -471,7 +471,9 @@ openaiApiKeys:
 databaseUrl: ""
 
 # -- Env vars added to the Open WebUI deployment. Most up-to-date environment variables can be found here: https://docs.openwebui.com/getting-started/env-configuration. Variables can be defined as list or map style.
-extraEnvVars: []
+extraEnvVars:
+  - name: DEFAULT_USER_ROLE
+    value: "user"
   # - name: OPENAI_API_KEY
   #   valueFrom:
   #     secretKeyRef:
@@ -568,16 +570,16 @@ containerSecurityContext: {}
 sso:
   # -- **Enable SSO authentication globally** must enable to use SSO authentication
   # @section -- SSO Configuration
-  enabled: false
+  enabled: true
   # -- Enable account creation when logging in with OAuth (distinct from regular signup)
   # @section -- SSO Configuration
-  enableSignup: false
+  enableSignup: true
   # -- Allow logging into accounts that match email from OAuth provider (considered insecure)
   # @section -- SSO Configuration
   mergeAccountsByEmail: false
   # -- Enable OAuth role management through access token roles claim
   # @section -- SSO Configuration
-  enableRoleManagement: false
+  enableRoleManagement: true
   # -- Enable OAuth group management through access token groups claim
   # @section -- SSO Configuration
   enableGroupManagement: false
@@ -635,13 +637,13 @@ sso:
   oidc:
     # -- Enable OIDC authentication
     # @section -- OIDC configuration
-    enabled: false
+    enabled: true
     # -- OIDC client ID
     # @section -- OIDC configuration
-    clientId: ""
+    clientId: "ua"
     # -- OIDC client secret (ignored if clientExistingSecret is set)
     # @section -- OIDC configuration
-    clientSecret: ""
+    clientSecret: "CLIENT_SECRET from configure_oidc.sh script"
     # -- OICD client secret from existing secret
     # @section -- OIDC configuration
     clientExistingSecret: ""
@@ -650,7 +652,7 @@ sso:
     clientExistingSecretKey: ""
     # -- OIDC provider well known URL
     # @section -- OIDC configuration
-    providerUrl: ""
+    providerUrl: "http://keycloak.keycloak.svc.cluster.local/realms/UA/.well-known/openid-configuration"
     # -- Name of the provider to show on the UI
     # @section -- OIDC configuration
     providerName: "SSO"
@@ -660,7 +662,7 @@ sso:
   roleManagement:
     # -- The claim that contains the roles (can be nested, e.g., user.roles)
     # @section -- Role management configuration
-    rolesClaim: "roles"
+    rolesClaim: "groups"
     # -- Comma-separated list of roles allowed to log in (receive open webui role user)
     # @section -- Role management configuration
     allowedRoles: ""
