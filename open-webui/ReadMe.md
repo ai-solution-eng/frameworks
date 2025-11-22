@@ -65,11 +65,11 @@ You will want to edit the values and
       value: /etc/ssl/certs/ca-certificates.crt
 ```
 
-## Single Sign-On with OIDC
+## Single Sign-On (SSO) with OIDC
 
 Open WebUI can be configured to use OAuth and SSO with OpenID Connect (OIDC) that is used for identity and access management in AIE. There is an included script that automates the addition of a valid redirect URI for the keycloak OIDC endpoint as well as the client secret required with the Open WebUI [values.yaml](8.12.2/values.yaml#L646).
 
-You can run the provided bash script ([configure_oidc.sh](configure_oidc.sh)) within a terminal that is configured with the KUBECONFIG admin access to the AIE environment:
+You can run the provided bash script ([configure_oidc.sh](configure_oidc.sh)) within a terminal that is configured with the `KUBECONFIG` admin access through `kubectl` to the AIE environment:
 
 ```bash
 chmod +x configure_oidc.sh
