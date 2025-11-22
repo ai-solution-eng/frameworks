@@ -5,7 +5,7 @@
 # Define the realm, client, and name of the virtual service for the AIE hosted app
 REALM="UA"
 CLIENT="ua"
-VIRTUAL_SERVICE_NAME="open-webui-testing"
+VIRTUAL_SERVICE_NAME="open-webui"
 
 # Domain name for the AIE environment
 DOMAIN_NAME=$(kubectl get cm ezapp-manager-parameters -n ezapp-system -o jsonpath='{..DOMAIN_NAME}')
