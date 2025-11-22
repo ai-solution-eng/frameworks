@@ -643,7 +643,7 @@ sso:
     clientId: "ua"
     # -- OIDC client secret (ignored if clientExistingSecret is set)
     # @section -- OIDC configuration
-    clientSecret: "CLIENT_SECRET from configure_oidc.sh script"
+    clientSecret: "clientSecret from configure_oidc.sh script"
     # -- OICD client secret from existing secret
     # @section -- OIDC configuration
     clientExistingSecret: ""
