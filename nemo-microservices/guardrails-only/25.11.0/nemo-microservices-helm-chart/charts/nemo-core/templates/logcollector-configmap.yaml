@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nemo-core.logcollector-servicename" . }}
+data:
+  fluent-bit.yaml: |
+    service:
+      flush: 1
+      http_server: on
+      health_check: on
+
+    parsers:
+      - name: json
+        format: json
+      - name: docker
+        format: json
+        time_key: time
+        time_format: "%Y-%m-%dT%H:%M:%S.%L"
+        time_keep: true
+
+    pipeline:
+      inputs:
+        - name: opentelemetry
+          listen: 0.0.0.0
+          port: 4318
+
+      filters:
+        - name: lua
+          match: '*'
+          call: cb_nemo_otel_collector
+          code: |
+            function cb_nemo_otel_collector(tag, timestamp, group, metadata, record)
+              record.job_id = group.resource.attributes.job_id or 'unknown'
+              record.job_step = group.resource.attributes.job_step or 'unknown'
+              record.job_task = group.resource.attributes.job_task or 'unknown'
+              return 1, timestamp, metadata, record
+            end
+
+      outputs:
+        - name: pgsql
+          match: '*'
+          Host:         ${DB_HOST}
+          Port:         ${DB_PORT}
+          User:         ${DB_USER}
+          Password:     ${DB_PASS}
+          Database:     ${DB_NAME}
+          Table:        platformjoblogfluentbitlanding
+          # Use the Fluent Bit internal timestamp for the 'time' column
+          Timestamp_Key: '@timestamp'

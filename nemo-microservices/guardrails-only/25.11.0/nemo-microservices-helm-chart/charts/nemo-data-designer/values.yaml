@@ -1,0 +1,152 @@
+# Default values for nemo-data-designer
+
+global:
+  # -- Set to an empty string in the component chart
+  platformConfigmapName: ""
+
+# -- The name of the ConfigMap that contains platform configuration. This is only used in the subcomponent chart.
+platformConfigmapName: "nemo-platform-config"
+
+# -- The service name for the NeMo Data Designer microservice.
+serviceName: nemo-data-designer
+
+# -- Number of replicas for the NeMo Data Designer deployment.
+replicaCount: 1
+
+image:
+  # -- The repository location of the NeMo Data Designer container image.
+  repository: nvcr.io/nvidia/nemo-microservices/data-designer
+  # -- The image pull policy for the NeMo Data Designer container image.
+  pullPolicy: IfNotPresent
+  # -- The tag of the NeMo Data Designer container image.
+  tag: ""
+
+# -- Specifies the list of secret names that are needed for the main container and any init containers.
+imagePullSecrets: []
+
+# -- Overrides the chart name.
+nameOverride: ""
+
+# -- Overrides the full chart name.
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Whether to create a service account for the NeMo Data Designer microservice.
+  create: true
+  # -- Whether to automatically mount the service account token.
+  automount: true
+  # -- Annotations to be added to the service account.
+  annotations: {}
+  # -- The name of the service account to use.
+  name: ""
+
+# -- Specifies additional annotations to the main deployment pods.
+podAnnotations: {}
+
+# -- Specifies additional labels to the main deployment pods.
+podLabels: {}
+
+# -- Specifies privilege and access control settings for the pod.
+podSecurityContext:
+  # -- Specifies the file system owner group id.
+  fsGroup: 1000
+
+# -- Specifies security context for the container.
+securityContext:
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# -- Specifies the service type and the port for the deployment.
+service:
+  type: ClusterIP
+  port: 8000
+
+# -- Resource requests and limits.
+resources:
+  {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 500m
+  #   memory: 1Gi
+  # requests:
+  #   cpu: 250m
+  #   memory: 512Mi
+
+# -- Liveness probe configuration.
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# -- Readiness probe configuration.
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# -- Autoscaling configuration.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# -- Data Designer application settings
+config:
+  port: 8000
+  log_level: "INFO"
+
+  # -- The configuration for supported seed dataset sources
+  seed_dataset_source_registry:
+    sources:
+      - endpoint: http://nemo-data-store:3000/v1/hf
+
+  preview_num_records:
+    # -- The default number of records to return when generating a preview dataset
+    default: 10
+    # -- The maximum number of records to allow when generating a preview dataset
+    max: 10
+
+  # -- The configuration for supported model providers
+  model_provider_registry:
+    default: "nimproxy"
+    providers:
+      - name: "nimproxy"
+        endpoint: "http://nemo-nim-proxy:8000/v1"
+
+  # -- A list of default model configs available in all dataset generation requests
+  default_model_configs: []
+
+# -- Environment variables for the Data Designer container.
+env: {}
+
+# -- Additional volumes for the deployment.
+volumes: []
+
+# -- Additional volume mounts for the deployment.
+volumeMounts: []
+
+# -- Additional node selector configuration for the deployment.
+nodeSelector: {}
+
+# -- Additional tolerations for the deployment.
+tolerations: []
+
+# -- Affinity configuration for the deployment.
+affinity: {}

@@ -1,0 +1,421 @@
+# Default values for nemo-jobs
+
+# Global values that can be overridden by the parent chart
+global:
+
+  # Global image pull secrets.
+  imagePullSecrets: []
+
+  # Set to an empty string in the component chart
+  platformConfigmapName: ""
+
+# Local name for the platform configmap if not using the global one
+platformConfigmapName: "nemo-platform-config"
+
+# Config is the configuration for the core services
+config:
+
+  # -- platform is the global platform configuration which is shared across all services
+  platform:
+
+    # -- base_url is the base URL for the platform. If not set, it will default to the core service URL
+    base_url: ""
+
+    # -- enable_service_account_auth enables service account token authentication in-between services
+    enable_service_account_auth: true
+
+    # -- host is the host the consolidated core API server will listen on
+    host: "0.0.0.0"
+
+    # -- port is the port the consolidated core API server will listen on
+    port: 8000
+
+  # -- jobs is the configuration specific to executing jobs on the platform
+  jobs:
+
+    # -- port is the port the jobs service will listen on
+    port: 8000
+
+    # -- storage config for the persistent volume claim that is shared by jobs on the platform
+    storage:
+
+      # -- If set, pods will mount this persistent volume for job-scoped storage
+      # and we will not create a new persistent volume claim.
+      existingPersistentVolumeName: ""
+
+      # -- Which storageClass to use when creating a new persistent volume claim.
+      # Leaving as empty string will use the cluster's default storageClass.
+      storageClass: ""
+
+      # -- accessModes for the persistent volume claim. This should include `ReadWriteMany` to ensure
+      # multiple job pods can write to the volume concurrently.
+      accessModes:
+        - ReadWriteMany
+
+      # -- size of the persistent volume claim used for jobs storage
+      size: 200Gi      
+
+      # -- volumePermissionsImage is the image used to set permissions on the volume
+      volumePermissionsImage: "busybox"
+
+    # -- ttl_seconds_after_finished is the time to live in seconds for finished jobs before they are cleaned up
+    ttl_seconds_after_finished: 10800
+
+    # -- enabled_backends is the configuration for enabling job execution backends.
+    # On Kubernetes, kubernetes_job is always enabled, while other backends can be optionally enabled in this section.
+    enabled_backends:
+
+      # -- Enable Volcano jobs backend
+      volcano: false
+
+    # Executor profiles configuration
+    executors:
+      - profile: default
+        backend: kubernetes_job
+        provider: cpu
+      - profile: default
+        backend: kubernetes_job
+        provider: gpu
+
+  # -- models is the configuration specific to model management on the platform
+  models:
+
+    # -- host is the host the models service will listen on
+    host: "0.0.0.0"
+
+    # -- port is the port the models service will listen on
+    port: 8000
+
+    # -- override database configuration for the models service
+    database:
+      # Database name override (if empty, use value from externalDatabase or postgresql, whichever is set)
+      name: ""
+      # Database host override (if empty, use value from externalDatabase or postgresql, whichever is set)
+      host: ""
+      # Database port override (if empty, use value from externalDatabase or postgresql, whichever is set)
+      port: ""
+      # Database user override (if empty, use value from externalDatabase or postgresql, whichever is set)
+      user: ""
+      # Database password override (if empty, use value from externalDatabase or postgresql, whichever is set)
+      # Note: This will be stored in a Kubernetes secret. Mutually exclusive with passwordExistingSecret
+      password: ""
+      # Use an existing secret for the database password (mutually exclusive with password)
+      passwordExistingSecret:
+        # Name of the existing secret containing the password
+        name: ""
+        # Key in the secret that contains the password
+        key: ""
+
+    # -- controller configuration for the models service
+    controller:
+      interval_seconds: 10
+      sleep_seconds: 5
+
+  # -- inference_gateway is the configuration specific to inference request routing
+  inference_gateway:
+
+    # -- port is the port the inference gateway service will listen on
+    port: 8000
+
+    # -- host is the host the inference gateway service will listen on
+    host: "0.0.0.0"
+
+    # -- refresh_model_cache_interval_sec is how frequently to refresh the internal model cache
+    refresh_model_cache_interval_sec: 3
+
+image:
+  repository: nvcr.io/nvidia/nemo-microservices/nmp-core
+  pullPolicy: IfNotPresent
+  tag: ""
+
+# -- Specifies the list of secret names that are needed
+imagePullSecrets: []
+
+api:
+  replicaCount: 2
+
+  serviceAccount:
+    # Specifies whether a service account should be created
+    create: true
+    # Automatically mount a ServiceAccount's API credentials?
+    automount: true
+    # Annotations to add to the service account
+    annotations: {}
+    # The name of the service account to use.
+    # If not set and create is true, a name is generated using the fullname template
+    name: ""
+
+  annotations: {}
+
+  podAnnotations: {}
+  podLabels: {}
+
+  podSecurityContext:
+    fsGroup: 1000
+
+  securityContext:
+    {}
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  resources:
+    {}
+    # We usually recommend not to specify default resources and to leave this as a conscious
+    # choice for the user. This also increases chances charts run on environments with little
+    # resources, such as Minikube. If you do want to specify resources, uncomment the following
+    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+    # limits:
+    #   cpu: 100m
+    #   memory: 128Mi
+    # requests:
+    #   cpu: 100m
+    #   memory: 128Mi
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 2
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  # Environment variables to pass to containers. This is an object formatted like NAME: value or NAME: valueFrom: {object}
+  env: {}
+
+  nodeSelector: {}
+
+  affinity: {}
+
+  tolerations: []
+
+controller:
+  serviceAccount:
+    # Specifies whether a service account should be created
+    create: true
+    # Automatically mount a ServiceAccount's API credentials?
+    automount: true
+    # Annotations to add to the service account
+    annotations: {}
+    # The name of the service account to use.
+    # If not set and create is true, a name is generated using the fullname template
+    name: ""
+
+  annotations: {}
+
+  podAnnotations: {}
+  podLabels: {}
+
+  podSecurityContext:
+    fsGroup: 1000
+
+  securityContext:
+    {}
+
+  resources:
+    {}
+    # We usually recommend not to specify default resources and to leave this as a conscious
+    # choice for the user. This also increases chances charts run on environments with little
+    # resources, such as Minikube. If you do want to specify resources, uncomment the following
+    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+    # limits:
+    #   cpu: 100m
+    #   memory: 128Mi
+    # requests:
+    #   cpu: 100m
+    #   memory: 128Mi
+
+  livenessProbe:
+    httpGet:
+      path: /health/live
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health/ready
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Environment variables to pass to containers. This is an object formatted like NAME: value or NAME: valueFrom: {object}
+  env: {}
+
+  nodeSelector: {}
+
+  affinity: {}
+
+  tolerations: []
+
+logcollector:
+
+  image:
+    repository: fluent/fluent-bit
+    tag: 4.0.7
+    pullPolicy: IfNotPresent
+
+  # The command to run in the log collector container
+  command: ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit.yaml"]
+
+  # The number of replicas for the log collector
+  replicaCount: 1
+
+  serviceAccount:
+    # Specifies whether a service account should be created
+    create: true
+    # Automatically mount a ServiceAccount's API credentials?
+    automount: true
+    # Annotations to add to the service account
+    annotations: {}
+    # The name of the service account to use.
+    # If not set and create is true, a name is generated using the fullname template
+    name: ""
+
+  annotations: {}
+
+  podAnnotations: {}
+  podLabels: {}
+
+  podSecurityContext:
+    fsGroup: 1000
+
+  securityContext:
+    {}
+
+  service:
+    type: ClusterIP
+    port: 4318
+
+  resources:
+    {}
+    # We usually recommend not to specify default resources and to leave this as a conscious
+    # choice for the user. This also increases chances charts run on environments with little
+    # resources, such as Minikube. If you do want to specify resources, uncomment the following
+    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+    # limits:
+    #   cpu: 100m
+    #   memory: 128Mi
+    # requests:
+    #   cpu: 100m
+    #   memory: 128Mi
+
+  livenessProbe:
+    tcpSocket:
+      port: 4318
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /api/v1/health
+      port: 2020
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  # Environment variables to pass to containers. This is an object formatted like NAME: value or NAME: valueFrom: {object}
+  env: {}
+
+  nodeSelector: {}
+
+  affinity: {}
+
+  tolerations: []
+
+# Logging is the configuration for jobs
+logging:
+  # Sidecar is the configuration for the log collector sidecar
+  sidecar:
+    # Whether to enable the logging sidecar. Set to false to disable logging sidecars being attached to jobs.
+    enabled: true
+    image:
+      repository: fluent/fluent-bit
+      tag: 4.0.7
+
+postgresql:
+  enabled: true
+  auth:
+    username: nemo
+    password: nemo
+    postgresPassword: nemo
+    database: jobs
+  service:
+    ports:
+      postgresql: 5432
+
+  persistence:
+    enabled: true
+    size: 10Gi
+
+externalDatabase:
+  # -- The host for an external database.
+  host: localhost
+  # -- The port for the external database.
+  port: 5432
+  # -- The user for the external database.
+  user: nemo
+  # -- The database for the external database.
+  database: jobs
+  # -- The existing secret for the external database.
+  existingSecret: ""
+  # -- The existing secret password key for the external database.
+  existingSecretPasswordKey: ""
+  # -- The name for the external database secret.
+  uriSecret:
+    name: ""
+    key: ""
+
+databaseMigrations:
+  # -- Enable or disable database migrations job
+  enabled: true
+
+  restartPolicy: OnFailure
+
+  annotations: {}
+
+  podAnnotations: {}
+
+  podLabels: {}
+
+  podSecurityContext:
+    fsGroup: 1000
+
+  securityContext: {}
+
+  resources: {}
+
+  nodeSelector: {}
+
+  affinity: {}
+
+  tolerations: []

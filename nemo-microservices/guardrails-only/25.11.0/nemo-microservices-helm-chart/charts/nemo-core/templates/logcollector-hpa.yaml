@@ -1,0 +1,32 @@
+{{- if .Values.logcollector.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "nemo-core.logcollector-servicename" . }}
+  labels:
+    {{- include "nemo-core.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "nemo-core.logcollector-servicename" . }}
+  minReplicas: {{ .Values.logcollector.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.logcollector.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.logcollector.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.logcollector.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.logcollector.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.logcollector.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nemo-core.logcollector-servicename" . }}
+  labels:
+    app.kubernetes.io/component: nemo-jobs-logcollector
+    {{- include "nemo-core.labels" . | nindent 4 }}
+spec:
+  ports:
+  - port: 4318
+    protocol: TCP
+  clusterIP: None
+  selector:
+    app.kubernetes.io/component: nemo-jobs-logcollector
+    {{- include "nemo-core.selectorLabels" . | nindent 4 }}

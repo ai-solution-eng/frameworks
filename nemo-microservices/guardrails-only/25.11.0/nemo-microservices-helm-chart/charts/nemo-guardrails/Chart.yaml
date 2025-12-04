@@ -1,0 +1,22 @@
+apiVersion: v2
+appVersion: "25.11"
+dependencies:
+- condition: postgresql.enabled
+  name: postgresql
+  repository: oci://dockerhub.nvidia.com/bitnamicharts
+  version: 16.6.2
+- name: nemo-common
+  repository: file://../../../library/
+  version: '>=0.1.0-0'
+- condition: opentelemetry-collector.enabled
+  name: opentelemetry-collector
+  repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+  version: 0.78.1
+description: NeMo Guardrails Microservice Helm Chart
+home: https://nvidia.com
+maintainers:
+- name: NVIDIA, Inc.
+  url: https://www.nvidia.com
+name: nemo-guardrails
+type: application
+version: 25.11.0

@@ -1,0 +1,77 @@
+guardrailsExtProc:
+  enabled: true
+  extProcImage:
+    # -- Repository for Guardrails Callout server image.
+    repository: nvidia/nemo-microservices/guardrails-callout
+    # -- The tag of the NeMo Guardrails container image.
+    tag: ""
+    # -- Image pull policy for Guardrails Callout server image.
+    imagePullPolicy: IfNotPresent
+  env:
+    GRPC_GO_LOG_SEVERITY_LEVEL: "INFO"
+    GR_GRPC__TLS__ENABLED: "true"
+    GR_GRPC__TLS__CERT_FILE: "/ssl_creds/server.crt"
+    GR_GRPC__TLS__KEY_FILE: "/ssl_creds/server.key"
+    OTEL_SERVICE_NAME: "guardrails-ext-proc-service"
+    OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
+    OTEL_EXPORTER_OTLP_INSECURE: "true"
+
+# -- Whether to enable the OpenTelemetry exporter for the NeMo Guardrails microservice.
+otelExporterEnabled: true
+
+# -- Configuration for the "opentelemetry-collector" dependency.
+opentelemetry-collector:
+  # -- Whether to enable the OpenTelemetry Collector service.
+  enabled: true
+  # -- The mode for the OpenTelemetry Collector service.
+  mode: deployment
+  # -- The configuration used by the OpenTelemetry Collector service.
+  config:
+    receivers:
+      # -- The OTLP receiver for the OpenTelemetry Collector service.
+      otlp:
+        protocols:
+          grpc:
+          http:
+            cors:
+              allowed_origins:
+                - "*"
+    exporters:
+      # -- Debugging verbosity for the OpenTelemetry Collector service.
+      debug:
+        verbosity: detailed
+      # -- It uses Application Default Credentials inside GKE via Workload Identity, so no explicit credentials are embedded here.
+      googlecloud: {}
+    processors:
+      # -- The batch processor for the OpenTelemetry Collector service.
+      batch: {}
+      # -- Detect GCP environment (project, instance/cluster), works on GKE
+      resourcedetection:
+        detectors: [gcp]
+        timeout: 10s
+    service:
+      pipelines:
+        # -- The traces pipeline for the OpenTelemetry Collector service.
+        traces:
+          # -- The receivers for the traces pipeline for the OpenTelemetry Collector service.
+          receivers: [otlp]
+          # -- The exporters for the traces pipeline for the OpenTelemetry Collector service.
+          exporters: [debug, googlecloud]
+          # -- The processors for the traces pipeline for the OpenTelemetry Collector service.
+          processors: [batch, resourcedetection]
+        # -- The metrics pipeline for the OpenTelemetry Collector service.
+        metrics:
+          # -- The receivers for the metrics pipeline for the OpenTelemetry Collector service.
+          receivers: [otlp]
+          # -- The exporters for the metrics pipeline for the OpenTelemetry Collector service.
+          exporters: [debug, googlecloud]
+          # -- The processors for the metrics pipeline for the OpenTelemetry Collector service.
+          processors: [batch, resourcedetection]
+        # -- The logs pipeline for the OpenTelemetry Collector service.
+        logs:
+          # -- The receivers for the logs pipeline for the OpenTelemetry Collector service.
+          receivers: [otlp]
+          # -- The exporters for the logs pipeline for the OpenTelemetry Collector service.
+          exporters: [debug, googlecloud]
+          # -- The processors for the logs pipeline for the OpenTelemetry Collector service.
+          processors: [batch, resourcedetection]
