@@ -1,0 +1,23 @@
+{{- if .Values.kubetail.clusterAgent.enabled }}
+{{- $np := index .Values "kubetail" "clusterAgent" "networkPolicy" -}}
+{{- if $np.enabled }}
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: {{ include "kubetail.clusterAgent.networkPolicyName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+  labels:
+    {{- include "kubetail.clusterAgent.labels" (list $ $np.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $np.annotations) | indent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kubetail.clusterAgent.selectorLabels" $ | nindent 6 }}
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          {{- include "kubetail.clusterAPI.selectorLabels" $ | nindent 10 }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,16 @@
+{{- if .Values.kubetail.clusterAgent.enabled }}
+{{- $svc := index .Values "kubetail" "clusterAgent" "service" -}}
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ include "kubetail.clusterAgent.serviceName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+  labels:
+    {{- include "kubetail.clusterAgent.labels" (list $ $svc.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $svc.annotations) | indent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "kubetail.clusterAgent.selectorLabels" $ | nindent 4 }}
+{{- end }}

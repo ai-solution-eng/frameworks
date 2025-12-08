@@ -1,0 +1,156 @@
+{{- if .Values.kubetail.dashboard.enabled }}
+{{- $rbac := index .Values "kubetail" "dashboard" "rbac" -}}
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kubetail.dashboard.clusterRoleName" $ }}
+  labels:
+    {{- include "kubetail.dashboard.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+rules:
+{{- if eq .Values.kubetail.dashboard.authMode "token" }}
+- apiGroups: [authentication.k8s.io]
+  resources: [tokenreviews]
+  verbs: [create]
+{{- else }}
+- apiGroups: [""]
+  resources: [namespaces, nodes]
+  verbs: [get, list, watch]
+{{- if not .Values.kubetail.allowedNamespaces }}
+- apiGroups: ["", apps, batch]
+  resources: [cronjobs, daemonsets, deployments, jobs, pods, pods/log, replicasets, statefulsets]
+  verbs: [get, list, watch]
+{{- end }}
+{{- end }}
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kubetail.dashboard.clusterRoleBindingName" $ }}
+  labels:
+    {{- include "kubetail.dashboard.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubetail.dashboard.clusterRoleName" $ }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kubetail.dashboard.serviceAccountName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+{{- if or (eq .Values.kubetail.dashboard.authMode "token") (not .Values.kubetail.allowedNamespaces) }}
+{{- if .Values.kubetail.clusterAPI.enabled }}
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: {{ include "kubetail.namespace" $ }}
+  name: {{ include "kubetail.dashboard.roleName" $ }}
+  labels:
+    {{- include "kubetail.dashboard.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+rules:
+- apiGroups: [discovery.k8s.io]
+  resources: [endpointslices]
+  verbs: [list, watch]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: {{ include "kubetail.namespace" $ }}
+  name: {{ include "kubetail.dashboard.roleBindingName" $ }}
+  labels:
+    {{- include "kubetail.dashboard.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubetail.dashboard.roleName" $ }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kubetail.dashboard.serviceAccountName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+{{- end }}
+{{- end }}
+{{- if and (ne .Values.kubetail.dashboard.authMode "token") (.Values.kubetail.allowedNamespaces) }}
+{{- if not (has (include "kubetail.namespace" $) .Values.kubetail.allowedNamespaces) }}
+{{- if .Values.kubetail.clusterAPI.enabled }}
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: {{ include "kubetail.namespace" $ }}
+  name: {{ include "kubetail.dashboard.roleName" $ }}
+  labels:
+    {{- include "kubetail.dashboard.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+rules:
+- apiGroups: [discovery.k8s.io]
+  resources: [endpointslices]
+  verbs: [list, watch]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: {{ include "kubetail.namespace" $ }}
+  name: {{ include "kubetail.dashboard.roleBindingName" $ }}
+  labels:
+    {{- include "kubetail.dashboard.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubetail.dashboard.roleName" $ }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kubetail.dashboard.serviceAccountName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+{{- end }}
+{{- end }}
+{{- range .Values.kubetail.allowedNamespaces }}
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: {{ . }}
+  name: {{ include "kubetail.dashboard.roleName" $ }}
+  labels:
+    {{- include "kubetail.dashboard.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+rules:
+- apiGroups: ["", apps, batch]
+  resources: [cronjobs, daemonsets, deployments, jobs, pods, pods/log, replicasets, statefulsets]
+  verbs: [get, list, watch]
+{{- if eq . (include "kubetail.namespace" $) }}
+- apiGroups: [discovery.k8s.io]
+  resources: [endpointslices]
+  verbs: [list, watch]
+{{- end }}
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: {{ . }}
+  name: {{ include "kubetail.dashboard.roleBindingName" $ }}
+  labels:
+    {{- include "kubetail.dashboard.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubetail.dashboard.roleName" $ }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kubetail.dashboard.serviceAccountName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+{{- end }}
+{{- end }}
+{{- end }}

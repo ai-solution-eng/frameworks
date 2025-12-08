@@ -1,0 +1,18 @@
+apiVersion: v2
+appVersion: 0.16.3
+description: General-purpose logging dashboard for Kubernetes
+home: https://github.com/kubetail-org/kubetail
+icon: https://assets.kubetail.com/helm/icon-40dad90a08.svg
+keywords:
+- kubetail
+- kubernetes
+- logging
+- private
+- realtime
+maintainers:
+- email: andres@kubetail.com
+  name: Andres Morey
+  url: https://github.com/kubetail-org
+name: kubetail
+type: application
+version: 0.16.3
