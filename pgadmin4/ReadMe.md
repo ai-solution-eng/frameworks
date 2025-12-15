@@ -1,6 +1,6 @@
 # PGADMIN4 Framework
 
-pgAdmin 4 is the leading open-source graphical administration and development platform for PostgreSQL, offering a user-friendly interface (web-based or desktop) for managing databases, writing queries, monitoring, and performing daily database tasks, suitable for both beginners and experts, featuring query tools, schema management, and data viewing, built with Python/Flask and ReactJS. 
+pgAdmin4 is the leading open-source graphical administration and development platform for PostgreSQL, offering a user-friendly interface (web-based or desktop) for managing databases, writing queries, monitoring, and performing daily database tasks, suitable for both beginners and experts, featuring query tools, schema management, and data viewing, built with Python/Flask and ReactJS. 
 
 # Why do we need it
 
@@ -36,4 +36,5 @@ You can choose not to define too.
       SSLMode: "prefer"
       MaintenanceDB: "postgres"
 ```
+
 
