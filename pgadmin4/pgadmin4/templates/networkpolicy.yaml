@@ -1,0 +1,20 @@
+{{- if .Values.networkPolicy.enabled -}}
+{{- $fullName := include "pgadmin.fullname" . -}}
+apiVersion: {{ template "networkPolicy.apiVersion" . }}
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullName }}
+  namespace: {{ include "pgadmin.namespaceName" . }}
+  labels:
+    {{- include "pgadmin.labels" . | nindent 4 }}
+spec:
+  policyTypes:
+    - Ingress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "pgadmin.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  ingress:
+  - ports:
+    - port: {{ .Values.service.targetPort }}
+{{- end }}
