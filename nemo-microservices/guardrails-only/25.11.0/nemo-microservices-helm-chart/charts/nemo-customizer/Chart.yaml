@@ -1,0 +1,18 @@
+apiVersion: v2
+appVersion: "25.11"
+dependencies:
+- condition: postgresql.enabled
+  name: postgresql
+  repository: oci://dockerhub.nvidia.com/bitnamicharts
+  version: 13.3.1
+- condition: opentelemetry-collector.enabled
+  name: opentelemetry-collector
+  repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+  version: 0.93.3
+- name: nemo-common
+  repository: file://../../../library/
+  version: '>=0.1.0-0'
+description: NeMo Customizer Microservice Helm Chart
+name: nemo-customizer
+type: application
+version: 25.11.0

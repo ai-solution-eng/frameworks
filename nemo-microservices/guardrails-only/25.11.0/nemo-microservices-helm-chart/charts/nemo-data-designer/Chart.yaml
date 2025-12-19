@@ -1,0 +1,14 @@
+apiVersion: v2
+appVersion: "25.11"
+dependencies:
+- name: nemo-common
+  repository: file://../../../library/
+  version: '>=0.1.0-0'
+description: A Helm chart for NeMo Data Designer service
+home: https://nvidia.com
+maintainers:
+- name: NVIDIA, Inc.
+  url: https://www.nvidia.com
+name: nemo-data-designer
+type: application
+version: 25.11.0

@@ -1,0 +1,9 @@
+dependencies:
+- name: postgresql
+  repository: oci://dockerhub.nvidia.com/bitnamicharts
+  version: 13.3.1
+- name: nemo-common
+  repository: file://../../../library/
+  version: 0.2.0
+digest: sha256:01f4e7365725278c7a9dfc47be18798dee57a31b7fbe1355436f6193466335e5
+generated: "2025-11-13T18:20:09.952656216Z"

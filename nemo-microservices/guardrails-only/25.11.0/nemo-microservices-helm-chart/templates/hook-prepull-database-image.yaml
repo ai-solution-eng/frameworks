@@ -1,0 +1,41 @@
+{{- if and .Subcharts.core .Values.core.postgresql.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "prepull-postgres-image"
+  labels:
+    {{- include "nemo-platform.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  {{- with .Values.core.databaseMigrations.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: {{ .Values.core.databaseMigrations.restartPolicy }}
+      securityContext:
+        {{- toYaml .Values.core.databaseMigrations.podSecurityContext | nindent 8 }}
+      containers:
+        - name: postgres
+          securityContext:
+            {{- toYaml .Values.core.databaseMigrations.securityContext | nindent 12 }}
+          image: {{ .Values.core.postgresql.image.repository }}:{{ .Values.core.postgresql.image.tag }}
+          imagePullPolicy: {{ .Values.core.image.pullPolicy }}
+          command: ['sh', '-c', 'echo Image pulled successfully']
+      {{- with .Values.core.databaseMigrations.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.core.databaseMigrations.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.core.databaseMigrations.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

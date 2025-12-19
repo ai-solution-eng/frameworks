@@ -1,0 +1,2444 @@
+virtualService:
+  enabled: false
+
+ingress:
+  enabled: false
+
+nim:
+  enabled: false
+
+ezua:
+  #Use next options in order to configure the application endpoint.
+  virtualService:
+    endpoint: "nemo-guradrails.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+
+tags:
+  # -- When set to `true`, installs the primary NeMo microservices platform. To install individual microservices, set `platform` to `false` and configure the `tags` key with values for each individual microservice. For more information, refer to [Tag-Based Installation](https://docs.nvidia.com/nemo/microservices/latest/set-up/deployment-options.html#tag-based-installation).
+  # platform: true
+  platform: false
+  guardrails: true
+  auditor: false
+  studio: false
+  safe-synthesizer: false
+
+# -- You can use an existing Kubernetes secret for communicating with the NGC API for downloading models. The chart uses the `ngcAPIKey` value to generate the secret if you set this to an empty string.
+existingSecret: ngc-api
+
+# -- You can specify an existing Kubernetes image pull secret for pulling images from the NGC container registry. The chart uses the `ngcAPIKey` value to generate the secret if you set this to an empty string.
+existingImagePullSecret: nvcrimagepullsecret
+
+# -- Your NVIDIA GPU Cloud (NGC) API key authenticates and enables pulling images from the NGC container registry. The existing secret overrides this key if you provide one to the `existingSecret` key.
+ngcAPIKey: YOUR-NGC-API-KEY
+
+# -- List of image pull secrets. Existing secrets override these values if you specify them. Use this only for experimentation when you want to hardcode a secret in your values file.
+# @default -- `[{"name":"nvcrimagepullsecret","password":"YOUR-NGC-API-KEY","registry":"nvcr.io","username":"$$oauthtoken"}]`
+imagePullSecrets:
+  - name: "{{ (index .Values.global.imagePullSecrets 0).name }}"
+    registry: nvcr.io
+    username: $oauthtoken
+    password: "{{ .Values.ngcAPIKey }}"
+
+global:
+  # -- The name of the image pull secret to use globally across all services.
+  imagePullSecrets:
+    - name: nvcrimagepullsecret
+  # -- A value needed for bitnamilegacy images used in postgresql subcharts
+  security:
+    allowInsecureImages: true
+
+  # -- The name of the config map to use for global platform configuration.
+  platformConfigmapName: nemo-platform-config
+
+data-store:
+  enable: true
+  # -- Global parameters to override the same settings in all subcharts of the data-store Helm chart.
+  global:
+    # -- Global image registry.
+    imageRegistry: ""
+    ## E.g.
+    ## imagePullSecrets:
+    ##   - myRegistryKeySecretName
+    ##
+    # -- Global image pull secrets.
+    imagePullSecrets: []
+    # -- Global storage class that applies to persistent volumes.
+    storageClass: ""
+    # -- Global host aliases which will be added to the pod's hosts files.
+    hostAliases: []
+    # - ip: 192.168.137.2
+    #   hostnames:
+    #   - example.com
+
+  # -- The service name for the NeMo Data Store microservice.
+  serviceName: nemo-data-store
+
+  # -- Number of replicas for the deployment.
+  replicaCount: 1
+
+  # -- Strategy configuration for controlling how pod updates are performed.
+  # @default -- This object has the following default values for the strategy configuration.
+  strategy:
+    # -- The strategy type for pod updates. Use `RollingUpdate` if you use `ReadWriteMany` persistent storage or deploying on a single node. Otherwise, use `Recreate` to allow upgrades, although it causes downtime during the upgrade process.
+    type: "Recreate"
+    rollingUpdate:
+      # -- Maximum number of pods that can be created above the desired amount during an update.
+      maxSurge: "100%"
+      # -- Maximum number of pods that can be unavailable during an update.
+      maxUnavailable: 0
+
+  # -- Kubernetes cluster domain name.
+  clusterDomain: cluster.local
+
+  # -- Container image configuration settings
+  # @default -- This object has the following default values for the image configuration.
+  image:
+    # -- The registry where the NeMo Data Store image is located.
+    registry: "nvcr.io"
+    # -- The repository path of the NeMo Data Store image.
+    repository: "nvidia/nemo-microservices/datastore"
+    # -- The image tag to use.
+    tag: ""
+    # -- The image digest to use for more precise version control.
+    digest: ""
+    # -- The image pull policy determining when to pull new images.
+    pullPolicy: IfNotPresent
+    # -- Whether to run the container with rootless security context.
+    rootless: true
+    # -- Complete override string for the image specification.
+    fullOverride: ""
+
+  # -- Configuration for image pull secrets to access private registries.
+  imagePullSecrets:
+    # -- Name of the secret containing registry credentials.
+    - name: nvcrimagepullsecret
+
+  # -- Pod-level security context settings
+  podSecurityContext:
+    # -- The file system group ID to use for all containers.
+    fsGroup: 1000
+    # -- Set the permission change policy for mounted PVCs.
+    fsGroupChangePolicy: OnRootMismatch
+
+  # -- Container-level security context settings
+  containerSecurityContext: {}
+  #   allowPrivilegeEscalation: false
+  #   capabilities:
+  #     drop:
+  #       - ALL
+  #   # Add the SYS_CHROOT capability for root and rootless images if you intend to
+  #   # run pods on nodes that use the container runtime cri-o. Otherwise, you will
+  #   # get an error message from the SSH server that it is not possible to read from
+  #   # the repository.
+  #     add:
+  #       - SYS_CHROOT
+  #   privileged: false
+  #   readOnlyRootFilesystem: true
+  #   runAsGroup: 1000
+  #   runAsNonRoot: true
+  #   runAsUser: 1000
+
+  # -- **DEPRECATED** Run init and NeMo Data Store containers as a specific securityContext. The securityContext variable has been split two: `containerSecurityContext` and `podSecurityContext`.
+  securityContext: {}
+
+  # -- Pod disruption budget configuration.
+  podDisruptionBudget: {}
+  #  maxUnavailable: 1
+  #  minAvailable: 1
+
+  # -- Service configuration for exposing the application.
+  # @default -- This object has the following default values for the service configuration.
+  service:
+    # -- HTTP service configuration.
+    http:
+      # -- The Kubernetes service type to create for HTTP traffic.
+      type: ClusterIP
+      # -- The port number to expose for HTTP traffic.
+      port: 3000
+      # -- The cluster IP address to assign to the service.
+      clusterIP: ""
+      # -- The static IP address for LoadBalancer service type.
+      loadBalancerIP:
+      # -- The node port number when using NodePort service type
+      nodePort:
+      # -- External traffic policy for controlling source IP preservation
+      externalTrafficPolicy:
+      # -- List of external IP addresses to assign to the service
+      externalIPs:
+      # -- IP family policy for dual-stack support
+      ipFamilyPolicy:
+      # -- List of IP families to use for the service
+      ipFamilies:
+      # -- List of CIDR ranges allowed to access the LoadBalancer
+      loadBalancerSourceRanges: []
+      # -- Additional annotations for the HTTP service
+      annotations: {}
+      # -- Additional labels for the HTTP service
+      labels: {}
+    # -- SSH service configuration.
+    # @default -- This object has the following default values for the SSH service configuration.
+    ssh:
+      # -- Whether to enable SSH service.
+      enabled: false
+      # -- The Kubernetes service type to create for SSH traffic.
+      type: ClusterIP
+      # -- The port number to expose for SSH traffic.
+      port: 22
+      # -- The cluster IP address to assign to the service.
+      clusterIP: None
+      # -- The static IP address for LoadBalancer service type.
+      loadBalancerIP:
+      # -- The node port number when using NodePort service type.
+      nodePort:
+      # -- The external traffic policy for controlling source IP preservation.
+      externalTrafficPolicy:
+      # -- List of external IP addresses to assign to the service.
+      externalIPs:
+      # -- IP family policy for dual-stack support.
+      ipFamilyPolicy:
+      # -- List of IP families to use for the service.
+      ipFamilies:
+      # -- The host port number when using HostPort service type.
+      hostPort:
+      # -- List of CIDR ranges allowed to access the LoadBalancer.
+      loadBalancerSourceRanges: []
+      # -- Additional annotations for the SSH service.
+      annotations: {}
+      # -- Additional labels for the SSH service.
+      labels: {}
+
+  # -- Ingress configuration.
+  # @default -- This object has the following default values for the ingress configuration.
+  ingress:
+    # -- Whether to enable ingress.
+    enabled: false
+    # -- The Ingress class name.
+    className:
+    # -- Additional annotations for the Ingress. For example, `kubernetes.io/ingress.class: nginx`, `kubernetes.io/tls-acme: "true"`.
+    annotations:
+      {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    # -- (list) A list of maps, each containing the keys `host` and `paths` for the ingress resource. You must specify a list for configuring ingress for the microservice.
+    hosts: {}
+    #   - host: datastore.example.com
+    #     paths:
+    #       - path: /
+    #         pathType: Prefix
+    tls: []
+    #  - secretName: chart-example-tls
+    #    hosts:
+    #      - datastore.example.com
+    # Mostly for argocd or any other CI that uses `helm template | kubectl apply` or similar
+    # If helm doesn't correctly detect your ingress API version you can set it here.
+    # apiVersion: networking.k8s.io/v1
+
+  # -- Kubernetes deployment resources configuration.
+  # It is recommended to not specify default resources and to leave this as a conscious
+  # choice. This also increases chances that the chart will run on environments with little
+  # resources, such as minikube. If you want to specify resources, use the following
+  # example, adjust the values as necessary, and remove the empty curly braces `{}`.
+  # `limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi`
+  resources:
+    {}
+
+  # -- The name of the alternate scheduler to use. For more information, see [Configure Multiple Schedulers](https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/).
+  schedulerName: ""
+
+  # -- NodeSelector configuration for the deployment.
+  nodeSelector: {}
+
+  # -- Tolerations configuration for the deployment.
+  tolerations: []
+
+  # -- Affinity configuration for the deployment.
+  affinity: {}
+
+  # -- TopologySpreadConstraints configuration for the deployment.
+  topologySpreadConstraints: []
+
+  # -- dnsConfig configuration for the deployment.
+  dnsConfig: {}
+
+  # -- priorityClassName configuration for the deployment.
+  priorityClassName: ""
+
+  # -- Deployment configuration.
+  deployment:
+    # -- How long to wait until forcefully kill the pod.
+    terminationGracePeriodSeconds: 60
+    # -- Labels for the deployment.
+    labels: {}
+    # -- Annotations for the Datastore deployment to be created.
+    annotations: {}
+
+  # -- Additional environment variables to pass to containers. This is an object formatted like NAME: value or NAME: valueFrom: {object}.
+  env:
+    {}
+
+  # -- Service account configuration.
+  serviceAccount:
+    # -- Whether to create a service account.
+    create: true
+    # -- Name of the created service account, defaults to release name. Can also link to an externally provided service account that should be used.
+    name: "gitea"
+    # -- Enable/disable auto mounting of the service account token.
+    automountServiceAccountToken: false
+    # -- Image pull secrets, available to the service account. To add a list of image pull secrets, remove `[]`use the following format: - name: private-registry-access.
+    imagePullSecrets: []
+    # -- Custom annotations for the service account.
+    annotations: {}
+    # -- Custom labels for the service account.
+    labels: {}
+
+  # -- Persistence volume configuration.
+  # @default -- This object has the following default values for the persistence volume configuration.
+  persistence:
+    # -- Whether to enable persistent volume.
+    enabled: true
+    # -- Whether to create the persistent volume claim for shared storage.
+    create: true
+    # -- Whether to mount the persistent volume claim.
+    mount: true
+    # -- Name of the persistent volume claim. You can use an existing claim to store repository information.
+    claimName: datastore-shared-storage
+    # -- The size of the persistent volume.
+    size: 100Gi
+    # -- Access modes for the persistent volume.
+    accessModes:
+      - ReadWriteOnce
+    # -- Labels for the persistence volume claim.
+    labels: {}
+    # -- Name of the storage class to use.
+    storageClass:
+    # -- Subdirectory of the volume to mount at.
+    subPath:
+    # -- Name of persistent volume in PVC.
+    volumeName: ""
+    # -- Annotations for the persistence volume claim.
+    annotations:
+      helm.sh/resource-policy: keep
+
+  # -- Additional volumes to mount to the Datastore deployment.
+  extraVolumes: []
+  # - name: postgres-ssl-vol
+  #   secret:
+  #     secretName: Datastore-postgres-ssl
+
+  # -- Mounts that are only mapped into the Datastore runtime/main container, to e.g. override custom templates.
+  extraContainerVolumeMounts: []
+
+  # -- Mounts that are only mapped into the init-containers. Can be used for additional preconfiguration.
+  extraInitVolumeMounts: []
+
+  # -- **DEPRECATED** Additional volume mounts for init containers and the Datastore main container. This value is split into the following two variables: `extraContainerVolumeMounts` and `extraInitVolumeMounts`.
+  extraVolumeMounts: []
+  # - name: postgres-ssl-vol
+  #   readOnly: true
+  #   mountPath: "/pg-ssl"
+
+  # -- Init container Bash shell scripts. For example, to mount a client certificate when connecting to an external Postgres server, you might add commands similar to the following:
+  #   `mkdir -p /data/git/.postgresql`,
+  #   `cp /pg-ssl/* /data/git/.postgresql/`,
+  #   `chown -R git:git /data/git/.postgresql/`,
+  #   `chmod 400 /data/git/.postgresql/postgresql.key`
+  initPreScript: ""
+
+  # -- Kubernetes resource limits for init containers.
+  initContainers:
+    resources:
+      # -- Kubernetes resource limits for init containers.
+      limits: {}
+      # -- Kubernetes cpu resource limits for init containers.
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+  # -- Signing configuration.
+  signing:
+    # -- Enable commit/action signing.
+    enabled: false
+    # -- GPG home directory.
+    gpgHome: /data/git/.gnupg
+    # -- Inline private GPG key for signed NeMo Data Store actions.
+    privateKey: ""
+    # privateKey: |-
+    #   -----BEGIN PGP PRIVATE KEY BLOCK-----
+    #   ...
+    #   -----END PGP PRIVATE KEY BLOCK-----
+    # -- Use an existing secret to store the value of `signing.privateKey`.
+    existingSecret: ""
+
+  # -- Admin user configuration settings.
+  admin:
+    # -- Username for the NeMo Data Store admin user.
+    username: datastore_admin
+    # -- Use an existing secret to store admin user credentials. For example, `datastore-admin-secret`.
+    existingSecret:
+    # -- Password for the NeMo Data Store admin user.
+    password: s3aJPHD9!bt6d0I
+    # -- Email for the NeMo Data Store admin user.
+    email: "datastore@local.domain"
+
+  metrics:
+    # -- Enable NeMo Data Store metrics. Also requires setting env variable GITEA__metrics__ENABLED: "true"
+    enabled: false
+    serviceMonitor:
+      # -- Enable NeMo Data Store metrics service monitor.
+      enabled: false
+
+  # -- LDAP configuration.
+  ldap:
+    []
+    # - name: "LDAP 1"
+    #  existingSecret:
+    #  securityProtocol:
+    #  host:
+    #  port:
+    #  userSearchBase:
+    #  userFilter:
+    #  adminFilter:
+    #  emailAttribute:
+    #  bindDn:
+    #  bindPassword:
+    #  usernameAttribute:
+    #  publicSSHKeyAttribute:
+
+  # Either specify inline `key` and `secret` or refer to them via `existingSecret`
+  # -- OAuth configuration.
+  oauth:
+    []
+    # - name: 'OAuth 1'
+    #   provider:
+    #   key:
+    #   secret:
+    #   existingSecret:
+    #   autoDiscoverUrl:
+    #   useCustomUrls:
+    #   customAuthUrl:
+    #   customTokenUrl:
+    #   customProfileUrl:
+    #   customEmailUrl:
+
+  # -- NeMo Data Store configuration.
+  # @default -- This object has the following default values for the NeMo Data Store configuration.
+  config:
+    # -- Application name.
+    APP_NAME: "Datastore"
+    # -- Runtime mode (prod/dev).
+    RUN_MODE: prod
+    server:
+      # -- HTTP port for web interface.
+      HTTP_PORT: 3000
+      # -- Enable SSH server.
+      START_SSH_SERVER: false
+      # -- Enable LFS server.
+      LFS_START_SERVER: true
+    cron.GIT_GC_REPOS:
+      # -- Enable git garbage collection.
+      enabled: false
+    lfs:
+      # -- Storage type for LFS (local/s3).
+      STORAGE_TYPE: local
+    session:
+      # -- Session provider type.
+      PROVIDER: memory
+    cache:
+      # -- Cache adapter type.
+      ADAPTER: memory
+    queue:
+      # -- Queue type.
+      TYPE: dummy
+    database:
+      # -- Database type.
+      DB_TYPE: postgres
+
+  # -- Additional configuration from secret or configmap.
+  additionalConfigSources: []
+  #   - secret:
+  #       secretName: Datastore-app-ini-oauth
+  #   - configMap:
+  #       name: Datastore-app-ini-plaintext
+
+  # -- Additional configuration sources from environment variables.
+  additionalConfigFromEnvs: []
+
+  # -- Annotations for the Datastore pod.
+  podAnnotations: {}
+
+  # -- Configure OpenSSH's log level. Only available for root-based Datastore image.
+  ssh:
+    logLevel: "INFO"
+
+  # -- Liveness probe configuration.
+  # @default -- This object has the following default values for the liveness probe configuration.
+  livenessProbe:
+    # -- Enable liveness probe.
+    enabled: true
+    httpGet:
+      # -- HTTP path for liveness probe.
+      path: /v1/health
+      # -- Port for liveness probe.
+      port: http
+    # -- Initial delay before liveness probe is initiated.
+    initialDelaySeconds: 10
+    # -- Timeout for liveness probe.
+    timeoutSeconds: 5
+    # -- Period for liveness probe.
+    periodSeconds: 30
+    # -- Success threshold for liveness probe.
+    successThreshold: 1
+    # -- Failure threshold for liveness probe.
+    failureThreshold: 20
+
+  # -- Readiness probe configuration.
+  # @default -- This object has the following default values for the readiness probe configuration.
+  readinessProbe:
+    # -- Enable readiness probe.
+    enabled: true
+    httpGet:
+      # -- HTTP path for readiness probe.
+      path: /v1/health
+      # -- Port for readiness probe.
+      port: http
+    # -- Initial delay before readiness probe is initiated.
+    initialDelaySeconds: 30
+    # -- Timeout for readiness probe.
+    timeoutSeconds: 30
+    # -- Period for readiness probe.
+    periodSeconds: 20
+    # -- Success threshold for readiness probe.
+    successThreshold: 1
+    # -- Failure threshold for readiness probe.
+    failureThreshold: 40
+
+  # -- Start-up probe configuration.
+  # @default -- This object has the following default values for the start-up probe configuration.
+  startupProbe:
+    # -- Enable start-up probe.
+    enabled: false
+    # -- TCP socket configuration for start-up probe.
+    tcpSocket:
+      port: http
+    # -- Initial delay before start-up probe is initiated.
+    initialDelaySeconds: 60
+    # -- Timeout for start-up probe.
+    timeoutSeconds: 1
+    # -- Period for start-up probe.
+    periodSeconds: 10
+    # -- Success threshold for start-up probe.
+    successThreshold: 1
+    # -- Failure threshold for start-up probe.
+    failureThreshold: 10
+
+  # -- Redis cluster configuration.
+  # @default -- This object has the following default values for the Redis cluster configuration.
+  redis-cluster:
+    # -- Enable Redis cluster.
+    enabled: false
+    # -- Whether to use password authentication.
+    usePassword: false
+    # -- Number of redis cluster master nodes.
+    cluster:
+      nodes: 3 # default: 6
+      replicas: 0 # default: 1
+
+  # -- PostgreSQL high availability (HA) configuration.
+  # @default -- This object has the following default values for the PostgreSQL HA configuration.
+  postgresql-ha:
+    global:
+      postgresql:
+        # -- Global PostgreSQL database name.
+        database: datastore
+        # -- Global password for the `datastore` user.
+        password: datastore
+        # -- Global username for the `datastore` user.
+        username: datastore
+    # -- Enable PostgreSQL HA. If enabled, configures PostgreSQL HA using the [bitnami/postgresql-ha](https://github.com/bitnami/charts/tree/main/bitnami/postgresql-ha) chart.
+    enabled: false
+    volumePermissions:
+      image:
+        repository: bitnamilegacy/os-shell
+    metrics:
+      image:
+        repository: bitnamilegacy/postgres-exporter
+    postgresql:
+      image:
+        repository: bitnamilegacy/postgresql
+      # -- Repmgr password for the `datastore` user.
+      repmgrPassword: changeme2
+      # -- Postgres password for the `datastore` user.
+      postgresPassword: changeme1
+      # -- Password for the `datastore` user.
+      password: changeme4
+    pgpool:
+      # -- Pgpool admin password.
+      adminPassword: changeme3
+    service:
+      # -- PostgreSQL service port.
+      ports:
+        postgresql: 5432
+    primary:
+      # -- PVC storage request for PostgreSQL HA volume.
+      persistence:
+        size: 10Gi
+
+  postgresql:
+    # -- Enable or disable the built-in PostgreSQL database.
+    enabled: true
+    image:
+      repository: bitnamilegacy/postgresql
+    volumePermissions:
+      image:
+        repository: bitnamilegacy/os-shell
+    metrics:
+      image:
+        repository: bitnamilegacy/postgres-exporter
+    global:
+      postgresql:
+        auth:
+          # -- Password for the datastore database user.
+          password: datastore
+          # -- Name of the database to create.
+          database: datastore
+          # -- Username for the database user.
+          username: datastore
+        service:
+          ports:
+            # -- Port number for PostgreSQL service.
+            postgresql: 5432
+    primary:
+      persistence:
+        # -- Storage size request for the PostgreSQL persistent volume.
+        size: 10Gi
+
+  test:
+    # -- Enable or disable the test-connection Pod.
+    enabled: false
+    image:
+      # -- Image name for the wget container used in the test-connection Pod.
+      name: busybox
+      # -- Image tag for the wget container used in the test-connection Pod.
+      tag: latest
+
+  # -- Set to false to skip the basic validation check.
+  checkDeprecation: true
+
+  # -- Array of extra objects to deploy with the release.
+  extraDeploy: []
+
+  # -- Whether to serve traffic directly from an object storage service.
+  serveDirect: true
+
+  # -- Object Store configuration settings for accessing external Object Storage.
+  # @default -- This object has the following default values for the object store configuration.
+  objectStore:
+    # -- Enable or disable object storage integration.
+    enabled: false
+    # -- Object storage service endpoint URL.
+    endpoint: ""
+    # -- Access key credential for object storage authentication.
+    accessKey: ""
+    # -- Secret key credential for object storage authentication.
+    accessSecret: ""
+    # -- Name of the bucket to use for object storage.
+    bucketName: "datastore"
+    # -- Geographic region for the object storage service.
+    region: ""
+    # -- Enable or disable SSL/TLS for object storage connections.
+    ssl: false
+    # -- Name of existing Kubernetes secret containing object storage credentials.
+    existingSecret: ""
+    # -- Key in existing secret that contains the access key.
+    existingSecretAccessKey: ""
+    # -- Key in existing secret that contains the secret key.
+    existingSecretAccessSecret: ""
+
+  # -- External URL configuration for the NeMo Data Store microservice.
+  external:
+    # -- The external URL where users will access the NeMo Data Store microservice.
+    rootUrl: http://data-store.test
+    # -- The external URL's domain name.
+    domain: data-store.test
+
+  # -- External PostgreSQL configuration settings. These values are only used when postgresql.enabled is set to false.
+  # @default -- This object has the following default values for the external PostgreSQL configuration.
+  externalDatabase:
+    # -- External database host address.
+    host: ""
+    # -- External database port number.
+    port: 5432
+    # -- Database username for Datastore service.
+    user: ""
+    # -- Datastore database name.
+    database: ""
+    # -- Name of an existing secret resource containing the database credentials.
+    existingSecret: ""
+    # -- Name of an existing secret key containing the database credentials.
+    existingSecretPasswordKey: ""
+    # -- SSL mode for external database connection.
+    sslMode: "disable"
+
+  # -- JWT secret configuration settings.
+  # @default -- This object has the following default values for the JWT secret configuration.
+  jwtSecret:
+    # -- User specified LFS JWT secret - this will be stored in a secret.
+    value: ""
+    # -- Name of an existing secret resource containing the LFS JWT secret.
+    existingSecret: ""
+    # -- Key in existing secret containing the LFS JWT secret.
+    existingSecretKey: ""
+
+
+  # -- Parameters for the demo mode.
+  # @default -- This object has the following default values for the demo parameters.
+  demo:
+    # -- Enable or disable the demo mode.
+    enabled: false
+    # -- Name of the secret containing the NGC image pull secret.
+    ngcImagePullSecret: ngc-image-pull-secret
+    # -- NGC API key.
+    ngcApiKey: ""
+
+guardrails:
+  # -- Number of replicas for the NeMo Guardrails microservice deployment.
+  replicaCount: 1
+
+  image:
+    # -- The repository location of the NeMo Guardrails container image.
+    repository: nvcr.io/nvidia/nemo-microservices/guardrails
+    # -- The tag of the NeMo Guardrails container image.
+    tag: ""
+    # -- The image pull policy for the NeMo Guardrails container image.
+    pullPolicy: IfNotPresent
+
+  guardrailsExtProc:
+    enabled: false
+    extProcImage:
+      # -- Repository for Guardrails Callout server image.
+      repository: nvcr.io/nvidia/nemo-microservices/guardrails-callout
+      # -- The tag of the NeMo Guardrails Callout server image.
+      tag: ""
+      # -- Image pull policy for Guardrails Callout server image.
+      imagePullPolicy: IfNotPresent
+    env:
+      GRPC_GO_LOG_SEVERITY_LEVEL: "INFO"
+      GR_GRPC__TLS__ENABLED: "true"
+      GR_GRPC__TLS__CERT_FILE: "/ssl_creds/server.crt"
+      GR_GRPC__TLS__KEY_FILE: "/ssl_creds/server.key"
+      OTEL_SERVICE_NAME: "guardrails-ext-proc-service"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+  # -- Specifies the list of secret names that are needed for the main container and any init containers.
+  imagePullSecrets:
+    - name: nvcrimagepullsecret
+
+  # -- Overrides the chart name.
+  nameOverride: ""
+
+  # -- Overrides the full chart name.
+  fullnameOverride: ""
+
+  # -- Kubernetes secret containing NVIDIA_API_KEY for Guardrails to use Nemoguard NIMS on NVCF
+  guardrails:
+    nvcfAPIKeySecretName: ""
+
+  # -- Environment variables for the container.
+  env:
+    # -- The NIM endpoint URL for the NeMo Guardrails microservice.
+    JAILBREAK_TOKEN: "" # Add Jailbreak model's token
+    NIM_ENDPOINT_URL: http://nemo-nim-proxy:8000/v1
+    CONFIG_STORE_PATH: "/app/services/guardrails/config-store"
+    DEMO: "True"
+    DEFAULT_CONFIG_ID: self-check
+    DEFAULT_LLM_PROVIDER: "nim"
+    NEMO_GUARDRAILS_SERVER_ENABLE_CORS: "False"
+    NEMO_GUARDRAILS_SERVER_ALLOWED_ORIGINS: "*"
+    FETCH_NIM_APP_MODELS: "True"
+    GUARDRAILS_HOST: "0.0.0.0"
+    GUARDRAILS_PORT: "7331"
+    # Need to add this in MS specic env vars because we need different values for Guardrails MS and ext_proc service
+    OTEL_SERVICE_NAME: "nemo-guardrails"
+
+  # -- Whether to enable the OpenTelemetry exporter for the NeMo Guardrails microservice.
+  otelExporterEnabled: false
+
+  # -- Log level for the NeMo Guardrails microservice.
+  logLevel: INFO
+
+  # -- OpenTelemetry environment configuration variables for the NeMo Guardrails microservice.
+  otelEnvVars:
+    # Uncomment to use a custom OpenTelemetry collector endpoint.
+    # OTEL_EXPORTER_OTLP_ENDPOINT: "http://$(HOST_IP):4317" # sends to gRPC receiver on port 4317
+    OTEL_TRACES_EXPORTER: otlp
+    OTEL_METRICS_EXPORTER: otlp
+    OTEL_LOGS_EXPORTER: otlp
+    OTEL_PROPAGATORS: "tracecontext,baggage"
+    OTEL_PYTHON_EXCLUDED_URLS: "health"
+    OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=$(NAMESPACE),service.namespace=$(NAMESPACE)"
+
+  # -- External service endpoints configuration.
+  external:
+    entityStore:
+      # -- The external URL of the NeMo Entity Store microservice.
+      endpoint: "http://nemo-entity-store:8000"
+
+  # -- Specifies the service type and the port for the deployment.
+  service:
+    type: ClusterIP
+    port: 7331
+
+  configStore:
+    nfs:
+      # -- Whether to enable the use of an NFS persistent volume for the configuration store.
+      enabled: false
+      # -- The path to the root of the Configuration Store folder.
+      path: "/path/to/nfs/share"
+      # -- The address of the NFS server.
+      server: "nfs-server.example.com"
+      # -- The path where the NFS volume will be mounted inside the container.
+      mountPath: "/config-store"
+      # -- The storage class for the PV and PVC.
+      storageClass: "standard"
+
+  readinessProbe:
+    # -- The HTTP GET request to use for the readiness probe.
+    httpGet:
+      path: /v1/health
+      port: 7331
+    # -- The initial delay seconds for the readiness probe.
+    initialDelaySeconds: 5
+    # -- The timeout in seconds for the readiness probe.
+    timeoutSeconds: 30
+
+  livenessProbe:
+    # -- The HTTP GET request to use for the liveness probe.
+    httpGet:
+      path: /v1/health
+      port: 7331
+    # -- The initial delay seconds for the liveness probe.
+    initialDelaySeconds: 5
+    # -- The timeout in seconds for the liveness probe.
+    timeoutSeconds: 30
+
+  serviceAccount:
+    # -- Whether to create a service account for the NeMo Guardrails microservice.
+    create: true
+    # -- Whether to automatically mount the service account token.
+    automount: true
+    # -- Annotations to be added to the service account.
+    annotations: {}
+    # -- The name of the service account to use.
+    name: ""
+
+  # -- Specifies additional annotations to the main deployment pods.
+  podAnnotations: {}
+
+  # -- Specifies additional labels to the main deployment pods.
+  podLabels: {}
+
+  # -- Specifies privilege and access control settings for the pod.
+  podSecurityContext: {}
+  # -- Specifies the group ID for the pod.
+  runAsGroup: ""
+  # -- Specifies the file system owner group id.
+  fsGroup: ""
+
+  # -- Specifies security context for the container.
+  securityContext: {}
+
+  ingress:
+    # -- Whether to enable the ingress resource.
+    enabled: false
+    # -- The class name for the ingress resource.
+    className: ""
+    # -- Additional annotations for the ingress resource.
+    annotations:
+      {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    # -- (list) A list of maps, each containing the keys `host` and `paths` for the ingress resource. You must specify a list for configuring ingress for the microservice.
+    # @default -- []
+    hosts: {}
+    #   - host: chart-example.local
+    #     paths:
+    #       - path: /
+    #         pathType: ImplementationSpecific
+    #         serviceType: openai # can be nemo or openai -- make sure your model serves the appropriate port(s)
+    # -- TLS configuration for the ingress resource.
+    tls: []
+    #  - secretName: chart-example-tls
+    #    hosts:
+    #      - chart-example.local
+
+  # -- Specifies resource configurations for the deployment.
+  resources:
+    # We usually recommend not to specify default resources and to leave this as a conscious
+    # choice for the user. This also increases chances charts run on environments with little
+    # resources, such as Minikube. If you do want to specify resources, uncomment the following
+    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+    limits:
+      cpu: 8000m
+      memory: 16Gi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # -- Specifies autoscaling configurations for the deployment.
+  autoscaling:
+    # -- Whether to enable horizontal pod autoscaler.
+    enabled: false
+    # -- The minimum number of replicas for the deployment.
+    minReplicas: 1
+    # -- The maximum number of replicas for the deployment.
+    maxReplicas: 100
+    # -- The target CPU utilization percentage.
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+    # -- PostgreSQL configuration for the NeMo Guardrails microservice.
+  postgresql:
+    # -- Whether to install the default PostgreSQL Helm chart. If enabled, the NeMo Guardrails microservice Helm chart uses the [PostgreSQL Helm chart from Bitnami](https://github.com/bitnami/charts/blob/main/bitnami/postgresql/values.yaml) to create a PostgreSQL database.
+    enabled: true
+    # -- The name override for the Guardrails PostgreSQL database.
+    nameOverride: guardrailsdb
+    image:
+      repository: bitnamilegacy/postgresql
+    volumePermissions:
+      image:
+        repository: bitnamilegacy/os-shell
+    metrics:
+      image:
+        repository: bitnamilegacy/postgres-exporter
+    # -- The architecture for the default PostgreSQL service.
+    architecture: standalone
+    serviceAccount:
+      # -- The name of the service account for PostgreSQL.
+      name: guardrails-postgresql
+      # -- Specifies whether to create a new service account for PostgreSQL.
+      create: true
+    auth:
+      # -- Whether to assign a password to the "postgres" admin user. If disabled, remote access is blocked for this user.
+      enablePostgresUser: true
+      # -- The user name to use for the PostgreSQL database.
+      username: guardrails
+      # -- The password for the PostgreSQL user.
+      password: guardrails
+      # -- The name for a custom database to create.
+      database: nemo-guardrails
+      # -- The name of an existing secret to use for PostgreSQL credentials.
+      existingSecret: ""
+
+  postgresWaitImage:
+    # -- The repository location of the image used to wait for postgres to start.
+    repository: "busybox"
+    # -- The tag of the image used when waiting.
+    tag: "latest"
+
+  # -- External PostgreSQL configuration.
+  externalDatabase:
+    # -- The database host.
+    host: ""
+    # -- The database port number.
+    port: ""
+    # -- The username for the NeMo Guardrails external database.
+    user: ""
+    # -- The name of the database for the NeMo Guardrails service.
+    database: ""
+    # -- The name of an existing secret resource containing the database credentials.
+    existingSecret: ""
+    # -- The name of an existing secret key containing the database credentials.
+    existingSecretPasswordKey: ""
+    uriSecret:
+      # -- The name of an existing secret that includes a full database URI.
+      name: ""
+      # -- The key within the existing secret that includes a full database URI.
+      key: ""
+
+  # -- Configuration for the "opentelemetry-collector" service.
+  opentelemetry-collector:
+    # -- Whether to enable the OpenTelemetry Collector service.
+    enabled: false
+    # -- The mode for the OpenTelemetry Collector service.
+    mode: deployment
+    # -- The configuration used by the OpenTelemetry Collector service.
+    config:
+      receivers:
+        # -- The OTLP receiver for the OpenTelemetry Collector service.
+        otlp:
+          protocols:
+            grpc: {}
+            http:
+              cors:
+                allowed_origins:
+                  - "*"
+      exporters:
+        # -- Debugging verbosity for the OpenTelemetry Collector service.
+        debug:
+          verbosity: detailed
+      processors:
+        # -- The batch processor for the OpenTelemetry Collector service.
+        batch: {}
+      service:
+        pipelines:
+          # -- The traces pipeline for the OpenTelemetry Collector service.
+          traces:
+            # -- The receivers for the traces pipeline for the OpenTelemetry Collector service.
+            receivers: [otlp]
+            # -- The exporters for the traces pipeline for the OpenTelemetry Collector service.
+            exporters: [debug]
+            # -- The processors for the traces pipeline for the OpenTelemetry Collector service.
+            processors: [batch]
+          # -- The metrics pipeline for the OpenTelemetry Collector service.
+          metrics:
+            # -- The receivers for the metrics pipeline for the OpenTelemetry Collector service.
+            receivers: [otlp]
+            # -- The exporters for the metrics pipeline for the OpenTelemetry Collector service.
+            exporters: [debug]
+            # -- The processors for the metrics pipeline for the OpenTelemetry Collector service.
+            processors: [batch]
+          # -- The logs pipeline for the OpenTelemetry Collector service.
+          logs:
+            # -- The receivers for the logs pipeline for the OpenTelemetry Collector service.
+            receivers: [otlp]
+            # -- The exporters for the logs pipeline for the OpenTelemetry Collector service.
+            exporters: [debug]
+            # -- The processors for the logs pipeline for the OpenTelemetry Collector service.
+            processors: [batch]
+
+  # -- Specifies labels to ensure that the NeMo Guardrails microservice is deployed only on certain nodes. To learn more, refer to the [Node Selector](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector) in the Kubernetes documentation.
+  nodeSelector: {}
+
+  # -- Specifies tolerations for pod assignment. To learn more, refer to the [Taint and Toleration](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) in the Kubernetes documentation.
+  tolerations: []
+
+  # -- Specifies affinity settings for the deployment. To learn more, refer to the [Affinity and Anti-Affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity) in the Kubernetes documentation.
+  affinity: {}
+  # -- The service name for the NeMo Guardrails microservice.
+  serviceName: nemo-guardrails
+
+nemo-operator:
+  # -- Whether to watch all namespaces, default is to restrict the NeMo Operator microservice to watch resources in the NMP deployment namespace.
+  watchAllNamespaces: false
+
+  # -- Additional environment variables to pass to controller manager. The format is `NAME: value` or `NAME: valueFrom: {object}`.
+  env:
+    {}
+
+  controllerManager:
+    serviceAccount:
+      # -- Annotations to add to the service account.
+      annotations: {}
+    kubeRbacProxy:
+      # -- Arguments to pass to the `kube-rbac-proxy` container.
+      args:
+      - --secure-listen-address=0.0.0.0:8443
+      - --upstream=http://127.0.0.1:8080/
+      - --logtostderr=true
+      - --v=0
+      containerSecurityContext:
+        # -- Whether to allow container privilege escalation.
+        allowPrivilegeEscalation: false
+        capabilities:
+          # -- List of capabilities to drop.
+          drop:
+          - ALL
+      image:
+        # -- The repository for the `kube-rbac-proxy` image.
+        repository: gcr.io/kubebuilder/kube-rbac-proxy
+        # -- The tag for the `kube-rbac-proxy` image.
+        tag: v0.15.0
+      resources:
+        limits:
+          # -- The CPU limit for the `kube-rbac-proxy` container.
+          cpu: 500m
+          # -- The memory limit for the `kube-rbac-proxy` container.
+          memory: 128Mi
+        requests:
+          # -- The CPU request for the `kube-rbac-proxy` container.
+          cpu: 5m
+          # -- The memory request for the `kube-rbac-proxy` container.
+          memory: 64Mi
+    manager:
+      # -- The scheduler to use for the controller manager.
+      scheduler: volcano
+      # -- Arguments to pass to the manager container.
+      args:
+      - --health-probe-bind-address=:8081
+      - --metrics-bind-address=127.0.0.1:8080
+      - --leader-elect
+      - --leader-election-id=nemo.nko.nvidia.com
+      containerSecurityContext:
+        # -- Whether to allow container privilege escalation.
+        allowPrivilegeEscalation: false
+        capabilities:
+          # -- List of capabilities to drop.
+          drop:
+          - ALL
+      image:
+        # -- The repository for the NeMo Operator microservice image.
+        repository: nvcr.io/nvidia/nemo-microservices/nemo-operator
+        # -- The tag for the NeMo Operator microservice image. The default value is `appVersion` from the `Chart.yaml` file.
+        tag: ""
+      resources:
+        limits:
+          # -- The CPU limit for the operator manager container.
+          cpu: 1024m
+          # -- The memory limit for the operator manager container.
+          memory: 2Gi
+        requests:
+          # -- The CPU request for the operator manager container.
+          cpu: 512m
+          # -- The memory request for the operator manager container.
+          memory: 1Gi
+    # -- The number of operator replicas to run.
+    replicas: 1
+
+  # -- (list) Image pull secrets for accessing the NGC container registry.
+  imagePullSecrets:
+    - name: nvcrimagepullsecret
+  # -- The Kubernetes cluster domain.
+  kubernetesClusterDomain: cluster.local
+
+  metricsService:
+    # -- Whether to enable the metrics service for the NeMo Operator microservice. If you enable it, the microservice exposes a metrics endpoint for Prometheus.
+    # Before installing this chart, you should have Prometheus installed in your environment.
+    enabled: true
+    # -- The metrics service ports configuration.
+    ports:
+    - name: https
+      port: 8443
+      protocol: TCP
+      targetPort: https
+    # -- The type of the metrics service.
+    type: ClusterIP
+
+nim-operator:
+  enabled: true
+  nfd:
+    nodeFeatureRules:
+      # -- Specifies whether to enable device ID feature rules.
+      deviceID: false
+
+entity-store:
+  # -- The number of NeMo Entity Store replicas to deploy.
+  replicaCount: 1
+
+  image:
+    # -- The NeMo Entity Store image repository.
+    repository: nvcr.io/nvidia/nemo-microservices/entity-store
+    # -- The image pull policy to pull the NeMo Entity Store image
+    pullPolicy: IfNotPresent
+    # -- Specifies the image tag.
+    tag: ""
+
+  # -- List of image pull secrets. You can add multiple secrets to the list.
+  imagePullSecrets:
+    - name: nvcrimagepullsecret
+  # -- String to partially override name on resulting Kubernetes objects when deployed.
+  nameOverride: ""
+  # -- String to fully override name on resulting Kubernetes objects when deployed.
+  fullnameOverride: ""
+
+  # -- Additional environment variables to pass to the NeMo Entity Store container. Format should be `NAME: value` or `NAME: valueFrom: {object}`.
+  env:
+    {}
+
+  serviceAccount:
+    # -- Whether to automatically mount the service account's API credentials.
+    automount: true
+    # -- Additional custom annotations for the service account.
+    annotations: {}
+    # -- The name of the service account to use.
+    name: ""
+
+  # -- Additional annotations for the NeMo Entity Store pods.
+  podAnnotations: {}
+  # -- Additional labels for the NeMo Entity Store pods.
+  podLabels: {}
+
+  # -- The pod security context for the NeMo Entity Store pods.
+  podSecurityContext: {}
+
+  # -- The security context for the NeMo Entity Store pods.
+  securityContext: {}
+
+  service:
+    # -- The Kubernetes service type of the NeMo Entity Store microservice.
+    type: ClusterIP
+    # -- The service port for the NeMo Entity Store microservice.
+    port: 8000
+
+  # -- The name of the Kubernetes Service created for NeMo Entity Store.
+  serviceNameOverride: ""
+
+  ingress:
+    # -- Whether to enable ingress.
+    enabled: false
+    # -- The name of the ingress class.
+    className: ""
+    # -- Additional ingress annotations.
+    annotations: {}
+    # -- The default host name for the ingress record.
+    hostname: ""
+    # -- (list) A list of maps, each containing the keys `host` and `paths` for the ingress resource. You must specify a list for configuring ingress for the microservice.
+    # @default -- []
+    hosts: {}
+    #   - host: ""
+    #     paths:
+    #       - path: /
+    #         pathType: ImplementationSpecific
+    # -- The TLS configuration for the ingress.
+    tls: []
+
+  openTelemetry:
+    # -- Whether to enable OpenTelemetry integration.
+    enabled: false
+
+  livenessProbe:
+    # -- The path for the liveness probe.
+    httpGet:
+      path: /health
+      port: http
+    # -- The initial delay seconds for the Kubernetes liveness probe.
+    initialDelaySeconds: 3
+    # -- The period seconds for the liveness probe.
+    periodSeconds: 10
+    # -- The timeout seconds for the liveness probe.
+    timeoutSeconds: 20
+    # -- The failure threshold for the liveness probe.
+    failureThreshold: 10
+
+  readinessProbe:
+    # -- The path for the readiness probe.
+    httpGet:
+      path: /health
+      port: http
+    # -- The initial delay seconds for the readiness probe.
+    initialDelaySeconds: 10
+    # -- The period seconds for the readiness probe.
+    periodSeconds: 10
+    # -- The timeout seconds for the readiness probe.
+    timeoutSeconds: 20
+    # -- The failure threshold for the readiness probe.
+    failureThreshold: 20
+
+  # -- Requests and limits for underlying Kubernetes deployment for NeMo Entity Store.
+  resources:
+    {}
+    # If you do want to specify resources, uncomment the following
+    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+    # limits:
+    #   cpu: 100m
+    #   memory: 128Mi
+    # requests:
+    #   cpu: 100m
+    #   memory: 128Mi
+
+  autoscaling:
+    # -- Whether to enable autoscaling.
+    enabled: false
+    # -- The minimum number of replicas.
+    minReplicas: 1
+    # -- The maximum number of replicas.
+    maxReplicas: 100
+    # -- The target CPU utilization percentage for autoscaling.
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  # -- Additional volumes for the deployment.
+  volumes: []
+
+  # -- Additional volume mounts for the deployment.
+  volumeMounts: []
+
+  # -- Additional NeMo Entity Store API server specific configs.
+  appConfig:
+    # -- The base URL for the NIM service used by the NeMo Entity Store microservice.
+    BASE_URL_NIM: http://nemo-nim-proxy:8000
+    # -- The base URL for the NeMo Data Store microservice.
+    BASE_URL_DATASTORE: http://nemo-data-store:3000/v1/hf
+
+  # -- Additional node selector configuration for the deployment.
+  nodeSelector: {}
+
+  # -- Additional tolerations for the deployment.
+  tolerations: []
+
+  # -- Additional affinity for the deployment.
+  affinity: {}
+
+  postgresql:
+    # -- Whether to install the default PostgreSQL Helm chart. If enabled, the NeMo Entity Store microservice Helm chart uses the [PostgreSQL Helm chart from Bitnami](https://github.com/bitnami/charts/blob/main/bitnami/postgresql/values.yaml) to create a PostgreSQL database.
+    enabled: true
+    # -- The name override for the PostgreSQL database.
+    nameOverride: entity-storedb
+    image:
+      repository: bitnamilegacy/postgresql
+    volumePermissions:
+      image:
+        repository: bitnamilegacy/os-shell
+    metrics:
+      image:
+        repository: bitnamilegacy/postgres-exporter
+    serviceAccount:
+      # -- The service account name for PostgreSQL.
+      name: entity-store-postgresql
+      # -- Specifies whether to create a new service account for PostgreSQL.
+      create: true
+    auth:
+      # -- Whether to assign a password to the "postgres" admin user. If disabled, remote access is blocked for this user.
+      enablePostgresUser: true
+      # -- The user name to use for the PostgreSQL database.
+      username: user
+      # -- The password for the PostgreSQL user.
+      password: pass
+      # -- The name for a custom database to create.
+      database: entity-store
+      # -- The name of an existing secret to use for PostgreSQL credentials.
+      existingSecret: ""
+    # -- The PostgreSQL architecture. Available options are `standalone` or `replication`.
+    architecture: standalone
+
+  postgresWaitImage:
+    # -- The repository location of the image used to wait for postgres to start.
+    repository: "busybox"
+    # -- The tag of the image used when waiting.
+    tag: "latest"
+
+  externalDatabase:
+    # -- The database host.
+    host: localhost
+    # -- The database port number.
+    port: 5432
+    # -- The database username for the NeMo Entity Store service.
+    user: user
+    # -- The name of the database for the NeMo Entity Store service.
+    database: entity-store
+    # -- The name of an existing secret resource containing the database credentials.
+    existingSecret: ""
+    # -- The name of an existing secret key containing the database credentials.
+    existingSecretPasswordKey: ""
+    uriSecret:
+      # -- The name of an existing secret that includes a full database URI.
+      name: ""
+      # -- The key within the existing secret that includes a full database URI.
+      key: ""
+
+  demo:
+    # -- Whether to enable demo mode.
+    enabled: false
+    # -- The name of the NGC image pull secret for demo mode.
+    ngcImagePullSecret: nvcrimagepullsecret
+    # -- The NGC API key for demo mode.
+    ngcApiKey: ""
+  # -- The service name for the NeMo Entity Store microservice.
+  serviceName: nemo-entity-store
+
+volcano:
+  # -- Specifies whether to enable the default Volcano scheduler installation. To learn more, see [Volcano](https://docs.nvidia.com/nemo/microservices/latest/set-up/deploy-as-microservices/customizer.html#volcano).
+  enabled: false
+
+deployment-management:
+  enabled: true
+  # -- The number of replicas for the NeMo Deployment Management service.
+  replicaCount: 1
+
+  # -- Specifies a namespace to restrict the NeMo Deployment Management microservice to watch NIMs in. Leave it empty to watch all namespaces.
+  nimNamespace: ""
+
+  image:
+    # -- The repository of the NeMo Deployment Management container image.
+    repository: nvcr.io/nvidia/nemo-microservices/deployment-management
+    # -- The container image pull policy for the NeMo Deployment Management container.
+    pullPolicy: IfNotPresent
+    # -- The container image tag. If not set, the default value is `appVersion` from the `Chart.yaml` file.
+    tag: ""
+
+  # -- (list) Image pull secrets for accessing the NGC container registry.
+  imagePullSecrets:
+    - name: nvcrimagepullsecret
+  # -- String to partially override name on resulting Kubernetes objects when the NeMo Deployment Management microservice is deployed.
+  nameOverride: ""
+  # -- String to fully override the name on resulting Kubernetes objects when the NeMo Deployment Management microservice is deployed.
+  fullnameOverride: ""
+
+  # -- Additional environment variables to pass to the NeMo Deployment Management microservice container. The format is `NAME: value` or `NAME: valueFrom: {object}`.
+  env:
+    {}
+  # -- Configures service account for RBAC for the NeMo Deployment Management microservice. Use the default setup, unless you understand what changes in RBAC settings you want to apply to the service.
+  serviceAccount:
+    # -- Whether to create a service account for the NeMo Deployment Management microservice. This is for setting RBAC up.
+    create: true
+    # -- Automatically mount a ServiceAccount's API credentials.
+    automount: true
+    # -- Annotations to add to the service account.
+    annotations: {}
+    # -- The name of the service account to use. If not set and create is true, a name is generated using the fullname template.
+    name: ""
+
+  # -- Pod annotations.
+  podAnnotations: {}
+  # -- Pod labels.
+  podLabels: {}
+
+  # -- Pod security context settings. Use the default settings, unless you understand what changes in the pod security context settings you want to apply.
+  podSecurityContext:
+    {}
+    # fsGroup: 2000
+
+  # -- Security context settings. Use the default settings, unless you understand what changes in the security context settings you want to apply.
+  securityContext:
+    # -- Enable read-only root filesystem. You can also add any values for [Kubernetes security context](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#securitycontext-v1-core) in this field.
+    readOnlyRootFilesystem: true
+    # runAsNonRoot: true
+    # runAsUser: 1000
+
+  service:
+    deploymentPort:
+      # -- The service type of the deployment port.
+      type: ClusterIP
+      # -- The port number for the service.
+      port: 8000
+
+  ingress:
+    # -- Whether to enable the ingress controller resource.
+    enabled: false
+    # -- The ingress class to use.
+    className: ""
+    # -- Ingress annotations.
+    annotations: {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    # -- (list) A list of maps, each containing the keys `host` and `paths` for the ingress resource. You must specify a list for configuring ingress for the microservice.
+    # @default -- []
+    hosts: {}
+    #   - host: chart-example.local
+    #     paths:
+    #       - path: /
+    #         pathType: ImplementationSpecific
+    # -- Ingress TLS configuration.
+    tls: []
+    #  - secretName: chart-example-tls
+    #    hosts:
+    #      - chart-example.local
+
+  # -- Configures Kubernetes resource requests and limits for the NeMo Deployment Management microservice. Use the default settings and leave it with the empty object as is, unless you understand what changes you want to make.
+  resources:
+    {}
+    # We usually recommend not to specify default resources and to leave this as a conscious
+    # choice for the user. This also increases chances charts run on environments with little
+    # resources, such as Minikube. If you do want to specify resources, uncomment the following
+    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+    # limits:
+    #   cpu: 100m
+    #   memory: 128Mi
+    # requests:
+    #   cpu: 100m
+    #   memory: 128Mi
+
+  livenessProbe:
+    httpGet:
+      # -- The HTTP path for the Kubernetes liveness probe. Do not change this.
+      path: /health
+      # -- The port name for the Kubernetes liveness probe. Do not change this.
+      port: http
+  readinessProbe:
+    httpGet:
+      # -- The HTTP path for the Kubernetes readiness probe. Do not change this.
+      path: /health
+      # -- The port name for the Kubernetes readiness probe. Do not change this.
+      port: http
+
+  autoscaling:
+    # -- Whether to enable autoscaling for the NeMo Deployment Management microservice.
+    enabled: false
+    # -- The minimum number of replicas.
+    minReplicas: 1
+    # -- The maximum number of replicas.
+    maxReplicas: 100
+    # -- The target CPU utilization percentage.
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  # -- Additional volumes for the NeMo Deployment Management microservice. Use the default settings and leave it with the empty list as is, unless you understand what changes you want to make.
+  volumes: []
+
+  # -- Additional volume mounts for the NeMo Deployment Management microservice. Use the default settings and leave it with the empty list as is, unless you understand what changes you want to make.
+  volumeMounts: []
+
+  # -- Specifies labels to ensure that the microservice is deployed only on certain nodes. To learn more, refer to the [Node Selector](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector) in the Kubernetes documentation.
+  nodeSelector: {}
+
+  # -- Specifies tolerations for pod assignment. To learn more, refer to the [Taint and Toleration](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) in the Kubernetes documentation.
+  tolerations: []
+
+  # -- Specifies affinity settings for the deployment. To learn more, refer to the [Affinity and Anti-Affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity) in the Kubernetes documentation.
+  affinity: {}
+
+  # -- Prometheus metrics collection configuration for monitoring the NeMo Deployment Management microservice. To enable this, you should install the Prometheus operator before deploying the NeMo Deployment Management microservice.
+  monitoring:
+    # -- Whether to enable monitoring for the NeMo Deployment Management microservice.
+    enabled: false
+
+  dataStore:
+    # -- The URL for the NeMo Data Store service.
+    url: http://nemo-data-store:3000
+    secret:
+      # -- Whether to create a secret for the data store huggingface token. If false, the secret must be created manually.
+      create: true
+      # -- The name of the secret that will be created. If create is false, a secret with this name must be created manually and have the HF_TOKEN key set.
+      name: "nemo-deployment-management-service-ds-hf-token"
+
+  # -- Properties to configure NIM deployments for the NeMo Deployment Management microservice.
+  deployments:
+    # -- The default storage class for NIM deployments.
+    # -- Storage classes utilizing NFSv3+ may encounter issues with huggingface-cli file locking.
+    defaultStorageClass: ""
+    # -- The URL for PEFT model sources (typically points to NeMo Entity Store)
+    nimPeftSource: http://nemo-entity-store:8000
+    # -- The URL for the NeMo Entity Store service.
+    entityStoreUrl: http://nemo-entity-store:8000
+    # -- The period in seconds for model synchronization.
+    modelSyncPeriod: "30"
+    metrics:
+      # -- Whether to enable metrics collection for the NIM deployments.
+      enabled: false
+    # -- The size of the PVC for the NIM deployments.
+    nimPvcSize: 200Gi
+    # -- The image to use for pulling models from NeMo Data Store. Must have the huggingface-cli binary installed.
+    modelPullerImage: nvcr.io/nvidia/nemo-microservices/nds-v2-huggingface-cli:25.06
+    # -- The pull secret used to pull the model puller image.
+    modelPullerPullSecret: nvcrimagepullsecret
+    autoscaling:
+      # -- Whether to enable autoscaling for the NIM deployments.
+      enabled: false
+      # -- Autoscaling specification for the NIM deployments.
+      spec:
+        maxReplicas: 5
+        metrics:
+        - pods:
+            metric:
+              name: gpu_cache_usage_perc
+            target:
+              averageValue: 750m
+              type: AverageValue
+          type: Pods
+        minReplicas: 1
+    # -- List of image pull secrets for the NIM deployments.
+    nimImagePullSecrets:
+      - nvcrimagepullsecret
+  # -- The service name for the NeMo Deployment Management microservice.
+  serviceName: nemo-deployment-management
+
+nim-proxy:
+  enabled: true
+  # -- The service name for the NIM Proxy microservice.
+  serviceName: nemo-nim-proxy
+
+  # -- The number of replicas for the NeMo NIM Proxy service.
+  replicaCount: 1
+
+  # -- Specifies a namespace to restrict the NIM Proxy microservice to watch NIMs in. Leave it empty to watch all namespaces.
+  nimNamespace: ""
+
+  # -- Additional environment variables to pass to containers. The format is `NAME: value` or `NAME: valueFrom: {object}`.
+  env:
+    {}
+
+  image:
+    # -- The repository of the NIM Proxy container image.
+    repository: nvcr.io/nvidia/nemo-microservices/nim-proxy
+    # -- The container image pull policy for the NIM Proxy container.
+    pullPolicy: IfNotPresent
+    # -- The container image tag. If not set, the default value is `appVersion` from the `Chart.yaml` file.
+    tag: ""
+
+  # -- (list) Image pull secrets for accessing the NGC container registry.
+  imagePullSecrets: []
+  # -- String to partially override name on resulting Kubernetes objects when the NIM Proxy microservice is deployed.
+  nameOverride: ""
+  # -- String to fully override the name on resulting Kubernetes objects when the NIM Proxy microservice is deployed.
+  fullnameOverride: ""
+
+  serviceAccount:
+    # -- Whether to create a service account for the NIM Proxy microservice.
+    create: true
+    # -- Whether to automatically mount a ServiceAccount's API credentials.
+    automount: true
+    # -- Annotations to add to the service account.
+    annotations: {}
+    # -- The name of the service account to use. If not set and create is `true`, a name is generated using the full name template.
+    name: ""
+  # -- Pod annotations.
+  podAnnotations: {}
+  # -- Pod labels.
+  podLabels: {}
+  # -- Pod security context. Use the default settings, unless you understand what changes in the pod security context settings you want to apply.
+  podSecurityContext:
+    {}
+    # fsGroup: 2000
+
+  # -- Security context. Use the default settings, unless you understand what changes in the security context settings you want to apply.
+  securityContext:
+    # capabilities:
+    #   drop:
+    #   - ALL
+    # -- Whether to run with a read-only root filesystem.
+    readOnlyRootFilesystem: true
+    # runAsNonRoot: true
+    # runAsUser: 1000
+
+  service:
+    main:
+      # -- The type of the main service.
+      type: ClusterIP
+      # -- The port of the main service.
+      port: 8000
+    metricsPort:
+      # -- The type of the metrics service.
+      type: ClusterIP
+      # -- The port of the metrics service.
+      port: 8001
+
+  ingress:
+    # -- Whether to enable the ingress controller resource.
+    enabled: false
+    # -- The ingress class to use.
+    className: ""
+    # -- Ingress annotations.
+    annotations: {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    # -- (list) A list of maps, each containing the keys `host` and `paths` for the ingress resource. You must specify a list for configuring ingress for the microservice.
+    # @default -- []
+    hosts: {}
+    #   - host: chart-example.local
+    #     paths:
+    #       - path: /
+    #         pathType: ImplementationSpecific
+    # -- Ingress TLS configuration.
+    tls: []
+    #  - secretName: chart-example-tls
+    #    hosts:
+    #      - chart-example.local
+
+  # -- Configures Kubernetes resource requests and limits for the NIM Proxy microservice. Use the default settings and leave it with the empty object as is, unless you understand what changes you want to make.
+  resources:
+    {}
+    # We usually recommend not to specify default resources and to leave this as a conscious
+    # choice for the user. This also increases chances charts run on environments with little
+    # resources, such as Minikube. If you do want to specify resources, uncomment the following
+    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+    # limits:
+    #   cpu: 100m
+    #   memory: 128Mi
+    # requests:
+    #   cpu: 100m
+    #   memory: 128Mi
+
+  livenessProbe:
+    httpGet:
+      # -- The HTTP path for the Kubernetes liveness probe. Do not change this.
+      path: /health
+      # -- The port name for the Kubernetes liveness probe. Do not change this.
+      port: http
+
+  readinessProbe:
+    httpGet:
+      # -- The HTTP path for the Kubernetes readiness probe. Do not change this.
+      path: /health
+      # -- The port name for the Kubernetes readiness probe. Do not change this.
+      port: http
+
+  autoscaling:
+    # -- Whether to enable horizontal pod autoscaling for the NIM Proxy microservice.
+    enabled: false
+    # -- The minimum number of replicas for the NIM Proxy microservice.
+    minReplicas: 1
+    # -- The maximum number of replicas for the NIM Proxy microservice.
+    maxReplicas: 100
+    # -- The target CPU utilization percentage for the NIM Proxy microservice.
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  # -- Additional volumes for the NIM Proxy microservice. Use the default settings and leave it with the empty list as is, unless you understand what changes you want to make.
+  volumes: []
+  # - name: foo
+  #   secret:
+  #     secretName: mysecret
+  #     optional: false
+
+  # -- Additional volume mounts for the NIM Proxy microservice. Use the default settings and leave it with the empty list as is, unless you understand what changes you want to make.
+  volumeMounts: []
+  # - name: foo
+  #   mountPath: "/etc/foo"
+  #   readOnly: true
+
+  # -- Specifies labels to ensure that the microservice is deployed only on certain nodes. To learn more, refer to [Node Selector](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector) in the Kubernetes documentation.
+  nodeSelector: {}
+
+  # -- Specifies tolerations for pod assignment. To learn more, refer to [Taint and Toleration](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) in the Kubernetes documentation.
+  tolerations: []
+
+  # -- Specifies affinity settings for the deployment. To learn more, refer to [Affinity and Anti-Affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity) in the Kubernetes documentation.
+  affinity: {}
+
+  # -- Prometheus metrics collection configuration for monitoring the NIM Proxy microservice. To enable this, you should install the Prometheus operator before deploying the NIM Proxy microservice.
+  monitoring:
+    # -- Whether to enable monitoring for the NIM Proxy microservice.
+    enabled: false
+    # -- The scrape interval for monitoring.
+    interval: 30s
+    # -- The metrics path for monitoring.
+    path: /v1/metrics
+    # -- The scheme for monitoring.
+    scheme: http
+
+
+data-designer:
+  # -- The service name for the NeMo Data Designer microservice.
+  serviceName: nemo-data-designer
+
+  # -- Data Designer application settings
+  config:
+    port: 8000
+    log_level: "INFO"
+
+    # -- The configuration for supported seed dataset sources
+    seed_dataset_source_registry:
+      sources:
+        - endpoint: http://nemo-data-store:3000/v1/hf
+
+    preview_num_records:
+      # -- The default number of records to return when generating a preview dataset
+      default: 10
+      # -- The maximum number of records to allow when generating a preview dataset
+      max: 10
+
+    # -- The configuration for supported model providers
+    model_provider_registry:
+      default: "nimproxy"
+      providers:
+        - name: "nimproxy"
+          endpoint: "http://nemo-nim-proxy:8000/v1"
+
+    # -- A list of default model configs available in all dataset generation requests
+    default_model_configs: []
+
+  # -- Number of replicas for the NeMo Data Designer deployment.
+  replicaCount: 1
+
+  image:
+    # -- The repository location of the NeMo Data Designer container image.
+    repository: nvcr.io/nvidia/nemo-microservices/data-designer
+    # -- The image pull policy for the NeMo Data Designer container image.
+    pullPolicy: IfNotPresent
+    # -- The tag of the NeMo Data Designer container image.
+    tag: ""
+
+  # -- Specifies the list of secret names that are needed for the main container and any init containers.
+  imagePullSecrets: []
+
+  # -- Overrides the chart name.
+  nameOverride: ""
+
+  # -- Overrides the full chart name.
+  fullnameOverride: ""
+
+  serviceAccount:
+    # -- Whether to create a service account for the NeMo Data Designer microservice.
+    create: true
+    # -- Whether to automatically mount the service account token.
+    automount: true
+    # -- Annotations to be added to the service account.
+    annotations: {}
+    # -- The name of the service account to use.
+    name: ""
+
+  # -- Specifies additional annotations to the main deployment pods.
+  podAnnotations: {}
+
+  # -- Specifies additional labels to the main deployment pods.
+  podLabels: {}
+
+  # -- Specifies privilege and access control settings for the pod.
+  podSecurityContext:
+    # -- Specifies the file system owner group id.
+    fsGroup: 1000
+
+  # -- Specifies security context for the container.
+  securityContext:
+    # capabilities:
+    #   drop:
+    #   - ALL
+    # readOnlyRootFilesystem: true
+    # runAsNonRoot: true
+    # runAsUser: 1000
+
+  # -- Specifies the service type and the port for the deployment.
+  service:
+    type: ClusterIP
+    port: 8000
+
+  # -- Resource requests and limits.
+  resources:
+    {}
+    # We usually recommend not to specify default resources and to leave this as a conscious
+    # choice for the user. This also increases chances charts run on environments with little
+    # resources, such as Minikube. If you do want to specify resources, uncomment the following
+    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+    # limits:
+    #   cpu: 500m
+    #   memory: 1Gi
+    # requests:
+    #   cpu: 250m
+    #   memory: 512Mi
+
+  # -- Liveness probe configuration.
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # -- Readiness probe configuration.
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # -- Autoscaling configuration.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  # -- Environment variables for the Data Designer container.
+  env: {}
+
+  # -- Additional volumes for the deployment.
+  volumes: []
+
+  # -- Additional volume mounts for the deployment.
+  volumeMounts: []
+
+  # -- Additional node selector configuration for the deployment.
+  nodeSelector: {}
+
+  # -- Additional tolerations for the deployment.
+  tolerations: []
+
+  # -- Affinity configuration for the deployment.
+  affinity: {}
+
+core:
+  # -- Sets predictable name for the NeMo Core service
+  serviceName: nemo-core
+
+  # Config is the configuration for the core services
+  config:
+
+    # -- platform is the global platform configuration which is shared across all services
+    platform:
+
+      # -- base_url is the base URL for the platform. If not set, it will default to the core service URL
+      base_url: ""
+
+      # -- enable_service_account_auth enables service account token authentication in-between services
+      enable_service_account_auth: true
+
+    # -- jobs is the configuration specific to executing jobs on the platform
+    jobs:
+
+      # -- port is the port the jobs service will listen on
+      port: 8000
+
+      # -- storage config for the persistent volume claim that is shared by jobs on the platform
+      storage:
+
+        # -- If set, pods will mount this persistent volume for job-scoped storage
+        # and we will not create a new persistent volume claim.
+        existingPersistentVolumeName: ""
+
+        # -- Which storageClass to use when creating a new persistent volume claim.
+        # Leaving as empty string will use the cluster's default storageClass.
+        storageClass: ""
+
+        # -- accessModes for the persistent volume claim. This should include `ReadWriteMany` to ensure
+        # multiple job pods can write to the volume concurrently.
+        accessModes:
+          - ReadWriteMany
+
+        # -- size of the persistent volume claim used for jobs storage
+        size: 200Gi
+
+        # -- volumePermissionsImage is the image used to set permissions on the volume
+        volumePermissionsImage: "busybox"
+
+      # -- ttl_seconds_after_finished is the time to live in seconds for finished jobs before they are cleaned up
+      ttl_seconds_after_finished: 10800
+
+      # -- enabled_backends is the configuration for enabling job execution backends.
+      # On Kubernetes, kubernetes_job is always enabled, while other backends can be optionally enabled in this section.
+      enabled_backends:
+
+        # -- Enable Volcano jobs backend
+        volcano: false
+
+      # Executor profiles configuration
+      executors:
+        - profile: default
+          backend: kubernetes_job
+          provider: cpu
+        - profile: default
+          backend: kubernetes_job
+          provider: gpu
+
+        ## You can add custom profiles here to match your cluster setup.
+        #  For example, you can use node selectors, tolerations, and affinity to
+        #  target specific nodes in your cluster.
+        #- profile: custom
+        #  backend: kubernetes_job
+        #  provider: gpu
+        #  config:
+        #    pod_metadata:
+        #      labels:
+        #        sidecar.istio.io/inject: "false"
+        #      annotations:
+        #        example.com/annotation: "value"
+        #.   job_metadata:
+        #      labels:
+        #        my-custom-label: "value"
+        #      annotations:
+        #        example.com/annotation: "value"
+        #    node_selector:
+        #      kubernetes.io/arch: amd64
+        #    tolerations:
+        #      - key: nvidia.com/gpu
+        #        operator: Exists
+        #        effect: NoSchedule
+        #    affinity:
+        #      nodeAffinity:
+        #        requiredDuringSchedulingIgnoredDuringExecution:
+        #          nodeSelectorTerms:
+        #            - matchExpressions:
+        #                - key: highmem
+        #                  operator: In
+        #                  values:
+        #                    - "true"
+        #    # Disable logging sidecar to avoid security policy violations with hostPath volumes
+        #    logging:
+        #      enabled: false
+        ## You can also provide profiles for other backends that are supported.
+        #  - profile: custom
+        #    backend: kubernetes_job
+        #    provider: cpu
+        #    config:
+        #      custom_config_key: custom_config_value
+
+    # -- models is the configuration specific to model management on the platform
+    models:
+
+      # -- host is the host the models service will listen on
+      host: "0.0.0.0"
+
+      # -- port is the port the models service will listen on
+      port: 8000
+
+      # -- override database configuration for the models service
+      database:
+        # -- Database name override (if empty, use value from externalDatabase or postgresql, whichever is set)
+        name: "entity-store"
+        # -- Database host override (if empty, use value from externalDatabase or postgresql, whichever is set)
+        host: "nemo-entity-storedb"
+        # -- Database port override (if empty, use value from externalDatabase or postgresql, whichever is set)
+        port: 5432
+        # -- Database user override (if empty, use value from externalDatabase or postgresql, whichever is set)
+        user: "user"
+        # -- Database password override (if empty, use value from externalDatabase or postgresql, whichever is set)
+        # -- Note: This will be stored in a Kubernetes secret. Mutually exclusive with passwordExistingSecret
+        password: "pass"
+        # -- Use an existing secret for the database password (mutually exclusive with password)
+        passwordExistingSecret:
+          # -- Name of the existing secret containing the password
+          name: ""
+          # -- Key in the secret that contains the password
+          key: ""
+
+      # -- controller configuration for the models service
+      controller:
+        interval_seconds: 10
+        sleep_seconds: 5
+
+    # -- inference_gateway is the configuration specific to inference request routing
+    inference_gateway:
+
+      # -- port is the port the inference gateway service will listen on
+      port: 8000
+
+      # -- host is the host the inference gateway service will listen on
+      host: "0.0.0.0"
+
+      # -- refresh_model_cache_interval_sec is how frequently to refresh the internal model cache
+      refresh_model_cache_interval_sec: 3
+
+  # -- Container image configuration for the NeMo Core microservice.
+  # @default -- This object has the following default values for the image configuration.
+  image:
+    # -- The registry where the NeMo Core image is located.
+    repository: nvcr.io/nvidia/nemo-microservices/nmp-core
+    # -- The image pull policy determining when to pull new images.
+    pullPolicy: IfNotPresent
+    # -- The image tag to use.
+    tag: ""
+
+  # -- API service configuration for the NeMo Core microservice.
+  # @default -- This object has the following default values for the API configuration.
+  api:
+    # -- Number of replicas for the API service.
+    replicaCount: 1
+
+    # -- Service account configuration for the API service.
+    # @default -- This object has the following default values for the service account configuration.
+    serviceAccount:
+      # -- Specifies whether a service account should be created.
+      create: true
+      # -- Automatically mount a ServiceAccount's API credentials.
+      automount: true
+      # -- Annotations to add to the service account.
+      annotations: {}
+      # -- The name of the service account to use. If not set and create is true, a name is generated using the fullname template.
+      name: ""
+
+    # -- Annotations to add to the API service deployment.
+    annotations: {}
+
+    # -- Annotations to add to the API service pod.
+    podAnnotations: {}
+    # -- Labels for the API service pod.
+    podLabels: {}
+
+    # -- Pod-level security context settings for the API service.
+    # @default -- This object has the following default values for the pod security context.
+    podSecurityContext:
+      # -- The file system group ID to use for all containers.
+      fsGroup: 1000
+
+    # -- Container-level security context settings for the API service.
+    securityContext: {}
+
+    # -- Service configuration for the API service.
+    # @default -- This object has the following default values for the service configuration.
+    service:
+      # -- The Kubernetes service type to create.
+      type: ClusterIP
+      # -- The port number to expose for the service.
+      port: 8000
+
+    resources:
+      {}
+      # We usually recommend not to specify default resources and to leave this as a conscious
+      # choice for the user. This also increases chances charts run on environments with little
+      # resources, such as Minikube. If you do want to specify resources, uncomment the following
+      # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+      # limits:
+      #   cpu: 100m
+      #   memory: 128Mi
+      # requests:
+      #   cpu: 100m
+      #   memory: 128Mi
+
+    # -- Liveness probe configuration for the api service.
+    # @default -- This object has the following default values for the liveness probe configuration.
+    livenessProbe:
+      # -- The HTTP GET request to use for the readiness probe.
+      httpGet:
+        path: /health
+        port: http
+      # -- The frequency in seconds to perform the readiness probe.
+      periodSeconds: 10
+      # -- The timeout in seconds for the readiness probe.
+      timeoutSeconds: 5
+      # -- The failure threshold for the readiness probe.
+      failureThreshold: 3
+
+    # -- Readiness probe configuration for the api service.
+    # @default -- This object has the following default values for the readiness probe configuration.
+    readinessProbe:
+      # -- The HTTP GET request to use for the readiness probe.
+      httpGet:
+        path: /health
+        port: http
+      # -- The frequency in seconds to perform the readiness probe.
+      periodSeconds: 10
+      # -- The timeout in seconds for the readiness probe.
+      timeoutSeconds: 5
+      # -- The failure threshold for the readiness probe.
+      failureThreshold: 3
+
+    # -- Specifies autoscaling configurations for the deployment.
+    autoscaling:
+      # -- Whether to enable horizontal pod autoscaler.
+      enabled: false
+      # -- The minimum number of replicas for the deployment.
+      minReplicas: 1
+      # -- The maximum number of replicas for the deployment.
+      maxReplicas: 100
+      # -- The target CPU utilization percentage.
+      targetCPUUtilizationPercentage: 80
+      # targetMemoryUtilizationPercentage: 80
+
+    # Environment variables to pass to containers. This is an object formatted like NAME: value or NAME: valueFrom: {object}
+    env: {}
+
+    nodeSelector: {}
+
+    affinity: {}
+
+    tolerations: []
+
+  # @default -- This object has the following default values for the controller configuration.
+  controller:
+    # -- Service account configuration for the controller service.
+    # @default -- This object has the following default values for the service account configuration.
+    serviceAccount:
+      # -- Specifies whether a service account should be created.
+      create: true
+      # -- Automatically mount a ServiceAccount's API credentials.
+      automount: true
+      # -- Annotations to add to the service account.
+      annotations: {}
+      # -- The name of the service account to use. If not set and create is true, a name is generated using the fullname template.
+      name: ""
+
+    # -- Annotations to add to the controller service deployment.
+    annotations: {}
+
+    # -- Annotations to add to the controller service pod.
+    podAnnotations: {}
+
+    # -- Labels for the controller service pod.
+    podLabels: {}
+
+    # -- Pod-level security context settings for the controller service.
+    # @default -- This object has the following default values for the pod security context.
+    podSecurityContext:
+      # -- The file system group ID to use for all containers.
+      fsGroup: 1000
+
+    # -- Container-level security context settings for the controller service.
+    securityContext: {}
+
+    # -- Kubernetes deployment resources configuration for the controller service.
+    # It is recommended to not specify default resources and to leave this as a conscious
+    # choice. This also increases chances that the chart will run on environments with little
+    # resources, such as minikube. If you want to specify resources, use the following
+    # example, adjust the values as necessary, and remove the empty curly braces `{}`.
+    # `limits:
+    #   cpu: 100m
+    #   memory: 128Mi
+    # requests:
+    #   cpu: 100m
+    #   memory: 128Mi`
+    resources: {}
+
+    # -- Liveness probe configuration for the controller service.
+    # @default -- This object has the following default values for the liveness probe configuration.
+    livenessProbe:
+      # -- The HTTP GET request to use for the readiness probe.
+      httpGet:
+        path: /health/live
+        port: http
+      # -- The frequency in seconds to perform the readiness probe.
+      periodSeconds: 10
+      # -- The timeout in seconds for the readiness probe.
+      timeoutSeconds: 5
+      # -- The failure threshold for the readiness probe.
+      failureThreshold: 3
+
+    # -- Readiness probe configuration for the controller service.
+    # @default -- This object has the following default values for the readiness probe configuration.
+    readinessProbe:
+      # -- The HTTP GET request to use for the readiness probe.
+      httpGet:
+        path: /health/ready
+        port: http
+      # -- The frequency in seconds to perform the readiness probe.
+      periodSeconds: 10
+      # -- The timeout in seconds for the readiness probe.
+      timeoutSeconds: 5
+      # -- The failure threshold for the readiness probe.
+      failureThreshold: 3
+
+    # -- Additional environment variables to pass to containers. This is an object formatted like NAME: value or NAME: valueFrom: {object}.
+    env: {}
+
+    # -- Node selector configuration for the controller service.
+    nodeSelector: {}
+
+    # -- Affinity configuration for the controller service.
+    affinity: {}
+
+    tolerations: []
+
+  logcollector:
+    # -- Container image configuration for the log collector.
+    # @default -- This object has the following default values for the image configuration.
+    image:
+      # -- The registry where the log collector image is located.
+      repository: fluent/fluent-bit
+      # -- The image tag to use.
+      tag: 4.0.7
+      # -- The image pull policy determining when to pull new images.
+      pullPolicy: IfNotPresent
+
+    # -- The command to run in the log collector container.
+    command:
+      ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit.yaml"]
+
+    # -- The number of replicas for the log collector.
+    replicaCount: 1
+
+    # -- Service account configuration for the log collector.
+    # @default -- This object has the following default values for the service account configuration.
+    serviceAccount:
+      # -- Specifies whether a service account should be created.
+      create: true
+      # -- Automatically mount a ServiceAccount's API credentials.
+      automount: true
+      # -- Annotations to add to the service account.
+      annotations: {}
+      # -- The name of the service account to use. If not set and create is true, a name is generated using the fullname template.
+      name: ""
+
+    # -- Annotations to add to the log collector deployment.
+    annotations: {}
+
+    # -- Annotations to add to the log collector pods.
+    podAnnotations: {}
+
+    # -- Labels for the log collector pod.
+    podLabels: {}
+
+    # -- Pod-level security context settings for the log collector.
+    # @default -- This object has the following default values for the pod security context.
+    podSecurityContext:
+      # -- The file system group ID to use for all containers.
+      fsGroup: 1000
+
+    # -- Container-level security context settings for the log collector.
+    securityContext: {}
+
+    # -- Service configuration for the log collector.
+    # @default -- This object has the following default values for the service configuration.
+    service:
+      # -- The Kubernetes service type to create.
+      type: ClusterIP
+      # -- The port number to expose for the service.
+      port: 4318
+
+    # -- Kubernetes deployment resources configuration for the log collector.
+    # It is recommended to not specify default resources and to leave this as a conscious
+    # choice. This also increases chances that the chart will run on environments with little
+    # resources, such as minikube. If you want to specify resources, use the following
+    # example, adjust the values as necessary, and remove the empty curly braces `{}`.
+    # `limits:
+    #   cpu: 100m
+    #   memory: 128Mi
+    # requests:
+    #   cpu: 100m
+    #   memory: 128Mi`
+    resources: {}
+
+    # -- Liveness probe configuration for the log collector.
+    # @default -- This object has the following default values for the liveness probe configuration.
+    livenessProbe:
+      # -- TCP socket configuration for liveness probe.
+      tcpSocket:
+        # -- Port for TCP socket liveness probe.
+        port: 4318
+      # -- Initial delay in seconds before liveness probe is initiated.
+      initialDelaySeconds: 5
+      # -- Period in seconds for liveness probe.
+      periodSeconds: 10
+      # -- Timeout in seconds for liveness probe.
+      timeoutSeconds: 5
+      # -- Failure threshold for liveness probe.
+      failureThreshold: 3
+
+    # -- Readiness probe configuration for the log collector.
+    # @default -- This object has the following default values for the readiness probe configuration.
+    readinessProbe:
+      # -- HTTP GET request configuration for readiness probe.
+      httpGet:
+        # -- The HTTP path for the readiness probe.
+        path: /api/v1/health
+        # -- The port name for the readiness probe.
+        port: 2020
+
+      # -- Initial delay in seconds before readiness probe is initiated.
+      initialDelaySeconds: 5
+      # -- Period in seconds for readiness probe.
+      periodSeconds: 5
+      # -- Timeout in seconds for readiness probe.
+      timeoutSeconds: 3
+      # -- Failure threshold for readiness probe.
+      failureThreshold: 3
+
+    # -- Autoscaling configuration for the log collector.
+    # @default -- This object has the following default values for the autoscaling configuration.
+    autoscaling:
+      # -- Whether to enable horizontal pod autoscaler.
+      enabled: false
+      # -- The minimum number of replicas for the deployment.
+      minReplicas: 1
+      # -- The maximum number of replicas for the deployment.
+      maxReplicas: 1
+      # -- The target CPU utilization percentage.
+      targetCPUUtilizationPercentage: 80
+      # -- The target memory utilization percentage.
+      # targetMemoryUtilizationPercentage: 80
+
+    # -- Additional environment variables to pass to containers. This is an object formatted like NAME: value or NAME: valueFrom: {object}.
+    env: {}
+
+    # -- Node selector configuration for the log collector.
+    nodeSelector: {}
+
+    # -- Affinity configuration for the log collector.
+    affinity: {}
+
+    tolerations: []
+
+  logging:
+    # -- Sidecar configuration for the log collector sidecar.
+    # @default -- This object has the following default values for the sidecar configuration.
+    sidecar:
+      # -- Whether to enable the logging sidecar. Set to false to disable logging sidecars being attached to jobs.
+      enabled: true
+      # -- Container image configuration for the log collector sidecar.
+      # @default -- This object has the following default values for the image configuration.
+      image:
+        # -- The registry where the log collector sidecar image is located.
+        repository: fluent/fluent-bit
+        # -- The image tag to use.
+        tag: 4.0.7
+
+  # -- PostgreSQL configuration for the NeMo Jobs microservice.
+  # @default -- This object has the following default values for the PostgreSQL configuration.
+  postgresql:
+    # -- Whether to install the default PostgreSQL Helm chart. If enabled, the NeMo Jobs microservice Helm chart uses the [PostgreSQL Helm chart from Bitnami](https://github.com/bitnami/charts/blob/main/bitnami/postgresql/values.yaml) to create a PostgreSQL database.
+    enabled: true
+    # -- The name override for the PostgreSQL database.
+    nameOverride: jobsdb
+    image:
+      repository: bitnamilegacy/postgresql
+    volumePermissions:
+      image:
+        repository: bitnamilegacy/os-shell
+    metrics:
+      image:
+        repository: bitnamilegacy/postgres-exporter
+    # -- Service account configuration for PostgreSQL.
+    # @default -- This object has the following default values for the service account configuration.
+    serviceAccount:
+      # -- The service account name for PostgreSQL.
+      name: jobs-postgresql
+      # -- Specifies whether to create a new service account for PostgreSQL.
+      create: true
+    # -- Authentication configuration for PostgreSQL.
+    # @default -- This object has the following default values for the authentication configuration.
+    auth:
+      # -- Whether to assign a password to the "postgres" admin user. If disabled, remote access is blocked for this user.
+      enablePostgresUser: true
+      # -- The user name to use for the PostgreSQL database.
+      username: nemo
+      # -- The password for the PostgreSQL user.
+      password: nemo
+      # -- The name for a custom database to create.
+      database: jobs
+      # -- The name of an existing secret to use for PostgreSQL credentials.
+      existingSecret: ""
+    # -- The PostgreSQL architecture. Available options are `standalone` or `replication`.
+    architecture: standalone
+    # -- Service configuration for PostgreSQL.
+    # @default -- This object has the following default values for the service configuration.
+    service:
+      # -- Port configuration for PostgreSQL service.
+      ports:
+        # -- Port number for PostgreSQL service.
+        postgresql: 5432
+    # -- Persistence configuration for PostgreSQL.
+    # @default -- This object has the following default values for the persistence configuration.
+    persistence:
+      # -- Whether to enable persistent volume.
+      enabled: true
+      # -- Size of the persistent volume.
+      size: 10Gi
+
+  # -- External PostgreSQL configuration settings. These values are only used when postgresql.enabled is set to false.
+  # @default -- This object has the following default values for the external PostgreSQL configuration.
+  externalDatabase:
+    # -- External database host address.
+    host: localhost
+    # -- External database port number.
+    port: 5432
+    # -- Database username for Jobs service.
+    user: nemo
+    # -- Jobs database name.
+    database: jobs
+    # -- Name of an existing secret resource containing the database credentials.
+    existingSecret: ""
+    # -- Name of an existing secret key containing the database credentials.
+    existingSecretPasswordKey: ""
+    # -- URI secret configuration for external database.
+    # @default -- This object has the following default values for the URI secret configuration.
+    uriSecret:
+      # -- Name of the URI secret.
+      name: ""
+      # -- Key in the URI secret containing the database URI.
+      key: ""
+
+  databaseMigrations:
+    # -- Enable or disable database migrations job
+    enabled: true
+
+    restartPolicy: OnFailure
+
+    # -- Annotations to add to the database migration job.
+    annotations: {}
+
+    # -- Annotations to add to the database migration job pods.
+    podAnnotations: {}
+
+    # -- Labels for the database migration job pods.
+    podLabels: {}
+
+    podSecurityContext:
+      fsGroup: 1000
+
+    securityContext: {}
+
+    resources: {}
+
+    nodeSelector: {}
+
+    affinity: {}
+
+    tolerations: []
+

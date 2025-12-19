@@ -1,0 +1,49 @@
+{{- if .Values.config.platform.enable_service_account_auth }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "nemo-core.apiServiceAccountName" . }}-tokenreview
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "nemo-core.apiServiceAccountName" . }}-tokenreview
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "nemo-core.apiServiceAccountName" . }}-tokenreview
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nemo-core.apiServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "nemo-core.apiServiceAccountName" . }}
+  labels:
+    {{- include "nemo-core.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create", "delete", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "nemo-core.apiServiceAccountName" . }}
+  labels:
+    {{- include "nemo-core.labels" . | nindent 4 }} 
+subjects:
+- kind: ServiceAccount
+  name: {{ include "nemo-core.apiServiceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "nemo-core.apiServiceAccountName" . }}
+  apiGroup: rbac.authorization.k8s.io

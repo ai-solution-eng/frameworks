@@ -1,0 +1,97 @@
+{{- if not .Values.global.platformConfigmapName }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.platformConfigmapName }}
+data:
+  config.yaml: |
+    platform:
+      base_url: "http://{{ include "nemo-core.api-servicename" . }}:8000"
+      jobs_url: "http://{{ include "nemo-core.api-servicename" . }}:8000"
+      models_url: "http://{{ include "nemo-core.api-servicename" . }}:8000"
+      inference_gateway_url: "http://{{ include "nemo-core.api-servicename" . }}:8000"
+
+      # Flag for enabling service account token authentication on kubernetes
+      enable_service_account_auth: {{ .Values.config.platform.enable_service_account_auth | default false }}
+
+      # Host and port for the consolidated core API server
+      host: "{{ .Values.config.platform.host }}"
+      port: {{ .Values.config.platform.port }}
+
+    jobs:
+      # Executor profiles configuration
+      executors:
+        {{- $configmap := (include "nemo-core.logsidecar-configmap" .) }}
+        {{- $pvcname := (include "nemo-core.persistentVolumeClaim" .) }}
+        {{- $root := . }}
+        {{- range .Values.config.jobs.executors }}
+        - profile: {{ .profile }}
+          backend: {{ .backend }}
+          provider: {{ .provider }}
+          config:
+            storage:
+              pvc_name: {{ $pvcname }}
+              volume_permissions_image: {{ $.Values.config.jobs.storage.volumePermissionsImage }}
+            logging:
+              enabled: {{ $.Values.logging.sidecar.enabled }}
+              configmap: {{ $configmap }}
+              image:
+                repository: {{ $.Values.logging.sidecar.image.repository }}
+                tag: {{ $.Values.logging.sidecar.image.tag }}
+            image_pull_secrets:
+              {{ include "nemo-common.imagepullsecrets" $root | nindent 8 | trim }}
+            {{- with .config }}
+            {{- with .pod_metadata }}
+            pod_metadata:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with .job_metadata }}
+            job_metadata:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with .node_selector }}
+            node_selector:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with .tolerations }}
+            tolerations:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with .affinity }}
+            affinity:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- end }}
+        {{- end }}
+      
+      # Configure to use k8s secrets for sensitive information
+      secrets:
+        backend: kubernetes
+        kubernetes:
+          config_type: in-cluster
+          namespace: {{ .Release.Namespace }}
+
+    models:
+      host: "{{ .Values.config.models.host }}"
+      port: {{ .Values.config.models.port }}
+      controller:
+        interval_seconds: {{ .Values.config.models.controller.interval_seconds }}
+        sleep_seconds: {{ .Values.config.models.controller.sleep_seconds }}
+      # Configure to use k8s secrets for sensitive information
+      secrets:
+        backend: kubernetes
+        kubernetes:
+          config_type: in-cluster
+          namespace: {{ .Release.Namespace }}
+
+    inference_gateway:
+      host: "{{ .Values.config.inference_gateway.host }}"
+      port: {{ .Values.config.inference_gateway.port }}
+      refresh_model_cache_interval_sec: {{ .Values.config.inference_gateway.refresh_model_cache_interval_sec }}
+      # Configure to use k8s secrets for sensitive information
+      secrets:
+        backend: kubernetes
+        kubernetes:
+          config_type: in-cluster
+          namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,0 +1,38 @@
+{{/* templates/gcptrafficextension.yaml */}}
+{{- if .Values.gke.extension.enabled }}
+{{- /* Determine which Gateway name to use */}}
+{{- $gatewayName := .Values.gke.gateway.name -}}
+{{- if .Values.gke.existingGateway -}}
+{{- $gatewayName = .Values.gke.existingGateway -}}
+{{- end -}}
+apiVersion: networking.gke.io/v1
+kind: GCPTrafficExtension
+metadata:
+  name: {{ .Values.gke.extension.name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $gatewayName }}
+  extensionChains:
+    - name: "ext-proc-chain"
+      extensions:
+        - name: "guardrails"
+          authority: {{ .Values.gke.extension.filter.authority | quote }}
+          backendRef:
+            group: ""
+            kind: Service
+            name: {{ include "nemo-common.servicename" . }}
+            port: 8443
+          timeout: {{ .Values.gke.extension.filter.timeout }}
+          failOpen: {{ .Values.gke.extension.filter.failOpen }}
+          supportedEvents:
+            - RequestHeaders
+            - RequestBody
+            - ResponseHeaders
+            - ResponseBody
+            - ResponseTrailers
+          requestBodySendMode: Streamed
+          responseBodySendMode: FullDuplexStreamed
+{{- end }}

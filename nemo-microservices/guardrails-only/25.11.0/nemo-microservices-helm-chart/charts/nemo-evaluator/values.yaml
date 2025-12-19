@@ -1,0 +1,355 @@
+# -- The number of replicas for the NeMo Evaluator microservice.
+replicaCount: 1
+
+image:
+  # -- The image pull policy for the NeMo Evaluator microservice image.
+  pullPolicy: IfNotPresent
+  # -- The repository where the NeMo Evaluator microservice image is located.
+  repository: nvcr.io/nvidia/nemo-microservices/evaluator
+  # -- Specifies the version of the NeMo Evaluator microservice image.
+  tag: ""
+
+# -- The image pull secrets for accessing the container registry.
+imagePullSecrets:
+  - name: nvcrimagepullsecret
+
+# -- The name override for the NeMo Evaluator microservice.
+nameOverride: ""
+
+# -- The full name override for the NeMo Evaluator microservice.
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Whether to create a service account for the NeMo Evaluator microservice.
+  create: true
+  # -- Whether to automatically mount the service account token.
+  automount: true
+  # -- Annotations for the service account.
+  annotations: {}
+  # -- A name for the service account.
+  name: ""
+
+# -- Annotations for the service pod.
+podAnnotations: {}
+# -- Labels for the service pod.
+podLabels: {}
+
+# -- Security context for the service pod.
+podSecurityContext: {}
+
+# -- Security context for the service container.
+securityContext: {}
+
+# -- Additional environment variables to pass to containers. The format is `NAME: value` or `NAME: valueFrom: {object}`.
+env: {}
+
+service:
+  # -- The type of the NeMo Evaluator microservice.
+  type: ClusterIP
+  # -- External port of the NeMo Evaluator microservice.
+  port: 7331
+  # -- Internal port of the NeMo Evaluator microservice.
+  internalPort: 7332
+
+evaluationJob:
+  # -- Monitoring interval checking evaluation job status (in seconds).
+  monitoringInterval: 5
+  # -- Monitoring timeout for checking evaluation job status (in seconds).
+  monitoringTimeout: 36000
+
+evalFactory:
+  job:
+    # -- Restart policy for the pods of the core eval jobs.
+    restartPolicy: Never
+    # -- Time-to-live after completion for the core eval jobs.
+    ttlSecondsAfterFinished: 172800
+
+evaluationImages: {}
+
+ingress:
+  # -- Whether to enable the ingress for the NeMo Evaluator service.
+  enabled: false
+  # -- The ingress class name.
+  className: ""
+  # -- Annotations for the ingress resource.
+  annotations: {}
+  # -- (list) A list of maps, each containing the keys `host` and `paths` for the ingress resource. Specify hosts and paths as a list to configure ingress for the NeMo Evaluator service.
+  # @default -- []
+  hosts: {}
+  #   - host: chart-example.local
+  #     paths:
+  #       - path: /
+  #         pathType: ImplementationSpecific
+  # -- TLS configuration for the ingress resource.
+  tls: []
+
+# -- Resources for the NeMo Evaluator service.
+resources: {}
+
+livenessProbe:
+  # -- Configures the liveness probe for the NeMo Evaluator microservice. The liveness probe checks if the container is running. The probe sends an HTTP GET request to the `/health` endpoint on the container's `http` port.
+  httpGet:
+    path: /health
+    port: http
+
+readinessProbe:
+  # -- Configures the readiness probe for the NeMo Evaluator microservice. The readiness probe checks if the container is ready to receive traffic. The probe sends an HTTP GET request to the `/health` endpoint on the container's `http` port.
+  httpGet:
+    path: /health
+    port: http
+
+autoscaling:
+  # -- Whether to enable autoscaling for the NeMo Evaluator microservice.
+  enabled: false
+  # -- The minimum number of replicas for the NeMo Evaluator microservice.
+  minReplicas: 1
+  # -- The maximum number of replicas for the NeMo Evaluator microservice.
+  maxReplicas: 100
+  # -- The target CPU utilization percentage for the NeMo Evaluator microservice.
+  targetCPUUtilizationPercentage: 80
+
+# -- Volumes for the NeMo Evaluator microservice.
+volumes: []
+# -- Volume mounts for the NeMo Evaluator microservice.
+volumeMounts: []
+
+# -- Node selector for the NeMo Evaluator microservice.
+nodeSelector: {}
+
+# -- Tolerations for the NeMo Evaluator microservice.
+tolerations: []
+
+# -- Affinity for the NeMo Evaluator microservice.
+affinity: {}
+
+# -- Host for the NeMo Evaluator microservice.
+evaluator:
+  host: "0.0.0.0"
+
+# -- Whether to enable the OpenTelemetry exporter for the NeMo Evaluator microservice.
+otelExporterEnabled: false
+
+# -- Log level for the NeMo Evaluator microservice.
+logLevel: INFO
+
+# -- OpenTelemetry environment configuration variables for the NeMo Evaluator microservice.
+otelEnvVars:
+  # OTEL_EXPORTER_OTLP_ENDPOINT: "http://$(HOST_IP):4317" # sends to gRPC receiver on port 4317
+  OTEL_SERVICE_NAME: "nemo-evaluator"
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_METRICS_EXPORTER: otlp
+  OTEL_LOGS_EXPORTER: otlp
+  OTEL_PROPAGATORS: "tracecontext,baggage"
+  OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=$(NAMESPACE)"
+  OTEL_PYTHON_EXCLUDED_URLS: "health"
+  OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
+
+external:
+  dataStore:
+    # -- The external URL of the NeMo Data Store microservice.
+    endpoint: "http://nemo-data-store:3000/v1/hf"
+  entityStore:
+    # -- The external URL of the NeMo Entity Store microservice.
+    endpoint: "http://nemo-entity-store:8000"
+  jobs:
+    # -- The external URL of the Jobs microservice.
+    endpoint: "http://nemo-core-api:8000"
+  nimProxy:
+    # -- The external URL of the NeMo NIM Proxy microservice.
+    endpoint: "http://nemo-nim-proxy:8000"
+    # -- The internal cluster URL of the NeMo NIM Proxy microservice. This is used to remap model URLs from evaluation jobs that match external.nimProxy.endpoint to the internal URL when cluster ingress is not supported for the external address.
+    endpoint_internal: ""
+  milvus:
+    # -- The external URL of your own Milvus service.
+    endpoint: ""
+
+dbMigration:
+  resources:
+    limits:
+      # -- The CPU resource limit for the DB Migration service.
+      cpu: 1
+      # -- The memory resource limit for the DB Migration service.
+      memory: 1Gi
+
+postgresql:
+  # -- Whether to enable the default PostgreSQL service. For more information about setting up a PostgreSQL service, see the [PostgreSQL setup guide](https://docs.nvidia.com/nemo/microservices/latest/set-up/manage-storage/database/postgres.html).
+  enabled: true
+  # -- The architecture for the default PostgreSQL service.
+  architecture: standalone
+  global:
+    # -- The storage class for the default PostgreSQL service.
+    storageClass: ""
+    # -- The storage size for the default PostgreSQL service.
+    size: 10Gi
+  auth:
+    # -- Whether to enable the PostgreSQL user.
+    enablePostgresUser: true
+    # -- The username for the PostgreSQL service.
+    username: nemo
+    # -- The password for the PostgreSQL service.
+    password: nemo
+    # -- The database for the PostgreSQL service.
+    database: evaluation
+    # -- The existing secret you want to use for the PostgreSQL service.
+    existingSecret: ""
+  primary:
+    service:
+      ports:
+        # -- The primary service port for the PostgreSQL service.
+        postgresql: 5432
+postgresWaitImage:
+  # -- The repository location of the image used to wait for postgres to start.
+  repository: "busybox"
+  # -- The tag of the image used when waiting.
+  tag: "latest"
+
+externalDatabase:
+  # -- The host for an external database.
+  host: localhost
+  # -- The port for the external database.
+  port: 5432
+  # -- The user for the external database.
+  user: nemo
+  # -- The database for the external database.
+  database: evaluation
+  # -- The existing secret for the external database.
+  existingSecret: ""
+  # -- The existing secret password key for the external database.
+  existingSecretPasswordKey: ""
+  # -- The name for the external database secret.
+  uriSecret:
+    name: ""
+    key: ""
+
+zipkin:
+  # -- Whether to enable the default Zipkin service.
+  enabled: false
+  # -- The full name override for the default Zipkin service.
+  fullnameOverride: "zipkin"
+
+opentelemetry-collector:
+  # -- Whether to enable the OpenTelemetry Collector service.
+  enabled: false
+  # -- The mode for the OpenTelemetry Collector service.
+  mode: deployment
+  config:
+    receivers:
+      # -- The OTLP receiver for the OpenTelemetry Collector service.
+      otlp:
+        protocols:
+          grpc:
+          http:
+            cors:
+              allowed_origins:
+                - "*"
+    exporters:
+      # NOTE: Prior to v0.86.0 use `logging` instead of `debug`.
+      # -- The Zipkin exporter for the OpenTelemetry Collector service.
+      zipkin:
+        endpoint: "http://zipkin:9411/api/v2/spans"
+      # -- Debugging verbosity for the OpenTelemetry Collector service.
+      debug:
+        verbosity: detailed
+    processors:
+      # -- The batch processor for the OpenTelemetry Collector service.
+      batch: {}
+      # -- The tail sampling processor for the OpenTelemetry Collector service.
+      tail_sampling:
+        # filter out health checks
+        # https://github.com/open-telemetry/opentelemetry-collector/issues/2310#issuecomment-1268157484
+        # -- The policies for the OpenTelemetry Collector service.
+        policies:
+          - name: drop_noisy_traces_url
+            type: string_attribute
+            string_attribute:
+              key: http.target
+              values:
+                - \/health
+              enabled_regex_matching: true
+              invert_match: true
+      # -- The transform processor configuration for the OpenTelemetry Collector service.
+      transform:
+        # -- The trace statements for the OpenTelemetry Collector service.
+        trace_statements:
+          - context: span
+            statements:
+              - set(status.code, 1) where attributes["http.path"] == "/health"
+              # here, you can add code to replace span names or attributes for your own needs.
+    service:
+      pipelines:
+        # -- The traces pipeline for the OpenTelemetry Collector service.
+        traces:
+          # -- The receivers for the traces pipeline for the OpenTelemetry Collector service.
+          receivers: [otlp]
+          # -- The exporters for the traces pipeline for the OpenTelemetry Collector service.
+          exporters: [debug, zipkin]
+          # -- The processors for the traces pipeline for the OpenTelemetry Collector service.
+          processors: [tail_sampling, transform]
+        # -- The metrics pipeline for the OpenTelemetry Collector service.
+        metrics:
+          # -- The receivers for the metrics pipeline for the OpenTelemetry Collector service.
+          receivers: [otlp]
+          # -- The exporters for the metrics pipeline for the OpenTelemetry Collector service.
+          exporters: [debug]
+          # -- The processors for the metrics pipeline for the OpenTelemetry Collector service.
+          processors: [batch]
+        # -- The logs pipeline for the OpenTelemetry Collector service.
+        logs:
+          # -- The receivers for the logs pipeline for the OpenTelemetry Collector service.
+          receivers: [otlp]
+          # -- The exporters for the logs pipeline for the OpenTelemetry Collector service.
+          exporters: [debug]
+          # -- The processors for the logs pipeline for the OpenTelemetry Collector service.
+          processors: [batch]
+
+milvus:
+  # -- Whether to enable the default Milvus service. Enable this for RAG and Retriever pipelines. For more information about setting up a Milvus service, see the [Milvus setup guide](https://docs.nvidia.com/nemo/microservices/latest/set-up/deploy-as-microservices/evaluator.html#configure-milvus).
+  enabled: true
+  # -- The service name for the default Milvus service.
+  serviceName: milvus
+  service:
+    # -- The service port for the default Milvus service.
+    port: 19121
+  cluster:
+    # -- Whether to enable the default Milvus cluster.
+    enabled: false
+  etcd:
+    # -- Whether to enable the etcd for the default Milvus service.
+    enabled: false
+  pulsar:
+    # -- Whether to enable the Pulsar for the default Milvus service.
+    enabled: false
+  minio:
+    # -- Whether to enable the Minio for the default Milvus service.
+    enabled: false
+    # -- Whether to enable the TLS for the Minio service.
+    tls:
+      enabled: false
+    # -- Whether to enable gcsgateway in Minio service
+    gcsgateway:
+      enabled: false
+  standalone:
+    # -- Whether to enable the standalone for the default Milvus service.
+    persistence:
+      # -- Whether to enable the persistence for the default Milvus service.
+      enabled: true
+      # -- The persistent volume claim for the default Milvus service.
+      persistentVolumeClaim:
+        # -- The size for the persistent volume claim for the default Milvus service.
+        size: 50Gi
+        # -- The storage class for the persistent volume claim for the default Milvus service.
+        storageClass: ""
+    # -- Extra environment variables for the default Milvus service.
+    extraEnv:
+      - name: LOG_LEVEL
+        value: error
+  # -- Extra configuration files for the default Milvus service.
+  extraConfigFiles:
+    user.yaml: |+
+      etcd:
+        use:
+          embed: true
+        data:
+          dir: /var/lib/milvus/etcd
+      common:
+        storageType: local
