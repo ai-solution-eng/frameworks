@@ -1,0 +1,39 @@
+{{- if .Values.kubetail.dashboard.enabled }}
+{{- $ing := index .Values "kubetail" "dashboard" "ingress" -}}
+{{- if $ing.enabled }}
+kind: Ingress
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: {{ include "kubetail.dashboard.ingressName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+  labels:
+    {{- include "kubetail.dashboard.labels" (list $ $ing.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $ing.annotations) | indent 4 }}
+spec:
+  {{- if $ing.className }}
+  ingressClassName: {{ $ing.className }}
+  {{- end }}
+  rules:
+  {{- range $ing.rules }}
+  - host: {{ tpl .host $ }}
+    http:
+      {{- with .http }}
+      paths:
+      {{- range .paths }}
+      - path: {{ .path }}
+        pathType: {{ .pathType }}
+        backend:
+          service:
+            name: {{ include "kubetail.dashboard.serviceName" $ }}
+            port:
+              name: http
+      {{- end }}
+      {{- end }}
+  {{- end}}
+  tls:
+  {{- with $ing.tls }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- end }}

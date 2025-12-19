@@ -1,0 +1,22 @@
+{{- if .Values.kubetail.dashboard.enabled }}
+{{- $svc := index .Values "kubetail" "dashboard" "service" -}}
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ include "kubetail.dashboard.serviceName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+  labels:
+    {{- include "kubetail.dashboard.labels" (list $ $svc.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $svc.annotations) | indent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "kubetail.dashboard.selectorLabels" $ | nindent 4 }}
+  ports:
+  - name: http
+    protocol: TCP
+    port: {{ $svc.ports.http }}
+    targetPort: http
+    appProtocol: http
+{{- end }}

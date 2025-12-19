@@ -1,0 +1,22 @@
+{{- if .Values.kubetail.clusterAPI.enabled }}
+{{- $svc := index .Values "kubetail" "clusterAPI" "service" -}}
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ include "kubetail.clusterAPI.serviceName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+  labels:
+    {{- include "kubetail.clusterAPI.labels" (list $ $svc.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $svc.annotations) | indent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "kubetail.clusterAPI.selectorLabels" $ | nindent 4 }}
+  ports:
+  - name: http
+    protocol: TCP
+    port: {{ $svc.ports.http }}
+    targetPort: http
+    appProtocol: http
+{{- end }}

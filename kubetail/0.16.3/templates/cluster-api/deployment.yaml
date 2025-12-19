@@ -1,0 +1,111 @@
+{{- if .Values.kubetail.clusterAPI.enabled }}
+{{- $dep := index .Values "kubetail" "clusterAPI" "deployment" -}}
+{{- $podTmpl := index .Values "kubetail" "clusterAPI" "podTemplate" }}
+{{- $container := index .Values "kubetail" "clusterAPI" "container" -}}
+{{- $secret := index .Values "kubetail" "clusterAPI" "secret" -}}
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: {{ include "kubetail.clusterAPI.deploymentName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+  labels:
+    {{- include "kubetail.clusterAPI.labels" (list $ $dep.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $dep.annotations) | indent 4 }}
+spec:
+  replicas: {{ $dep.replicas }}
+  revisionHistoryLimit: {{ $dep.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "kubetail.clusterAPI.selectorLabels" $ | nindent 6 }}
+  strategy:
+    {{- toYaml $dep.strategy | nindent 4 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kubetail.clusterAPI.labels" (list $ $podTmpl.labels) | indent 8 }}
+      annotations:
+        {{- include "kubetail.annotations" (list $ $podTmpl.annotations) | indent 8 }}
+        checksum/config: {{ include "kubetail.clusterAPI.config" $ | sha256sum | quote }}
+        {{- if $secret.enabled }}
+        checksum/secret: {{ include "kubetail.clusterAPI.secretData" $ | sha256sum | quote }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: true
+      serviceAccountName: {{ include "kubetail.clusterAPI.serviceAccountName" $ }}
+      securityContext:
+        {{- with $podTmpl.securityContext -}}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+      - name: {{ $container.name }}
+        image: {{ include "kubetail.clusterAPI.image" $ }}
+        securityContext:
+          {{- with $container.securityContext -}}
+          {{ toYaml . | nindent 10 }}
+          {{- end }}
+        imagePullPolicy: {{ .Values.kubetail.clusterAPI.image.pullPolicy }}
+        env:
+        {{- with $container.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        envFrom:
+        {{- if .Values.kubetail.clusterAPI.secret.enabled }}
+        - secretRef:
+            name: {{ include "kubetail.clusterAPI.secretName" $ }}
+        {{- end }}
+        {{- with $container.extraEnvFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        args:
+        - --config=/etc/kubetail/config.yaml
+        ports:
+        - name: http
+          protocol: TCP
+          containerPort: {{ .Values.kubetail.clusterAPI.runtimeConfig.ports.http }}
+        livenessProbe:
+          httpGet:
+            scheme: HTTP
+            path: /healthz
+            port: http
+          initialDelaySeconds: 30
+          timeoutSeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            scheme: HTTP
+            path: /healthz
+            port: http
+          initialDelaySeconds: 30
+          timeoutSeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+        resources:
+          {{- with $container.resources }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /etc/kubetail
+          readOnly: true
+      {{- with $podTmpl.extraContainers  }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "kubetail.clusterAPI.configMapName" $ }}
+      nodeSelector:
+        {{- with $podTmpl.nodeSelector }}
+        {{- toYaml . | nindent 8 }}
+        {{- end}}
+      affinity:
+        {{- with $podTmpl.affinity }}
+        {{- toYaml . | nindent 8 }}
+        {{- end}}
+      tolerations:
+      {{- with $podTmpl.tolerations }}
+      {{- toYaml . | nindent 6 }}
+      {{- end}}
+{{- end }}

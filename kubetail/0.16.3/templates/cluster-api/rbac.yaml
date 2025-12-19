@@ -1,0 +1,80 @@
+{{- if .Values.kubetail.clusterAPI.enabled }}
+{{- $rbac := index .Values "kubetail" "clusterAPI" "rbac" -}}
+{{- $root := . -}}
+{{- range $namespace := uniq (append .Values.kubetail.allowedNamespaces (include "kubetail.namespace" $)) }}
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: {{ $namespace }}
+  name: {{ include "kubetail.clusterAPI.roleName" $ }}
+  labels:
+    {{- include "kubetail.clusterAPI.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+rules:
+{{- if eq $namespace (include "kubetail.namespace" $) }}
+- apiGroups: [discovery.k8s.io]
+  resources: [endpointslices]
+  verbs: [list, watch]
+{{- end }}
+{{- if has $namespace $root.Values.kubetail.allowedNamespaces }}
+- apiGroups: ["", apps, batch]
+  resources: [cronjobs, daemonsets, deployments, jobs, pods, replicasets, statefulsets]
+  verbs: [get, list, watch]
+{{- end }}
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: {{ $namespace }}
+  name: {{ include "kubetail.clusterAPI.roleBindingName" $ }}
+  labels:
+    {{- include "kubetail.clusterAPI.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubetail.clusterAPI.roleName" $ }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kubetail.clusterAPI.serviceAccountName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+{{- end }}
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kubetail.clusterAPI.clusterRoleName" $ }}
+  labels:
+    {{- include "kubetail.clusterAPI.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+rules:
+- apiGroups: [""]
+  resources: [nodes]
+  verbs: [get, list, watch]
+{{- if not .Values.kubetail.allowedNamespaces }}
+- apiGroups: ["", apps, batch]
+  resources: [cronjobs, daemonsets, deployments, jobs, pods, replicasets, statefulsets]
+  verbs: [get, list, watch]
+{{- end }}
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "kubetail.clusterAPI.clusterRoleBindingName" $ }}
+  labels:
+    {{- include "kubetail.clusterAPI.labels" (list $ $rbac.labels) | indent 4 }}
+  annotations:
+    {{- include "kubetail.annotations" (list $ $rbac.annotations) | indent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubetail.clusterAPI.clusterRoleName" $ }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kubetail.clusterAPI.serviceAccountName" $ }}
+  namespace: {{ include "kubetail.namespace" $ }}
+{{- end }}
