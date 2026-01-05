@@ -1,0 +1,29 @@
+#More information https://docs.ezmeral.hpe.com/unified-analytics/15/ManageClusters/importing-applications.html?hl=import
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "phoenix.fullname" . }}
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway }}
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint | required "\nValid .Values.ezua.virtualService.endpoint is required !" }}
+  http:
+  - match:
+    - uri:
+        prefix: /grpc
+    route:
+    - destination:
+        host: {{ include "phoenix.fullname" . }}-svc.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: {{ .Values.phoenix.server.grpcPort }}
+  - match:
+    - uri:
+        prefix: ""
+    route:
+    - destination:
+        host: {{ include "phoenix.fullname" . }}-svc.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: {{ .Values.phoenix.server.port }}

@@ -1,0 +1,1 @@
+Phoenix has been deployed at {{ .Values.ezua.virtualService.endpoint }}

@@ -1,0 +1,11 @@
+apiVersion: v2
+name: arize-phoenix
+description: Deploy Arize Phoenix on PCAI
+type: application
+version: 4.0.17
+appVersion: "12.19.0"
+dependencies:
+  - name: phoenix-helm
+    alias: phoenix
+    version: 4.0.17
+    repository: "oci://registry-1.docker.io/arizephoenix"
