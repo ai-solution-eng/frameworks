@@ -1,0 +1,11 @@
+apiVersion: v2
+name: headlamp
+description: Deploy Headlamp on PCAI
+type: application
+version: 0.39.0
+appVersion: "0.39.0"
+dependencies:
+  - name: headlamp
+    alias: headlamp
+    version: 0.39.0
+    repository: "https://kubernetes-sigs.github.io/headlamp/"
