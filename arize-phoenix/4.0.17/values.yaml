@@ -1,0 +1,17 @@
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  #Use next options in order to configure the application endpoint.
+  #Example of a VirtualService is here:
+  virtualService:
+    endpoint: "phoenix.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+phoenix:
+  service:
+    type: "ClusterIP"
+  auth:
+    defaultAdminPassword: "super_secret_password"
+  ingress:
+    enabled: false
