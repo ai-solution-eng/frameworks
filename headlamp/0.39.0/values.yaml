@@ -1,0 +1,10 @@
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  #Use next options in order to configure the application endpoint.
+  #Example of a VirtualService is here:
+  virtualService:
+    endpoint: "headlamp.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
