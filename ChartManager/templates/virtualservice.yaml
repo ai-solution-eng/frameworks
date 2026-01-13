@@ -1,0 +1,17 @@
+{{- if .Values.ezua.virtualService.enabled }}
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ .Release.Name }}-vs
+spec:
+  hosts:
+  - {{ .Values.ezua.virtualService.endpoint | quote }}
+  gateways:
+  - {{ .Values.ezua.virtualService.istioGateway }}
+  http:
+  - route:
+    - destination:
+        host: {{ .Release.Name }}-service.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: {{ .Values.service.port }}
+{{- end }}

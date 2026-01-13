@@ -1,0 +1,6 @@
+apiVersion: v2
+name: chart
+description: A Helm chart for deploying a simple Flask app
+type: application
+version: 1.0.1
+appVersion: "1.0.0"

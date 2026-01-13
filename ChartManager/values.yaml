@@ -1,0 +1,24 @@
+replicaCount: 1
+
+image:
+  repository: liavna/chart-app  # Your Docker repo
+  pullPolicy: IfNotPresent
+  tag: "latest"  # Or a specific version
+
+service:
+  type: ClusterIP
+  port: 80  # Maps to app's 5000
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+ezua:
+  virtualService:
+    enabled: true
+    endpoint: "chart.${DOMAIN_NAME}"  # Matches your environment
+    istioGateway: "istio-system/ezaf-gateway"
