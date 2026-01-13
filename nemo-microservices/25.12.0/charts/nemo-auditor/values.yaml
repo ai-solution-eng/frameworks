@@ -1,0 +1,150 @@
+# Default values for nemo-auditor
+
+replicaCount: 1
+
+global:
+  # -- Set to an empty string in the component chart
+  platformConfigmapName: ""
+
+# -- The name of the ConfigMap that contains platform configuration. This is only used in the subcomponent chart.
+platformConfigmapName: "nemo-platform-config"
+
+# -- Service configuration for NeMo Auditor microservice.
+config: {}
+
+image:
+  repository: nvcr.io/nvidia/nemo-microservices/auditor
+  pullPolicy: IfNotPresent
+  tag: ""
+
+postgresql:
+  enabled: true
+  nameOverride: auditdb
+  auth:
+    username: nemo
+    password: nemo
+    postgresPassword: nemo
+    database: auditor
+  service:
+    ports:
+      postgresql: 5432
+
+  persistence:
+    enabled: true
+    size: 10Gi
+
+# -- External PostgreSQL configuration.
+externalDatabase:
+  # -- The database host.
+  host: ""
+  # -- The database port.
+  port: 5432
+  # -- The database user.
+  user: nemo
+  # -- The database name.
+  database: auditor
+  # -- The name of an existing secret to use for PostgreSQL credentials.
+  existingSecret: ""
+  # -- The name of an existing secret key to use for PostgreSQL credentials.
+  existingSecretPasswordKey: ""
+  uriSecret:
+    name: ""
+    key: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  {}
+
+service:
+  type: ClusterIP
+  port: 5000
+
+resources:
+  {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: http
+  initialDelaySeconds: 0
+  periodSeconds: 10
+  timeoutSeconds: 600
+  failureThreshold: 100
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: http
+  initialDelaySeconds: 0
+  periodSeconds: 10
+  timeoutSeconds: 600
+  failureThreshold: 100
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Additional volumes on the output Deployment definition.
+# volumes:
+#   - name: nemo-auditor-volume
+#     persistentVolumeClaim:
+#       claimName: nemo-auditor-pvc
+
+# volumeMounts:
+#   - name: nemo-auditor-volume
+#     mountPath: /app/garak_out
+
+# persistence:
+#   enabled: true
+#   size: 50Gi
+#   accessModes: ReadWriteMany
+#   storageClass: "local-nfs"
+
+
+# Environment variables to pass to containers. This is an object formatted like NAME: value or NAME: valueFrom: {object}
+env: {}
+
+nodeSelector: {}
+
+affinity: {}
+
+# Name of secret which holds mapping from api key names to the keys themselves, eg
+# kind: Secret
+# metadata:
+#   name: auditor-api-keys
+# type: Opaque
+# data:
+#   NIM_API_KEY: (base64 encoded api key)
+#   REST_API_KEY: (base64 encoded api key)
+#   OPENAI_API_KEY: (base64 encoded api key)
+#   OPENAICOMPATIBLE_API_KEY: (base64 encoded api key)
+auditorApiKeysSecretName: "auditor-api-keys"

@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nemo-core.api-servicename" . }}
+  labels:
+    app.kubernetes.io/component: nemo-core-api
+    {{- include "nemo-core.labels" . | nindent 4 }}
+  annotations:
+  {{- with .Values.api.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.api.autoscaling.enabled }}
+  replicas: {{ .Values.api.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: nemo-core-api
+      {{- include "nemo-core.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+      {{- with .Values.api.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if not .Values.global.platformConfigmapName }}
+        checksum/configmap: {{ include (print $.Template.BasePath "/platform-configmap.yaml") . | sha256sum }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/component: nemo-core-api
+        {{- include "nemo-core.labels" . | nindent 8 }}
+        {{- with .Values.api.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      imagePullSecrets:
+        {{ include "nemo-common.imagepullsecrets" . | nindent 8 | trim }}
+      serviceAccountName: {{ include "nemo-core.apiServiceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.api.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ include "nemo-core.api-servicename" . }}
+          securityContext:
+            {{- toYaml .Values.api.securityContext | nindent 12 }}
+          image: {{ include "nemo-common.mainimage" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "infra"
+            - "--target=jobs-api"
+            {{- with .Values.api.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}            
+          env:
+            - name: DATABASE_DIALECT
+              value: "postgresql"
+            - name: DATABASE_USER
+              value: {{ include "nemo-common.postgresql.user" . }}
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nemo-common.postgresql.secret-name" . }}
+                  key: {{ include "nemo-common.postgresql.password-key" . }}
+            - name: DATABASE_NAME
+              value: "{{ include "nemo-common.postgresql.name" . }}"
+            - name: DATABASE_HOST
+              value: "{{ include "nemo-common.postgresql.host" . }}"
+            - name: DATABASE_PORT
+              value: "{{ include "nemo-common.postgresql.port" . }}"
+            # Entity Store database configuration (ModelEntity repository)
+            - name: MODELS_DATABASE_DIALECT
+              value: "postgresql"
+            - name: MODELS_DATABASE_NAME
+              value: "{{ include "nemo-core.models.database.name" . }}"
+            - name: MODELS_DATABASE_HOST
+              value: "{{ include "nemo-core.models.database.host" . }}"
+            - name: MODELS_DATABASE_PORT
+              value: "{{ include "nemo-core.models.database.port" . }}"
+            - name: MODELS_DATABASE_USER
+              value: "{{ include "nemo-core.models.database.user" . }}"
+            - name: MODELS_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nemo-core.models.database.password-secret-name" . }}
+                  key: {{ include "nemo-core.models.database.password-key" . }}
+            {{- if .Values.api.env }}
+            {{ toYaml .Values.api.env | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.api.service.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.api.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.api.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath:  /etc/nmp/config.yaml
+              subPath: config.yaml
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "nemo-common.platform-configmap-name" . }}
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

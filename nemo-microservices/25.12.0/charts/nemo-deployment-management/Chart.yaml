@@ -1,0 +1,10 @@
+apiVersion: v2
+appVersion: "25.12"
+dependencies:
+- name: nemo-common
+  repository: file://../../../library/
+  version: '>=0.1.0-0'
+description: NeMo Deployment Management Microservice Helm Chart
+name: nemo-deployment-management
+type: application
+version: 25.12.0

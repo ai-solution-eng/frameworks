@@ -1,0 +1,10 @@
+apiVersion: v2
+appVersion: "25.12"
+dependencies:
+- name: nemo-common
+  repository: file://../../../library/
+  version: '>=0.1.0-0'
+description: NeMo NIM Proxy Microservice Helm Chart
+name: nemo-nim-proxy
+type: application
+version: 25.12.0

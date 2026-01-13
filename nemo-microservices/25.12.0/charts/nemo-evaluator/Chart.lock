@@ -1,0 +1,18 @@
+dependencies:
+- name: nemo-common
+  repository: file://../../../library/
+  version: 0.2.0
+- name: postgresql
+  repository: oci://dockerhub.nvidia.com/bitnamicharts
+  version: 14.0.4
+- name: milvus
+  repository: https://zilliztech.github.io/milvus-helm
+  version: 4.1.26
+- name: zipkin
+  repository: https://zipkin.io/zipkin-helm
+  version: 0.1.2
+- name: opentelemetry-collector
+  repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+  version: 0.78.1
+digest: sha256:d6e3a409c6fb2459eaaca0d5f83bfae1c61c4d8fd138b2950853fb851fd7fc34
+generated: "2025-12-16T16:20:04.23092035Z"

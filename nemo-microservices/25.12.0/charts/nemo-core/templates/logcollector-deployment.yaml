@@ -1,0 +1,106 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nemo-core.logcollector-servicename" . }}
+  labels:
+    app.kubernetes.io/component: nemo-jobs-logcollector
+    {{- include "nemo-core.labels" . | nindent 4 }}
+  annotations:
+  {{- with .Values.logcollector.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.logcollector.autoscaling.enabled }}
+  replicas: {{ .Values.logcollector.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: nemo-jobs-logcollector
+      {{- include "nemo-core.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.logcollector.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/component: nemo-jobs-logcollector
+        {{- include "nemo-core.labels" . | nindent 8 }}
+        {{- with .Values.logcollector.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      imagePullSecrets:
+        {{ include "nemo-common.imagepullsecrets" . | nindent 8 | trim }}
+      serviceAccountName: {{ include "nemo-core.logcollectorServiceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.logcollector.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: wait-for-database
+          image: busybox:1.35
+          command:
+            - sh
+            - -c
+            - |
+              MAX_RETRIES=30
+              REQUIRED_SUCCESSES=5
+              RETRY_COUNT=0
+              SUCCESS_COUNT=0
+              
+              while [ $SUCCESS_COUNT -lt $REQUIRED_SUCCESSES ]; do
+                # Use nc to check if PostgreSQL port is accepting connections
+                if nc -w 2 {{ include "nemo-common.postgresql.host" . }} {{ include "nemo-common.postgresql.port" . }} < /dev/null 2>/dev/null; then
+                  SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+                  echo "[$(date '+%Y-%m-%d %H:%M:%S')] PostgreSQL accepting connections ($SUCCESS_COUNT/$REQUIRED_SUCCESSES)"
+                  if [ $SUCCESS_COUNT -lt $REQUIRED_SUCCESSES ]; then
+                    sleep 3
+                  fi
+                else
+                  RETRY_COUNT=$((RETRY_COUNT + 1))
+                  SUCCESS_COUNT=0
+                  if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: PostgreSQL database at {{ include "nemo-common.postgresql.host" . }}:{{ include "nemo-common.postgresql.port" . }} is not available after $MAX_RETRIES attempts"
+                    exit 1
+                  fi
+                  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for PostgreSQL database at {{ include "nemo-common.postgresql.host" . }}:{{ include "nemo-common.postgresql.port" . }} (attempt $RETRY_COUNT/$MAX_RETRIES)..."
+                  sleep 3
+                fi
+              done
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] PostgreSQL database is ready (verified with $REQUIRED_SUCCESSES consecutive successful checks)"
+      containers:
+        - name: {{ .Chart.Name }}-logcollector
+          image: "{{ .Values.logcollector.image.repository }}:{{ .Values.logcollector.image.tag }}"
+          imagePullPolicy: {{ .Values.logcollector.image.pullPolicy }}
+          command: {{ .Values.logcollector.command | toYaml | nindent 12 }}
+          env:
+            - name: DB_USER
+              value: {{ include "nemo-common.postgresql.user" . }}
+            - name: DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nemo-common.postgresql.secret-name" . }}
+                  key: {{ include "nemo-common.postgresql.password-key" . }}
+            - name: DB_NAME
+              value: "{{ include "nemo-common.postgresql.name" . }}"
+            - name: DB_HOST
+              value: "{{ include "nemo-common.postgresql.host" . }}"
+            - name: DB_PORT
+              value: "{{ include "nemo-common.postgresql.port" . }}"
+            {{- if .Values.logcollector.env }}
+            {{ toYaml .Values.logcollector.env | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+          - name: config
+            mountPath: /fluent-bit/etc/fluent-bit.yaml
+            subPath: fluent-bit.yaml
+          livenessProbe:
+            {{- toYaml .Values.logcollector.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.logcollector.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.logcollector.resources | nindent 12 }}
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "nemo-core.logcollector-servicename" . }}

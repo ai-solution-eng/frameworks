@@ -10,7 +10,7 @@ nim:
 ezua:
   #Use next options in order to configure the application endpoint.
   virtualService:
-    endpoint: "nemo-guradrails.${DOMAIN_NAME}"
+    endpoint: "nemo-guardrails.${DOMAIN_NAME}"
     istioGateway: "istio-system/ezaf-gateway"
 
 tags:

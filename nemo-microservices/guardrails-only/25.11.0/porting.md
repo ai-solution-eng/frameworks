@@ -31,7 +31,7 @@ Add PCAI's virtual service using Istio gateway.
 ```yaml
 ezua:
   virtualService:
-    endpoint: "nemo-guradrails.${DOMAIN_NAME}"
+    endpoint: "nemo-guardrails.${DOMAIN_NAME}"
     istioGateway: "istio-system/ezaf-gateway"
 ```
 

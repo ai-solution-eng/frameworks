@@ -1,0 +1,149 @@
+apiVersion: v2
+dependencies:
+- alias: guardrails
+  condition: guardrails.enabled
+  name: nemo-guardrails
+  repository: file://components/guardrails
+  tags:
+  - platform
+  - guardrails
+  version: '>=0.1.0-0'
+- alias: entity-store
+  condition: entity-store.enabled
+  name: nemo-entity-store
+  repository: file://components/entity-store
+  tags:
+  - platform
+  - customizer
+  - evaluator
+  - studio
+  version: '>=0.1.0-0'
+- alias: data-store
+  condition: data-store.enabled
+  name: nemo-datastore
+  repository: file://components/datastore
+  tags:
+  - platform
+  - customizer
+  - data-designer
+  - evaluator
+  - auditor
+  - safe-synthesizer
+  - studio
+  version: '>=0.1.0-0'
+- alias: customizer
+  condition: customizer.enabled
+  name: nemo-customizer
+  repository: file://components/customizer
+  tags:
+  - platform
+  - customizer
+  version: '>=0.1.0-0'
+- alias: evaluator
+  condition: evaluator.enabled
+  name: nemo-evaluator
+  repository: file://components/evaluator
+  tags:
+  - platform
+  - evaluator
+  version: '>=0.1.0-0'
+- alias: data-designer
+  condition: data-designer.enabled
+  name: nemo-data-designer
+  repository: file://components/data-designer
+  tags:
+  - platform
+  - data-designer
+  version: '>=0.1.0-0'
+- alias: nemo-operator
+  condition: nemo-operator.enabled
+  name: nemo-operator
+  repository: file://components/nemo-operator
+  tags:
+  - platform
+  - customizer
+  version: '>=0.1.0-0'
+- alias: deployment-management
+  condition: deployment-management.enabled
+  name: nemo-deployment-management
+  repository: file://components/deployment-management
+  tags:
+  - platform
+  - guardrails
+  - studio
+  version: '>=0.1.0-0'
+- alias: nim-proxy
+  condition: nim-proxy.enabled
+  name: nemo-nim-proxy
+  repository: file://components/nim-proxy
+  tags:
+  - platform
+  - guardrails
+  - studio
+  version: '>=0.1.0-0'
+- alias: studio
+  condition: studio.enabled
+  name: nemo-studio-ui
+  repository: file://components/studio
+  tags:
+  - studio
+  version: '>=0.1.0-0'
+- alias: auditor
+  condition: auditor.enabled
+  name: nemo-auditor
+  repository: file://components/auditor
+  tags:
+  - auditor
+  version: '>=0.1.0-0'
+- alias: core
+  condition: core.enabled
+  name: nemo-core
+  repository: file://components/core
+  tags:
+  - platform
+  - core
+  - auditor
+  - data-designer
+  - evaluator
+  - safe-synthesizer
+  version: '>=0.1.0-0'
+- alias: safe-synthesizer
+  condition: safe-synthesizer.enabled
+  name: nemo-safe-synthesizer
+  repository: file://components/safe-synthesizer
+  tags:
+  - safe-synthesizer
+  version: '>=0.1.0-0'
+- alias: intake
+  condition: intake.enabled
+  name: nemo-intake
+  repository: file://components/intake
+  tags:
+  - intake
+  version: '>=0.1.0-0'
+- alias: nim
+  condition: nim.enabled
+  name: nim-llm
+  repository: https://helm.ngc.nvidia.com/nvidian/nemo-llm
+  version: 1.13.1
+- alias: nim-operator
+  condition: nim-operator.enabled
+  name: k8s-nim-operator
+  repository: https://helm.ngc.nvidia.com/nvidia/
+  tags:
+  - platform
+  - guardrails
+  - studio
+  version: ~2.0.1
+- condition: volcano.enabled
+  name: volcano
+  repository: https://volcano-sh.github.io/helm-charts
+  version: 1.9.0
+description: NeMo Microservices Helm Chart
+home: https://nvidia.com
+maintainers:
+- name: NVIDIA, Inc.
+  url: https://www.nvidia.com
+name: nemo-microservices-helm-chart
+type: application
+version: 25.12.0

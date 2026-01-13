@@ -1,0 +1,135 @@
+{{- if .Values.databaseMigrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ include "nemo-core.database-migrations-servicename" . }}"
+  labels:
+    app.kubernetes.io/component: {{ include "nemo-core.database-migrations-servicename" . }}
+    {{- include "nemo-core.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  {{- with .Values.databaseMigrations.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      annotations:
+      {{- with .Values.databaseMigrations.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/component: {{ include "nemo-core.database-migrations-servicename" . }}
+        {{- include "nemo-core.labels" . | nindent 8 }}
+        {{- with .Values.databaseMigrations.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      imagePullSecrets:
+        {{ include "nemo-common.imagepullsecrets" . | nindent 8 | trim }}
+      serviceAccountName: {{ include "nemo-core.apiServiceAccountName" . }}
+      restartPolicy: {{ .Values.databaseMigrations.restartPolicy }}
+      securityContext:
+        {{- toYaml .Values.databaseMigrations.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: wait-for-database
+          image: busybox:1.35
+          command:
+            - sh
+            - -c
+            - |
+              MAX_RETRIES=30
+              REQUIRED_SUCCESSES=5
+              RETRY_COUNT=0
+              SUCCESS_COUNT=0
+              
+              while [ $SUCCESS_COUNT -lt $REQUIRED_SUCCESSES ]; do
+                # Use nc to check if PostgreSQL port is accepting connections
+                if nc -w 2 {{ include "nemo-common.postgresql.host" . }} {{ include "nemo-common.postgresql.port" . }} < /dev/null 2>/dev/null; then
+                  SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+                  echo "[$(date '+%Y-%m-%d %H:%M:%S')] PostgreSQL accepting connections ($SUCCESS_COUNT/$REQUIRED_SUCCESSES)"
+                  if [ $SUCCESS_COUNT -lt $REQUIRED_SUCCESSES ]; then
+                    sleep 3
+                  fi
+                else
+                  RETRY_COUNT=$((RETRY_COUNT + 1))
+                  SUCCESS_COUNT=0
+                  if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: PostgreSQL database at {{ include "nemo-common.postgresql.host" . }}:{{ include "nemo-common.postgresql.port" . }} is not available after $MAX_RETRIES attempts"
+                    exit 1
+                  fi
+                  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for PostgreSQL database at {{ include "nemo-common.postgresql.host" . }}:{{ include "nemo-common.postgresql.port" . }} (attempt $RETRY_COUNT/$MAX_RETRIES)..."
+                  sleep 3
+                fi
+              done
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] PostgreSQL database is ready (verified with $REQUIRED_SUCCESSES consecutive successful checks)"
+      containers:
+        - name: "{{ include "nemo-core.database-migrations-servicename" . }}"
+          securityContext:
+            {{- toYaml .Values.databaseMigrations.securityContext | nindent 12 }}
+          image: {{ include "nemo-common.mainimage" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "infra"
+            - "--target=jobs-api"
+            - "--migrations-only"
+            {{- with .Values.databaseMigrations.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}            
+          env:
+            - name: DATABASE_DIALECT
+              value: "postgresql"
+            - name: DATABASE_USER
+              value: {{ include "nemo-common.postgresql.user" . }}
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nemo-common.postgresql.secret-name" . }}
+                  key: {{ include "nemo-common.postgresql.password-key" . }}
+            - name: DATABASE_NAME
+              value: "{{ include "nemo-common.postgresql.name" . }}"
+            - name: DATABASE_HOST
+              value: "{{ include "nemo-common.postgresql.host" . }}"
+            - name: DATABASE_PORT
+              value: "{{ include "nemo-common.postgresql.port" . }}"
+            - name: MODELS_DATABASE_DIALECT
+              value: "postgresql"
+            - name: MODELS_DATABASE_NAME
+              value: "{{ include "nemo-core.models.database.name" . }}"
+            - name: MODELS_DATABASE_HOST
+              value: "{{ include "nemo-core.models.database.host" . }}"
+            - name: MODELS_DATABASE_PORT
+              value: "{{ include "nemo-core.models.database.port" . }}"
+            - name: MODELS_DATABASE_USER
+              value: "{{ include "nemo-core.models.database.user" . }}"
+            - name: MODELS_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nemo-core.models.database.password-secret-name" . }}
+                  key: {{ include "nemo-core.models.database.password-key" . }}
+          volumeMounts:
+            - name: platform-config
+              mountPath: /etc/nmp
+              readOnly: true
+          resources:
+            {{- toYaml .Values.databaseMigrations.resources | nindent 12 }}
+      volumes:
+        - name: platform-config
+          configMap:
+            name: {{ include "nemo-common.platform-configmap-name" . }}
+      {{- with .Values.databaseMigrations.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.databaseMigrations.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.databaseMigrations.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

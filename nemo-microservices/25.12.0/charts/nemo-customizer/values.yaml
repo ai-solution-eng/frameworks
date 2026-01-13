@@ -1,0 +1,558 @@
+# -- Default values for nemollm.
+# -- This is a YAML-formated file.
+# -- Declare variables to be passed into your templates.
+
+# -- String to override chart name on resulting objects when deployed.
+nameOverride: ""
+# -- String to fully override the chart and release name on resulting objects when deployed.
+fullnameOverride: ""
+
+# -- NeMo Customizer image that supports training and standalone mode.
+# @default -- This object has the following default values for the NeMo Customizer microservice image.
+image:
+  # -- Registry for the NeMo Customizer image.
+  registry: nvcr.io
+  # -- Repository for the NeMo Customizer image.
+  repository: nvidia/nemo-microservices/customizer
+  # -- Image pull policy for the NeMo Customizer image.
+  imagePullPolicy: IfNotPresent
+
+# -- Customizer API only image configuration.
+# @default -- This object has the following default values for the NeMo Customizer API only image.
+apiImage:
+  # -- Registry for the NeMo Customizer API image.
+  registry: nvcr.io
+  # -- Repository for the NeMo Customizer API image.
+  repository: nvidia/nemo-microservices/customizer-api
+  # -- Image pull policy for the NeMo Customizer API image.
+  imagePullPolicy: IfNotPresent
+
+# -- NeMo Customizer image that supports training for HuggingFace models using NeMo AutoModel
+# @default -- This object has the following default values for the NeMo Customizer AutoModel microservice image.
+automodelImage:
+  # -- Registry for the NeMo Customizer AutoModel image.
+  registry: nvcr.io
+  # -- Repository for the NeMo Customizer AutoModel image.
+  repository: nvidia/nemo-microservices/customizer-automodel
+  # -- Image pull policy for the NeMo Customizer AutoModel image.
+  imagePullPolicy: IfNotPresent
+
+nemoRlImage:
+  # -- Registry for the NeMo Customizer training image used for alignment.
+  registry: nvcr.io
+  # -- Repository for the NeMo Customizer training image used for alignment.
+  repository: nvidia/nemo-microservices/customizer-rl
+  # -- Image pull policy for the NeMo Customizer training image used for alignment.
+  imagePullPolicy: IfNotPresent
+
+
+# -- Image pull secrets configuration.
+imagePullSecrets:
+  - name: nvcrimagepullsecret
+
+# -- Download models to PVC model cache configuration.
+# @default -- This object has the following default values for the model downloader.
+modelDownloader:
+  # -- Security context for the model downloader.
+  securityContext:
+    fsGroup: 1000
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+  # -- Time to live in seconds after the job finishes.
+  ttlSecondsAfterFinished: 7200
+
+# -- Secret used for auto hydrating the model cache from NGC for enabled models.
+ngcAPISecret: "ngc-api"
+# -- Key in the NGC API secret containing the API key.
+ngcAPISecretKey: "NGC_API_KEY"
+# -- The K8s Secret containing the HuggingFace API token.
+hfAPISecret: null
+# -- The key in the hfAPISecret containing the actual secret's value. Defaults to HF_TOKEN
+hfAPISecretKey: "HF_TOKEN"
+
+# -- A map of environment variables to inject into the NeMo Customizer app container.
+# Example:
+#
+# `{HOST_IP:
+#   valueFrom:
+#     fieldRef:
+#       fieldPath: status.hostIP
+# OTEL_EXPORTER_OTLP_ENDPOINT: "http://$(HOST_IP):4317"}`
+env:
+  # How long to wait until automatically deleting the NemoTrainingJob
+  JOB_CLEANUP_TTL_SEC: "3600"
+  # How often in seconds to poll for status conditions from NemoTrainingJob
+  JOB_STATUS_POLLING_INTERVAL: "15"
+  # How often in seconds to poll for events and logs for all objects owned by NemoTrainingJob, including
+  # volcano/runai jobs, pods. This is longer because it is a more expensive IO operation.
+  JOB_LOGS_POLLING_INTERVAL: "600"
+  # Given a failure in the watch loop, how long to sleep in secs before iterating a new loop.
+  TRAINING_JOB_CREATION_FAILURE_SLEEP_INTERVAL: "15"
+  # How many failures to tolerate in the NemoTrainingJob watcher loop before terminating the loop and the job itself.
+  MAX_TRAINING_JOB_STATUS_FAILURES: "10"
+
+readinessProbe:
+  initialDelaySeconds: 30
+  timeoutSeconds: 15
+  failureThreshold: 15
+
+livenessProbe:
+  initialDelaySeconds: 30
+  timeoutSeconds: 15
+  failureThreshold: 15
+
+# -- Tools configuration for downloading and uploading entities to NeMo Data Store.
+# @default -- This object has the following default values for the NeMo Data Store tools image.
+nemoDataStoreTools:
+  # -- Registry for the NeMo Data Store tools image.
+  registry: nvcr.io
+  # -- Repository for the NeMo Data Store tools image.
+  repository: nvidia/nemo-microservices/nds-v2-huggingface-cli
+  # -- Tag for the NeMo Data Store tools image.
+  tag: ""
+  # -- Image pull secret for the NeMo Data Store tools image.
+  imagePullSecret: nvcrimagepullsecret
+
+# -- Service configuration.
+service:
+  # -- Type of Kubernetes service to create.
+  type: ClusterIP
+  # -- External port for the service.
+  port: 8000
+  # -- Internal port for the service.
+  internalPort: 9009
+
+# -- Number of replicas to deploy.
+replicaCount: 1
+
+# -- Service account configuration.
+serviceAccount:
+  # -- Specifies whether a service account should be created.
+  create: true
+  # -- The name of the service account to use. If not set and create is true, a name is generated.
+  name: ""
+  # -- Annotations to add to the service account.
+  annotations: {}
+  # -- Automatically mount a ServiceAccount's API credentials.
+  automountServiceAccountToken: true
+
+# -- Configure the PVC for models mount, where we store the parent/base models.
+modelsStorage:
+  # -- Enable persistent volume for model storage.
+  enabled: true
+  # -- Storage class name for the models PVC. Empty string uses the default storage class.
+  storageClassName: ""
+  # -- Size of the persistent volume.
+  size: 1Ti
+  # -- Access modes for the persistent volume.
+  accessModes:
+    - ReadWriteMany
+
+# -- Logging configuration.
+logging:
+  # -- Log level for the application.
+  logLevel: INFO
+  # -- Enable logging for health endpoints.
+  logHealthEndpoints: false
+
+# -- Configuration for the NeMo Customizer microservice.
+# @default -- This object has default values for the following fields.
+customizerConfig:
+  # -- URL for the NeMo Entity Store microservice.
+  entityStoreURL: "http://nemo-gateway.nemo-gateway.svc.cluster.local:8000"
+  # -- URL for the NeMo Data Store microservice.
+  nemoDataStoreURL: "http://nds-datastore-http.nds-v2.svc.cluster.local:3000"
+  # -- URL for the MLflow tracking server.
+  mlflowURL: "" # "http://mlflow-tracking.mlflow-system.svc.cluster.local:80"
+
+  # -- Weights and Biases (WandB) Python SDK intialization configuration for logging and monitoring training jobs in WandB.
+  wandb:
+    # -- The username or team name under which the runs will be logged.
+    # -- If not specified, the run will default to a default entity set in the account settings.
+    # -- To change the default entity, go to the account settings https://wandb.ai/settings
+    # -- and update the "Default location to create new projects" under "Default team".
+    # -- Reference: https://docs.wandb.ai/ref/python/init/
+    entity: null
+    # The name of the project under which this run will be logged
+    project: "nvidia-nemo-customizer"
+
+  # -- Network configuration for training jobs on Oracle Kubernetes Engine (OKE) on Oracle Cloud Infrastructure (OCI).
+  trainingNetworking:
+    - name: NCCL_IB_SL
+      value: 0
+    - name: NCCL_IB_TC
+      value: 41
+    - name: NCCL_IB_QPS_PER_CONNECTION
+      value: 4
+    - name: UCX_TLS
+      value: TCP
+    - name: UCX_NET_DEVICES
+      value: eth0
+    - name: HCOLL_ENABLE_MCAST_ALL
+      value: 0
+    - name: NCCL_IB_GID_INDEX
+      value: 3
+
+  # -- Training configuration for customization jobs.
+  # @default -- This object has the following default values for the training configuration.
+  training:
+    # -- Queue name used by the underlying scheduler of NemoTrainingJob.
+    # Maps to "resourceGroup" in NemoTrainingJob.
+    queue: "default"
+
+    # -- Directory path for training workspace.
+    workspace_dir: "/pvc/workspace"
+
+    # -- Training timeout in seconds. If job times out, it will be marked as failed and no checkpoints are saved.
+    # training_timeout: 3600
+
+    # -- Interval in seconds to poll for monitoring jobs.
+    # Defaults to 10s. poll_interval_seconds with a 30 second pad must be less than ttl_seconds_after_finished.
+    poll_interval_seconds: 10
+
+    # -- Time to live in seconds after the training job pod completes.
+    # Defaults to 1h. Take precautions when setting ttl_seconds_after_finished to 0 which disables automatic clean up for
+    # jobs. When disabled, jobs will persist and hold on to resources like PVCs and will require manual or external clean up.
+    # ttl_seconds_after_finished must be greater than poll_interval_seconds with a 30 second pad.
+    ttl_seconds_after_finished: 3600
+
+    # container_defaults lets you configure the training container similar to a K8s object.
+    # Currently, it only supports a subset of the K8s Container Spec.
+    # Note it is named _defaults because we plan to allow training specific sections in the future that can override this section.
+    # -- Default container configuration for training jobs.
+    container_defaults:
+      # env holds a list of custom environment variables injected into the training container.
+      # However, they cannot override env variables reserved by Customizer. The application validates this at start time.
+      # An example use case is configuring OpenTelemetry in the training container.
+      # By default, the training container inherits its OpenTelemetry environment values from the openTelemetry section.
+      # However, by setting the OpenTelemetry env variables here, the user can override the behavior set in the openTelemetry section.
+      # -- Environment variables for the training container.
+      # Cannot override env variables reserved by NeMo Customizer.
+      env:
+        # - name: HOST_IP
+        #   valueFrom:
+        #     fieldRef:
+        #       fieldPath: "status.hostIP"
+        # - name: NAMESPACE
+        #   valueFrom:
+        #     fieldRef:
+        #       fieldPath: "metadata.namespace"
+        # - name: OTEL_RESOURCE_ATTRIBUTES
+        #   value: "deployment.environment=$(NAMESPACE)"
+        # - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        #   value: "http://$(HOST_IP):4317"
+        # - name: OTEL_TRACES_EXPORTER
+        #   value: otlp
+        # - name: OTEL_METRICS_EXPORTER
+        #   value: otlp
+        # - name: OTEL_LOGS_EXPORTER
+        #   value: none
+      imagePullPolicy: IfNotPresent
+    # PVC config for NemoTrainingJob, which automatically creates one for each job
+    # This is implicitly mounted at /pvc to our training container
+    pvc:
+      # -- Storage class for the training job PVC.
+      storageClass: "local-nfs"
+      # -- Size of the training job PVC.
+      size: 5Gi
+      # -- Volume access mode for the training job PVC.
+      volumeAccessMode: "ReadWriteMany"
+      # -- The name of a single PVC to be used for training. If null, create a separate PVC per training job for isolation. If provided, it will create this PVC.
+      name: null
+
+  # -- OpenTelemetry settings.
+  # @default -- This object has the following default values for the OpenTelemetry settings.
+  openTelemetry:
+    # -- Whether to enable OpenTelemetry.
+    enabled: true
+    # -- Sets the traces exporter type (otlp, console, none).
+    tracesExporter: otlp
+    # -- Sets the metrics exporter type (otlp, console, none).
+    metricsExporter: otlp
+    # -- Sets the logs exporter type (otlp, console, none).
+    logsExporter: otlp
+    # -- Endpoint to access a custom OTLP collector listening on port 4317. Example: "http://$(HOST_IP):4317".
+    exporterOtlpEndpoint: ""
+
+  # -- Default tolerations on the customization job pods. Can be extended via customizationConfigTemplates.templates[i].pod_spec.tolerations.
+  tolerations: []
+  # -- Default node selectors on the customization job pods. Can be extended via customizationConfigTemplates.templates[i].pod_spec.nodeSelectors.
+  nodeSelectors: {}
+
+# -- PostgreSQL configuration for the NeMo Customizer microservice.
+# @default -- This object has the following default values for the PostgreSQL configuration.
+postgresql:
+  # -- Whether to enable or disable the PostgreSQL helm chart.
+  enabled: true
+  auth:
+    # -- Whether to assign a password to the "postgres" admin user. Otherwise, remote access will be blocked for this user.
+    enablePostgresUser: true
+    # -- Name for a custom user to create.
+    username: nemo
+    # -- Password for the custom user to create.
+    password: nemo
+    # -- Name for a custom database to create.
+    database: finetuning
+    # -- Name of existing secret to use for PostgreSQL credentials.
+    existingSecret: ""
+  # -- PostgreSQL architecture (`standalone` or `replication`).
+  architecture: standalone
+
+# -- External PostgreSQL configuration.
+# @default -- This object has the following default values for the external PostgreSQL configuration.
+externalDatabase:
+  # -- External database host address.
+  host: localhost
+  # -- External database port number.
+  port: 5432
+  # -- Non-root username for the NeMo Customizer microservice.
+  user: nemo
+  # -- Name of the database to use.
+  database: finetuning
+  # -- Name of an existing secret resource containing the database credentials.
+  existingSecret: ""
+  # -- Name of an existing secret key containing the database credentials.
+  existingSecretPasswordKey: ""
+  uriSecret:
+    name: ""
+    key: ""
+
+# -- WandB configuration.
+# @default -- This object has the following default values for the WandB configuration.
+wandb:
+  # -- WandB secret value. Must contain exactly 32 alphanumeric characters. Creates a new Kubernetes secret named "wandb-secret" with key-value pair "encryption_key=<wandb.secretValue>". Ignored if wandb.existingSecret is set.
+  secretValue: ec60d96b639764ccf9859bc10d4363d1
+  # -- Name of an existing Kubernetes secret resource for the WandB encryption secret.
+  existingSecret: ""
+  # -- Name of the key in the existing WandB secret containing the secret value. The secret value must be exactly 32 alphanumeric characters: ^[a-zA-Z0-9]{32}$
+  existingSecretKey: ""
+
+# -- Open Telemetry Collector configuration.
+# @default -- This object has the following default values for the Open Telemetry Collector configuration.
+opentelemetry-collector:
+  # -- Switch to enable or disable Open Telemetry Collector.
+  enabled: true
+  image:
+    # -- Repository for Open Telemetry Collector image.
+    repository: "otel/opentelemetry-collector-k8s"
+    # -- Overrides the image tag whose default is the chart appVersion.
+    tag: "0.102.1"
+  # -- Deployment mode for Open Telemetry Collector. Valid values are "daemonset", "deployment", and "statefulset".
+  mode: deployment
+  # -- Base collector configuration for Open Telemetry Collector.
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: {}
+          http:
+            cors:
+              allowed_origins:
+                - "*"
+    exporters:
+      debug:
+        verbosity: detailed
+    extensions:
+      health_check: {}
+      zpages:
+        endpoint: 0.0.0.0:55679
+    processors:
+      batch: {}
+    service:
+      extensions: [zpages, health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          exporters: [debug]
+          processors: [batch]
+        metrics:
+          receivers: [otlp]
+          exporters: [debug]
+          processors: [batch]
+        logs:
+          receivers: [otlp]
+          exporters: [debug]
+          processors: [batch]
+
+# -- Enable or disable RunAI executor.
+useRunAIExecutor: false
+
+# -- Deployment configurations for AWS
+awsDeploy:
+  # -- Switch on if using AWS and kyverno is installed
+  enabled: false
+  # -- EFA number of devices per GPU
+  efaDevicesPerGPU: 4
+# -- Deployment configurations for Azure
+azureDeploy:
+  # -- Switch on if using Azure and kyverno is installed
+  enabled: false
+  # -- RDMA number of devices per GPU
+  rdmaDevicesPerGPU: 2
+  # -- RDMA device name, examples include:
+  # - rdma_shared_device
+  # - rdma_shared_device_a
+  # - rdma_shared_device_b
+  rdmaDeviceName: rdma_shared_device_a
+gcpDeploy:
+  # -- Switch on if using GCP and kyverno is installed
+  enabled: false
+ociDeploy:
+  # -- Switch on if using OCI and kyverno is installed
+  enabled: false
+  # -- Number of RDMA networking resources to attach per node
+  rdmaDevicesPerGPU: 2
+# -- List of model configurations supported by the Customizer.
+# @default -- This object has the following default values.
+customizationTargets:
+  # Allow model downloads from Hugging Face
+  hfTargetDownload:
+    # -- set this to true to allow model downloads from Hugging Face. If enabled=false, models are not allwed to be downloaded from any Hugging Face org and allowedHfOrgs is disregarded
+    enabled: false
+    # -- List of allowed organizations for model downloads from Hugging Face. Empty list allows all organizations.
+    # Example:
+    # allowedHfOrgs:
+    #   - "nvidia"
+    allowedHfOrgs: []
+  trustedModelURIs:
+    - hf://nvidia/Llama-3_3-Nemotron-Super-49B-v1_5
+    - hf://nvidia/Llama-3_3-Nemotron-Super-49B-v1
+    - hf://nvidia/NVIDIA-Nemotron-Nano-9B-v2
+    - hf://nvidia/NVIDIA-Nemotron-Nano-12B-v2
+  # -- Whether to have this values file override targets in the database on application start
+  overrideExistingTargets: false
+  # -- The default targets to populate the database with
+  # @default -- This object has the following default values.
+  targets:
+    # -- Llama 3.2 1B target model configuration.
+    # @default -- This object has the following default values for the Llama 3.2 1B model.
+    meta/llama-3.2-1b@2.0:
+      # -- The name for target model.
+      name: llama-3.2-1b@2.0
+      # -- The namespace for target model.
+      namespace: meta
+      # -- Whether to enable the model.
+      enabled: false
+      # -- NGC model URI for Llama 3.2 1B model.
+      model_uri: ngc://nvidia/nemo/llama-3_2-1b:2.0
+      # -- Path where model files are stored.
+      model_path: llama32_1b_2_0
+      # -- Mapping to the model name in NIM. Defaults to being the same as the the configuration entry namespace/name.
+      base_model: meta/llama-3.2-1b
+      # -- Number of model parameters.
+      num_parameters: 1000000000
+      # -- Model precision format.
+      precision: bf16-mixed
+    # -- nvidia/nemotron-nano-9b-v2 target model configuration.
+      # @default -- This object has the following default values for the nvidia/nemotron-nano-9b-v2 model.
+    nvidia/nemotron-nano-9b-v2@v1:
+      # -- The name for target model.
+      name: nemotron-nano-9b-v2@v1
+      # -- The namespace for target model.
+      namespace: nvidia
+      # -- Whether to enable the model.
+      enabled: false
+      # -- HF model URI
+      model_uri: hf://nvidia/NVIDIA-Nemotron-Nano-9B-v2
+      # -- HF endpoint
+      hf_endpoint: https://huggingface.co
+      # -- Path where model files are stored.
+      model_path: nemotron_nano_9b_v2
+      # -- Mapping to the model name to the optimized llama embedding training script and NIM
+      base_model: nvidia/nemotron-nano-9b-v2
+      # -- Number of model parameters.
+      num_parameters: 9000000000
+      # -- Model precision format.
+      precision: bf16-mixed
+
+# -- List of customization configuration template supported by the Customizer.
+# @default -- This object has the following default values.
+customizationConfigTemplates:
+  # -- Whether to have this values file override templates in the database on application start
+  overrideExistingTemplates: true
+  # -- The default templates to populate the database with
+  # @default -- This object has the following default values.
+  templates:
+    # -- Llama 3.2 3B Instruct model configuration.
+    # @default -- This object has the following default values for the Llama 3.2 3B Instruct model.
+    meta/llama-3.2-3b-instruct@v1.0.0+80GB:
+      # -- The name for training config template.
+      name: llama-3.2-3b-instruct@v1.0.0+80GB
+      # -- The namespace for training config template.
+      namespace: meta
+      # -- The target to perform the customization on.
+      target: meta/llama-3.2-3b-instruct@2.0
+      # -- Resource configuration for each training option for the target model.
+      training_options:
+        # -- Training method.
+        - training_type: sft
+          # -- The type of fine-tuning method.
+          finetuning_type: lora
+          # -- The number of GPUs per node to use for the specified training.
+          num_gpus: 1
+          # -- The number of nodes to use for the specified training.
+          num_nodes: 1
+          # -- The number of GPUs among which the model’s tensors are partitioned.
+          tensor_parallel_size: 1
+          # -- The number of training examples processed in parallel by each individual GPU.
+          micro_batch_size: 1
+        # -- Training method.1
+        - training_type: distillation
+          # -- The type of fine-tuning method.
+          finetuning_type: all_weights
+          # -- The number of GPUs per node to use for the specified training.
+          num_gpus: 2
+          # -- The number of nodes to use for the specified training.
+          num_nodes: 1
+          # -- The number of GPUs among which the model’s tensors are partitioned.
+          tensor_parallel_size: 1
+          # -- The number of training examples processed in parallel by each individual GPU.
+          micro_batch_size: 1
+      # -- The largest context used for training. Datasets are truncated based on the maximum sequence length.
+      max_seq_length: 4096
+      # -- Prompt template used to extract keys from the dataset.
+      prompt_template: "{prompt} {completion}"
+
+    # -- NVIDIA Nemotron-Nano-V2 9b model configuration.
+    # @default -- This object has the following default values for the NVIDIA nemotron-nano-9b-v2 model.
+    nvidia/nemotron-nano-9b-v2@v1.0.0+80GB:
+      # -- The name for training config template.
+      name: nemotron-nano-9b-v2@v1.0.0+80GB
+      # -- The namespace for training config template.
+      namespace: nvidia
+      # -- The target to perform the customization on.
+      target: nvidia/nemotron-nano-9b-v2@v1
+      # -- Resource configuration for each training option for the target model.
+      training_options:
+        # uncomment when LoRA profile is available in NIM
+        # # -- Training method.
+        # - training_type: sft
+        #   # -- The type of fine-tuning method.
+        #   finetuning_type: lora
+        #   # -- The number of GPUs per node to use for the specified training.
+        #   num_gpus: 1
+        #   # -- The number of nodes to use for the specified training.
+        #   num_nodes: 1
+        #   # -- The number of GPUs among which the model’s tensors are partitioned.
+        #   tensor_parallel_size: 1
+        #   # -- The number of training examples processed in parallel by each individual GPU.
+        #   micro_batch_size: 1
+        # -- Training method.
+        - training_type: sft
+          # -- The type of fine-tuning method.
+          finetuning_type: all_weights
+          # -- The number of GPUs per node to use for the specified training.
+          num_gpus: 8
+          # -- The number of nodes to use for the specified training.
+          num_nodes: 1
+          # -- The number of GPUs among which the model’s tensors are partitioned.
+          tensor_parallel_size: 1
+          # -- The number of GPUs among which the model’s layers are distributed.
+          pipeline_parallel_size: 1
+          # -- The number of training examples processed in parallel by each individual GPU.
+          micro_batch_size: 1
+      # -- The largest context used for training. Datasets are truncated based on the maximum sequence length.
+      max_seq_length: 4096
+      # -- Prompt template used to extract keys from the dataset.
+      prompt_template: "{prompt} {completion}"
