@@ -1,8 +1,4 @@
-ezua:
-  #Use next options in order to configure the application endpoint.
-  virtualService:
-    endpoint: "nemo-microservices.${DOMAIN_NAME}"
-    istioGateway: "istio-system/ezaf-gateway"
+# For ezua tags, go to virtualService
 
 tags:
   # -- When set to `true`, installs the primary NeMo microservices platform. To install individual microservices, set `platform` to `false` and configure the `tags` key with values for each individual microservice. For more information, refer to [Tag-Based Installation](https://docs.nvidia.com/nemo/microservices/latest/set-up/deployment-options.html#tag-based-installation).
@@ -3940,16 +3936,18 @@ ingress:
 # @default -- A virtual service configuration template.
 virtualService:
   # -- Specifies whether to enable the virtual service.
-  enabled: false
+  enabled: true
   # -- Labels for the virtual service.
   labels: {}
   # -- Annotations for the virtual service.
   annotations: {}
   main:
     # -- A list of gateways for the virtual service.
-    gateways: []
+    gateways:
+      - "istio-system/ezaf-gateway"
     # -- A list of hosts for the virtual service.
-    hosts: []
+    hosts:
+      - "nemo-microservices.${DOMAIN_NAME}"
     entries:
       customizer:
         # -- The CORS policy for the virtual NeMo Customizer service.
@@ -3958,6 +3956,9 @@ virtualService:
         match:
           - uri:
               prefix: "/v1/customization"
+        # -- The route for the virtual NeMo Customizer service.
+        rewrite:
+          uri: "/"
         # -- The route for the virtual NeMo Customizer service.
         route:
           - destination:
@@ -3971,6 +3972,9 @@ virtualService:
         match:
           - uri:
               prefix: "/v1/deployment"
+        # -- The route for the virtual NeMo Deployment Management service.
+        rewrite:
+          uri: "/"
         # -- The route for the virtual NeMo Deployment Management service.
         route:
           - destination:
@@ -3993,6 +3997,9 @@ virtualService:
           - uri:
               prefix: "/v1/models"
         # -- The route for the virtual NeMo Entity Store service.
+        rewrite:
+          uri: "/"
+        # -- The route for the virtual NeMo Entity Store service.
         route:
           - destination:
               host: nemo-entity-store
@@ -4008,6 +4015,9 @@ virtualService:
           - uri:
               prefix: "/v2/evaluation"
         # -- The route for the virtual NeMo Evaluator service.
+        rewrite:
+          uri: "/"
+        # -- The route for the virtual NeMo Evaluator service.
         route:
           - destination:
               host: nemo-evaluator
@@ -4021,6 +4031,22 @@ virtualService:
           - uri:
               prefix: "/v1/guardrail"
         # -- The route for the virtual NeMo Guardrails service.
+        rewrite:
+          uri: "/"
+        # -- The route for the virtual NeMo Guardrails service.
+        route:
+          - destination:
+              host: nemo-guardrails
+              port:
+                number: 7331
+      guardrails-docs:
+        # -- The CORS policy for the virtual NeMo Guardrails service docs.
+        corsPolicy: {}
+        # -- The match for the virtual NeMo Guardrails service docs.
+        match:
+          - uri:
+              exact: "/openapi.json"
+        # -- The route for the virtual NeMo Guardrails service docs.
         route:
           - destination:
               host: nemo-guardrails
@@ -4034,6 +4060,9 @@ virtualService:
           - uri:
               prefix: /v1beta1/audit
         # -- The route for the virtual NeMo Auditor service.
+        rewrite:
+          uri: "/"
+        # -- The route for the virtual NeMo Auditor service.
         route:
           - destination:
               host: nemo-auditor
@@ -4046,6 +4075,9 @@ virtualService:
         match:
           - uri:
               prefix: /v1beta1/safe-synthesizer
+        # -- The route for the virtual NeMo Safe Synthesizer service.
+        rewrite:
+          uri: "/"
         # -- The route for the virtual NeMo Safe Synthesizer service.
         route:
           - destination:
@@ -4066,6 +4098,9 @@ virtualService:
           - uri:
               prefix: /v2/models # Models service
         # -- The route for the virtual NeMo Core service.
+        rewrite:
+          uri: "/"
+        # -- The route for the virtual NeMo Core service.
         route:
           - destination:
               host: nemo-core-api
@@ -4078,6 +4113,9 @@ virtualService:
         match:
           - uri:
               prefix: /v1/intake
+        # -- The route for the virtual NeMo Intake service.
+        rewrite:
+          uri: "/"
         # -- The route for the virtual NeMo Intake service.
         route:
           - destination:
@@ -4101,6 +4139,9 @@ virtualService:
             - uri:
                 prefix: /
           # -- The route for the virtual NeMo Data Store service.
+          rewrite:
+          uri: "/"
+          # -- The route for the virtual NeMo Data Store service.
           route:
             - destination:
                 host: nemo-data-store
@@ -4119,6 +4160,9 @@ virtualService:
           match:
             - uri:
                 prefix: /
+          # -- The route for the virtual NIM Proxy service.
+          rewrite:
+          uri: "/"
           # -- The route for the virtual NIM Proxy service.
           route:
             - destination:
