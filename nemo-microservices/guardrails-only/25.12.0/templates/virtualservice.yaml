@@ -79,6 +79,10 @@ spec:
     {{- end }}
     match:
     {{ $j.match | toYaml | nindent 4 }}
+    {{- if $j.rewrite }}
+    rewrite:
+      {{ $j.rewrite | toYaml | nindent 4 }}
+    {{- end }}
     route:
     {{ $j.route | toYaml | nindent 4 }}
   {{- end }}

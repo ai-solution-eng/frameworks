@@ -2,7 +2,7 @@
 ezua:
   #Use next options in order to configure the application endpoint.
   virtualService:
-    endpoint: "nemo-microservices.${DOMAIN_NAME}"
+    endpoint: "nemo-microservices.${DOMAIN_NAME}/docs"
     istioGateway: "istio-system/ezaf-gateway"
 
 tags:
@@ -4143,9 +4143,11 @@ virtualService:
                   number: 3000
     nim-proxy:
       # -- The gateways for the virtual NIM Proxy service.
-      gateways: []
+      gateways:
+        - "istio-system/ezaf-gateway"
       # -- The hosts for the virtual NIM Proxy service.
-      hosts: []
+      hosts:
+        - "nemo-nim-proxy.${DOMAIN_NAME}"
       entries:
         nim-proxy:
           # -- The CORS policy for the virtual NIM Proxy service.
