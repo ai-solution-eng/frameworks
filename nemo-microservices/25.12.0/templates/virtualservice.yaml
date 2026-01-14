@@ -35,6 +35,10 @@ spec:
     {{- end }}
     match:
     {{ $v.match | toYaml | nindent 4 }}
+    {{- if $v.rewrite }}
+    rewrite:
+      {{ $v.rewrite | toYaml | nindent 6 }}
+    {{- end }}
     route:
     {{ $v.route | toYaml | nindent 4 }}
   {{- end }}
