@@ -1,4 +1,9 @@
-# For ezua tags, go to virtualService
+# For implementation of ezua values, go to virtualService below
+ezua:
+  #Use next options in order to configure the application endpoint.
+  virtualService:
+    endpoint: "nemo-microservices.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
 
 tags:
   # -- When set to `true`, installs the primary NeMo microservices platform. To install individual microservices, set `platform` to `false` and configure the `tags` key with values for each individual microservice. For more information, refer to [Tag-Based Installation](https://docs.nvidia.com/nemo/microservices/latest/set-up/deployment-options.html#tag-based-installation).
@@ -2904,7 +2909,9 @@ guardrails:
   podAnnotations: {}
 
   # -- Specifies additional labels to the main deployment pods.
-  podLabels: {}
+  podLabels:
+    hpe-ezua/type: "vendor-service"
+    hpe-ezua/app: "nemo-microservices"
 
   # -- Specifies privilege and access control settings for the pod.
   podSecurityContext: {}

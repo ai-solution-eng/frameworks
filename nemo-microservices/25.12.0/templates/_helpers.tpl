@@ -48,8 +48,6 @@ Selector labels
 {{- define "nemo-platform.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "nemo-platform.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-hpe-ezua/type: "vendor-service"
-hpe-ezua/app: {{ .Release.Name }}
 {{- end }}
 
 {{/*
