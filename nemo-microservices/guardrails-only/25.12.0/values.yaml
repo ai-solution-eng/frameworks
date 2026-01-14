@@ -2,7 +2,7 @@
 ezua:
   #Use next options in order to configure the application endpoint.
   virtualService:
-    endpoint: "nemo-microservices.${DOMAIN_NAME}/v1/guardrail/docs"
+    endpoint: "nemo-microservices.${DOMAIN_NAME}"
     istioGateway: "istio-system/ezaf-gateway"
 
 tags:
