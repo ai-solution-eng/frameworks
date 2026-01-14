@@ -33,6 +33,6 @@ spec:
             - ResponseHeaders
             - ResponseBody
             - ResponseTrailers
-          requestBodySendMode: Streamed
+          requestBodySendMode: FullDuplexStreamed
           responseBodySendMode: FullDuplexStreamed
 {{- end }}
