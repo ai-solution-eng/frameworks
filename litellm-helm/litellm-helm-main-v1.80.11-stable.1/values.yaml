@@ -122,15 +122,29 @@ proxyConfigMap:
 #  Examples: https://github.com/BerriAI/litellm/tree/main/litellm/proxy/example_config_yaml
 #  Reference: https://docs.litellm.ai/docs/proxy/configs
 proxy_config:
-  model_list:
-    # At least one model must exist for the proxy to start.
-    - model_name: PCAI-Llama-3.2-1B-Instruct
-      litellm_params:
-        model: meta/llama-3.2-1b-instruct
-        api_key: "<MLIS_endpoint_token>"
-        api_base: https://llama-32-1b-instruct.project-user-jose-claudio-calderon.serving.aie01.pcai.tryezmeral.com/
+  # At least one model must exist for the proxy to start when `STORE_MODEL_IN_DB` is not set to `True`. Models defined here are not editable later from the application (only models stored in DB are editable)
+  # model_list:
+  #  # Sample configuration for local model deployed on MLIS
+  #  - model_name: PCAI-Llama-3.2-1B-Instruct
+  #    litellm_params:
+  #      model: hosted_vllm/meta/llama-3.2-1b-instruct
+  #      api_key: "<MLIS_endpoint_token>"
+  #      api_base: https://llama-32-1b-instruct.project-user-jose-claudio-calderon.serving.aie01.pcai.tryezmeral.com/
   general_settings:
     master_key: os.environ/PROXY_MASTER_KEY
+  litellm_settings:
+    # Logging/Callback settings
+    success_callback: ["langfuse"]  # list of success callbacks
+    failure_callback: ["langfuse"]  # list of failure callbacks
+    turn_off_message_logging: boolean  # prevent the messages and responses from being logged to on your callbacks, but request metadata will still be logged. Useful for privacy/compliance when handling sensitive data.
+    langfuse_default_tags: ["cache_hit", "cache_key", "proxy_base_url", "user_api_key_alias", "user_api_key_user_id", "user_api_key_user_email", "user_api_key_team_alias", "semantic-similarity", "proxy_base_url"] # default tags for Langfuse Logging
+  environment_variables:
+    UI_USERNAME: "admin"
+    UI_PASSWORD: "password"
+    LANGFUSE_HOST: "http://langfuse-web.langfuse.svc.cluster.local:3000"
+    LANGFUSE_PUBLIC_KEY: "lf_pk_1234567890"
+    LANGFUSE_SECRET_KEY: "lf_sk_1234567890"
+    STORE_MODEL_IN_DB: "True" # Allow adding more models live in the application that will be stored in the DB. When set to false, you must define all your models in `proxy_config.model_list`.
 
 resources:
   {}
@@ -244,8 +258,7 @@ migrationJob:
       enabled: false
 
 # Additional environment variables to be added to the deployment as a map of key-value pairs
-envVars:
-  STORE_MODEL_IN_DB: "True"
+envVars: {}
 
 # USE_DDTRACE: "true"
 # Additional environment variables to be added to the deployment as a list of k8s env vars
