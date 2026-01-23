@@ -44,6 +44,36 @@ imagePullSecrets:
     username: $oauthtoken
     password: "{{ .Values.ngcAPIKey }}"
 
+# Whether to add AIE self-signed certificates to root CAs
+# Requires a trust-manager bundle with useDefaultCAs set to true
+# More details here https://gist.github.hpe.com/jeff-oxenberg/70462e0777bf02c38be9823324de9f6d
+certificatesPolicy:
+  enabled: false
+  # The list of environment variables to inject
+  env:
+    - name: SSL_CERT_DIR
+      value: /etc/ssl/certs
+    - name: REQUESTS_CA_BUNDLE
+      value: /etc/ssl/certs/ca-certificates.crt
+    - name: SSL_CERT_FILE
+      value: /etc/ssl/certs/ca-certificates.crt
+    - name: AIOHTTP_CLIENT_SESSION_SSL
+      value: /etc/ssl/certs/ca-certificates.crt
+  # The list of volume mounts for the containers
+  volumeMounts:
+    - mountPath: /etc/ssl/certs/ca-certificates.crt
+      name: etc-ssl-certs
+      readOnly: true
+      subPath: ca-certificates.crt
+  # The volume definition (at the pod level)
+  volumes:
+    - name: etc-ssl-certs
+      configMap:
+        name: ca-bundle
+        items:
+          - key: ezaf-root-ca.crt
+            path: ca-certificates.crt
+
 global:
   # -- The name of the image pull secret to use globally across all services.
   imagePullSecrets:
