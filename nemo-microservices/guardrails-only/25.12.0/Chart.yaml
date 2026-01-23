@@ -144,6 +144,6 @@ home: https://nvidia.com
 maintainers:
 - name: NVIDIA, Inc.
   url: https://www.nvidia.com
-name: nemo-microservices-helm-chart
+name: nemo-microservices
 type: application
 version: 25.12.0
