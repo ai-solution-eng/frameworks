@@ -40,6 +40,7 @@ metadata:
       when requested via annotations.
     policies.kyverno.io/minversion: 1.5.0
     policies.kyverno.io/title: Add Certificates as a Volume
+    pod-policies.kyverno.io/autogen-controllers: none
   name: add-certificates-volume
 spec:
   admission: true
