@@ -53,7 +53,7 @@ spec:
           - Pod
     preconditions:
       all:
-      - key: "{{ '{{' }} request.operation || 'BACKGROUND' {{ '}}' }}"
+      - key: {{ print "{{ request.operation || 'BACKGROUND' }}" | quote }}
         operator: AnyIn
         value:
         - CREATE
@@ -64,7 +64,7 @@ spec:
         patchStrategicMerge:
           spec:
             containers:
-            - name: "{{ '{{' }} element.name {{ '}}' }}"
+            - name: {{ print "{{ element.name }}" | quote }}
               {{- if .Values.certificatesPolicy.env }}
               env:
                 {{- toYaml .Values.certificatesPolicy.env | nindent 14 }}
