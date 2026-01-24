@@ -69,7 +69,7 @@ certificatesPolicy:
   volumes:
     - name: etc-ssl-certs
       configMap:
-        name: ca-bundle
+        name: ezaf-root-ca
         items:
           - key: ezaf-root-ca.crt
             path: ca-certificates.crt
