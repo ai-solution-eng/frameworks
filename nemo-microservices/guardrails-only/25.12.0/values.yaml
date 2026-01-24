@@ -59,6 +59,8 @@ certificatesPolicy:
       value: /etc/ssl/certs/ca-certificates.crt
     - name: AIOHTTP_CLIENT_SESSION_SSL
       value: /etc/ssl/certs/ca-certificates.crt
+    - name: NODE_EXTRA_CA_CERTS
+      value: /etc/ssl/certs/ca-certificates.crt
   # The list of volume mounts for the containers
   volumeMounts:
     - mountPath: /etc/ssl/certs/ca-certificates.crt
