@@ -2941,9 +2941,7 @@ guardrails:
   podAnnotations: {}
 
   # -- Specifies additional labels to the main deployment pods.
-  podLabels:
-    hpe-ezua/type: "vendor-service"
-    hpe-ezua/app: "nemo-microservices"
+  podLabels: {}
 
   # -- Specifies privilege and access control settings for the pod.
   podSecurityContext: {}
@@ -3975,7 +3973,7 @@ ingress:
 # @default -- A virtual service configuration template.
 virtualService:
   # -- Specifies whether to enable the virtual service.
-  enabled: true
+  enabled: false
   # -- Labels for the virtual service.
   labels: {}
   # -- Annotations for the virtual service.

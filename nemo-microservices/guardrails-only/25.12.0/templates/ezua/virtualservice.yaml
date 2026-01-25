@@ -1,0 +1,26 @@
+{{- /* Pre-flight validation */ -}}
+{{- $gateway := required "A valid istio gateway main is required in values.yaml" .Values.ezua.virtualService.istioGateway -}}
+{{- $endpoint := required "The EZUA endpoint is required in values.yaml" .Values.ezua.virtualService.endpoint -}}
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "nemo-platform.name" . }}
+spec:
+  gateways:
+    - "{{ $gateway | trim }}"
+  hosts:
+    - "{{ regexReplaceAll "[/?].*" $endpoint "" | trim }}"
+  http:
+    - match:
+        - uri:
+            prefix: /
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            # Insert target service name here
+            host: nemo-guardrails.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              # Insert target service port number here
+              number: {{ .Values.guardrails.service.port }}
