@@ -14,6 +14,18 @@ spec:
   http:
     - match:
         - uri:
+            prefix: /proxy/
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            # Insert target service name here
+            host: nemo-nim-proxy.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              # Insert target service port number here
+              number: {{ .Values.nim-proxy.service.main.port }}
+    - match:
+        - uri:
             prefix: /
       rewrite:
         uri: /
@@ -24,3 +36,4 @@ spec:
             port:
               # Insert target service port number here
               number: {{ .Values.guardrails.service.port }}
+
