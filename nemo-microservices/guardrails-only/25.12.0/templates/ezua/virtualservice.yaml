@@ -1,41 +1,18 @@
 {{- /* Pre-flight validation */ -}}
 {{- $gateway := required "A valid istio gateway main is required in values.yaml" .Values.ezua.virtualService.istioGateway -}}
 {{- $endpoint := required "The EZUA endpoint is required in values.yaml" .Values.ezua.virtualService.endpoint -}}
+{{- $domain := required "The EZUA domain is required in values.yaml" .Values.ezua.virtualService.domain -}}
 
 apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
 metadata:
-  name: {{ include "nemo-platform.name" . }}
+  name: {{ include "nemo-platform.name" . }}-guardrails
 spec:
   gateways:
     - "{{ $gateway | trim }}"
   hosts:
     - "{{ regexReplaceAll "[/?].*" $endpoint "" | trim }}"
   http:
-    - match:
-        - uri:
-            prefix: /v1/proxy/
-      rewrite:
-        uri: /
-      route:
-        - destination:
-            # Insert target service name here
-            host: nemo-nim-proxy.{{ .Release.Namespace }}.svc.cluster.local
-            port:
-              # Insert target service port number here
-              number: {{ index .Values "nim-proxy" "service" "main" "port" }}
-    - match:
-        - uri:
-            prefix: /v1/deployment/
-      rewrite:
-        uri: /
-      route:
-        - destination:
-            # Insert target service name here
-            host: nemo-deployment-management.{{ .Release.Namespace }}.svc.cluster.local
-            port:
-              # Insert target service port number here
-              number: {{ index .Values "deployment-management" "service" "deploymentPort" "port" }}
     - match:
         - uri:
             prefix: /
@@ -48,4 +25,51 @@ spec:
             port:
               # Insert target service port number here
               number: {{ .Values.guardrails.service.port }}
+---
 
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "nemo-platform.name" . }}-nim-proxy
+spec:
+  gateways:
+    - "{{ $gateway | trim }}"
+  hosts:
+    - "nemo-nim-proxy.{{ $domain }}"
+  http:
+    - match:
+        - uri:
+            prefix: /
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            # Insert target service name here
+            host: nemo-nim-proxy.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              # Insert target service port number here
+              number: {{ index .Values "nim-proxy" "service" "main" "port" }}
+---
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "nemo-platform.name" . }}-deployment-management
+spec:
+  gateways:
+    - "{{ $gateway | trim }}"
+  hosts:
+    - "nemo-deployment-management.{{ $domain }}"
+  http:
+    - match:
+        - uri:
+            prefix: /
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            # Insert target service name here
+            host: nemo-deployment-management.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              # Insert target service port number here
+              number: {{ index .Values "deployment-management" "service" "deploymentPort" "port" }}

@@ -2,8 +2,9 @@
 ezua:
   #Use next options in order to configure the application endpoint.
   virtualService:
-    endpoint: "nemo-microservices.${DOMAIN_NAME}/docs"
+    endpoint: "nemo-guardrails.${DOMAIN_NAME}/docs"
     istioGateway: "istio-system/ezaf-gateway"
+    domain: "${DOMAIN_NAME}"
 
 tags:
   # -- When set to `true`, installs the primary NeMo microservices platform. To install individual microservices, set `platform` to `false` and configure the `tags` key with values for each individual microservice. For more information, refer to [Tag-Based Installation](https://docs.nvidia.com/nemo/microservices/latest/set-up/deployment-options.html#tag-based-installation).
