@@ -28,3 +28,10 @@ To successfully deploy Langfuse in your PCAI/AIE environment, ensure you have:
 
 Settings such as `DATABASE_URL`, `NEXTAUTH_SECRET`, and initial `SALT` values are defined in the `values.yaml` file. 
 For official Kubernetes deployment patterns and advanced configuration, refer to the [langfuse-k8s repository](https://github.com/langfuse/langfuse-k8s)
+
+# Changes with respect to the official Langfuse Helm Chart
+
+**NOTE:** We bumped the Helm chart version to `v1.5.18`. The official Langfuse Helm Chart version is still `v1.5.17` as of the time this commit was made.
+
+We modified the `templates/_helpers.tpl` to ensure that when we define the `langfuse.postgres.hostname`, `langfuse.redis.hostname`, `langfuse.clickhous.hostname` and `langfuse.s3.endpoint` they get dynamically generated to include the full internal kubernetes service name including the `.svc.cluster.local`.
+This is in order to avoid the Kubernetes known `ndots:5` issue. ([1](https://pracucci.com/kubernetes-dns-resolution-ndots-options-and-why-it-may-affect-application-performances.html#:~:text=When%20an%20application%20connects%20to,absolute%20name%20only%20at%20last.)) ([2](https://dev.to/imjoseangel/tune-up-your-kubernetes-application-performance-with-a-small-dns-configuration-1o46#:~:text=ndots:5%20can%20negatively%20affect,in%20case%20of%20heavy%20traffic.))
