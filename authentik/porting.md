@@ -46,6 +46,9 @@ spec:
               number: {{ .Values.server.service.servicePortHttp }}
 ```
 
+## Initialize admin account
+After the installation is complete, access authentik at `https://authentik.[PCAI Domain name]/if/flow/initial-setup/`. Here, you can set a password for the default akadmin user.
+
 ## For Separate Postgresql Instance
 The PostgreSQL database is created by default during installation. To use separate PostgreSQL Instance, User must deploy postgresql separately and create User/Database for Authentik at first.
 - Configure Authentik for separate Postgresql Instance
