@@ -111,38 +111,44 @@ Some environment variables were added to reduce external calls and unnecessary i
   value: "true"
 - name: DO_NOT_TRACK
   value: "true"
-
+```
   These settings help Langflow start faster and avoid optional initialization steps.
 
 2. Configure outbound proxy access
 
 Since the cluster requires a corporate proxy to reach external services, proxy environment variables were added to the Langflow backend container:
 
+```
 - name: HTTPS_PROXY
   value: "http://hpeproxy.its.hpecorp.net:8080"
 - name: HTTP_PROXY
   value: "http://hpeproxy.its.hpecorp.net:8080"
 - name: NO_PROXY
   value: ".cluster.local,.svc,.svc.cluster,.svc.cluster.local,10.0.0.0/8,10.96.0.1,127.0.0.1,172.0.0.0/8,192.0.0.0/8,localhost"
-
+```
   Lowercase versions were also included since some libraries only read those variables:
 
+```
   - name: https_proxy
   value: "http://hpeproxy.its.hpecorp.net:8080"
 - name: http_proxy
   value: "http://hpeproxy.its.hpecorp.net:8080"
 - name: no_proxy
   value: ".cluster.local,.svc,.svc.cluster,.svc.cluster.local,10.0.0.0/8,10.96.0.1,127.0.0.1,172.0.0.0/8,192.0.0.0/8,localhost"
+```
 
   3. Add a host alias for the NVIDIA endpoint
+
 
 In some cases DNS resolution from the pod may still fail.
 To avoid this, a hostAliases entry was added to the Langflow StatefulSet:
 
+```
 hostAliases:
 - ip: "75.2.113.119"
   hostnames:
   - "integrate.api.nvidia.com"
+```
 
   This ensures the hostname resolves correctly inside the pod.
 
