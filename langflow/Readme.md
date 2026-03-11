@@ -114,7 +114,7 @@ Some environment variables were added to reduce external calls and unnecessary i
 ```
   These settings help Langflow start faster and avoid optional initialization steps.
 
-2. Configure outbound proxy access
+#### 2. Configure outbound proxy access
 
 Since the cluster requires a corporate proxy to reach external services, proxy environment variables were added to the Langflow backend container:
 
@@ -137,7 +137,7 @@ Since the cluster requires a corporate proxy to reach external services, proxy e
   value: ".cluster.local,.svc,.svc.cluster,.svc.cluster.local,10.0.0.0/8,10.96.0.1,127.0.0.1,172.0.0.0/8,192.0.0.0/8,localhost"
 ```
 
-  3. Add a host alias for the NVIDIA endpoint
+  #### 3. Add a host alias for the NVIDIA endpoint
 
 
 In some cases DNS resolution from the pod may still fail.
@@ -152,7 +152,7 @@ hostAliases:
 
   This ensures the hostname resolves correctly inside the pod.
 
-4. Restart the StatefulSet
+#### 4. Restart the StatefulSet
 
 After applying the changes, restart Langflow:
 
