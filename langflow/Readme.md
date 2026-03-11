@@ -160,8 +160,9 @@ kubectl rollout restart statefulset/langflow-service
 
 Then check the logs to confirm the service starts correctly:
 
-
+```
 kubectl logs -f langflow-service-0 -c langflow-ide
+```
 
 If the startup completes successfully, Langflow should become available at the configured endpoint.
 
