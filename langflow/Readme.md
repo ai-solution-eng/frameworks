@@ -61,4 +61,46 @@ You will want to edit the **backend** section and
       value: /etc/ssl/certs/ca-certificates.crt
 ```
 
+## Langflow Startup Fix
 
+### Context
+
+During startup, Langflow attempts to retrieve the list of available NVIDIA models from `integrate.api.nvidia.com`.
+
+In restricted enterprise environments, the Kubernetes cluster may not have a direct route to external domains. When this happens, the request to the NVIDIA endpoint can hang indefinitely, preventing Langflow from completing the startup process.
+
+### Change Applied
+
+To mitigate this behavior and allow Langflow to start successfully in restricted environments, a small configuration change was applied.
+
+The only modification made was adding a set of environment variables to the deployment configuration to reduce external calls and unnecessary initialization during startup.
+
+### Configuration
+
+```yaml
+- name: LANGFLOW_SKIP_AUTH_AUTO_LOGIN
+  value: "true"
+- name: LANGFLOW_LAZY_LOAD_COMPONENTS
+  value: "true"
+- name: DO_NOT_TRACK
+  value: "true"
+```
+
+### Purpose of the Change
+
+These settings help Langflow start faster and avoid optional initialization steps that may require external connectivity.
+
+- **LANGFLOW_SKIP_AUTH_AUTO_LOGIN**  
+  Prevents automatic authentication initialization during startup.
+
+- **LANGFLOW_LAZY_LOAD_COMPONENTS**  
+  Loads components only when they are needed instead of loading all of them during startup.
+
+- **DO_NOT_TRACK**  
+  Disables telemetry calls.
+
+### Expected Result
+
+With these variables configured, Langflow should complete the startup process without waiting for external services.
+
+Once the pod starts successfully, Langflow should become available at the configured endpoint.
