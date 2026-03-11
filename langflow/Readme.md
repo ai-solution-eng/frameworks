@@ -61,4 +61,101 @@ You will want to edit the **backend** section and
       value: /etc/ssl/certs/ca-certificates.crt
 ```
 
+## Troubleshooting: Langflow Pod Stuck During Startup
+
+In some environments, Langflow may fail to start and appear to be stuck during the initialization phase. The pod logs may show messages similar to:
+
+- Failed to fetch NVIDIA models during initialization
+- HTTPSConnectionPool(host='integrate.api.nvidia.com', port=443)
+- ConnectTimeoutError: Connection timed out
+
+### What was happening
+
+During startup, Langflow attempts to retrieve the list of available NVIDIA models from `integrate.api.nvidia.com`.  
+In restricted enterprise environments, the Kubernetes cluster may not have a direct route to external domains, causing this request to hang indefinitely and preventing Langflow from completing the startup process.
+
+### Workaround Applied
+
+To resolve this, the following adjustments were made.
+
+#### 1. Disable telemetry and enable lazy component loading
+
+Some environment variables were added to reduce external calls and unnecessary initialization during startup:
+
+```yaml
+- name: LANGFLOW_SKIP_AUTH_AUTO_LOGIN
+  value: "true"
+- name: LANGFLOW_LAZY_LOAD_COMPONENTS
+  value: "true"
+- name: DO_NOT_TRACK
+  value: "true"
+
+  
+### What was happening
+
+During startup, Langflow attempts to retrieve the list of available NVIDIA models from `integrate.api.nvidia.com`.  
+In restricted enterprise environments, the Kubernetes cluster may not have a direct route to external domains, causing this request to hang indefinitely and preventing Langflow from completing the startup process.
+
+### Workaround Applied
+
+To resolve this, the following adjustments were made.
+
+#### 1. Disable telemetry and enable lazy component loading
+
+Some environment variables were added to reduce external calls and unnecessary initialization during startup:
+
+```yaml
+- name: LANGFLOW_SKIP_AUTH_AUTO_LOGIN
+  value: "true"
+- name: LANGFLOW_LAZY_LOAD_COMPONENTS
+  value: "true"
+- name: DO_NOT_TRACK
+  value: "true"
+
+  These settings help Langflow start faster and avoid optional initialization steps.
+
+2. Configure outbound proxy access
+
+Since the cluster requires a corporate proxy to reach external services, proxy environment variables were added to the Langflow backend container:
+
+- name: HTTPS_PROXY
+  value: "http://hpeproxy.its.hpecorp.net:8080"
+- name: HTTP_PROXY
+  value: "http://hpeproxy.its.hpecorp.net:8080"
+- name: NO_PROXY
+  value: ".cluster.local,.svc,.svc.cluster,.svc.cluster.local,10.0.0.0/8,10.96.0.1,127.0.0.1,172.0.0.0/8,192.0.0.0/8,localhost"
+
+  Lowercase versions were also included since some libraries only read those variables:
+
+  - name: https_proxy
+  value: "http://hpeproxy.its.hpecorp.net:8080"
+- name: http_proxy
+  value: "http://hpeproxy.its.hpecorp.net:8080"
+- name: no_proxy
+  value: ".cluster.local,.svc,.svc.cluster,.svc.cluster.local,10.0.0.0/8,10.96.0.1,127.0.0.1,172.0.0.0/8,192.0.0.0/8,localhost"
+
+  3. Add a host alias for the NVIDIA endpoint
+
+In some cases DNS resolution from the pod may still fail.
+To avoid this, a hostAliases entry was added to the Langflow StatefulSet:
+
+hostAliases:
+- ip: "75.2.113.119"
+  hostnames:
+  - "integrate.api.nvidia.com"
+
+  This ensures the hostname resolves correctly inside the pod.
+
+4. Restart the StatefulSet
+
+After applying the changes, restart Langflow:
+
+kubectl rollout restart statefulset/langflow-service
+
+Then check the logs to confirm the service starts correctly:
+
+
+kubectl logs -f langflow-service-0 -c langflow-ide
+
+If the startup completes successfully, Langflow should become available at the configured endpoint.
 
