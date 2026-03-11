@@ -89,7 +89,7 @@ Some environment variables were added to reduce external calls and unnecessary i
   value: "true"
 - name: DO_NOT_TRACK
   value: "true"
-
+```
   
 ### What was happening
 
