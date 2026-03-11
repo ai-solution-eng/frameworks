@@ -156,7 +156,9 @@ hostAliases:
 
 After applying the changes, restart Langflow:
 
+```
 kubectl rollout restart statefulset/langflow-service
+```
 
 Then check the logs to confirm the service starts correctly:
 
