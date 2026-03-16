@@ -813,7 +813,7 @@ worker:
       memory: 512Mi
     limits:
       cpu: 1000m
-      memory: 512Mi
+      memory: 5120Mi
 
   # authentik worker container ports
   containerPorts:
