@@ -1,0 +1,71 @@
+ignore:
+  # Image parameters (except pullPolicy) are referenced indirectly through common.images.image helper
+  - image.registry
+  - image.repository
+  - image.tag
+  - image.digest
+  - image.pullSecrets
+  - volumePermissions.image.registry
+  - volumePermissions.image.repository
+  - volumePermissions.image.tag
+  - volumePermissions.image.digest
+  - volumePermissions.image.pullSecrets
+  - metrics.image.registry
+  - metrics.image.repository
+  - metrics.image.tag
+  - metrics.image.digest
+  - metrics.image.pullSecrets
+  # Values used by common library helpers
+  - nameOverride
+  - fullnameOverride
+  - kubeVersion
+  # Deprecated service port values (use primary.service.ports.mysql and secondary.service.ports.mysql instead)
+  - primary.service.port
+  - primary.service.nodePort
+  - secondary.service.port
+  - secondary.service.nodePort
+  # Persistence values used in conditional logic
+  - primary.persistence.storageClass
+  - secondary.persistence.storageClass
+  # Fallback priorityClassName (use primary.priorityClassName and secondary.priorityClassName instead)
+  - priorityClassName
+
+ignoreChildren:
+  # Global values used by common library helpers
+  - global
+  # Diagnostic mode
+  - diagnosticMode.command
+  - diagnosticMode.args
+  # Auth custom password files passed as complete object
+  - auth.customPasswordFiles
+  # Startup wait options passed as complete objects
+  - primary.startupWaitOptions
+  - secondary.startupWaitOptions
+  # Persistence access modes passed as complete array
+  - primary.persistence.accessModes
+  - secondary.persistence.accessModes
+  # FIPS, security contexts, probes, and update strategy passed as complete objects
+  - primary.fips
+  - primary.podSecurityContext
+  - primary.containerSecurityContext
+  - primary.startupProbe
+  - primary.livenessProbe
+  - primary.readinessProbe
+  - primary.updateStrategy
+  - secondary.fips
+  - secondary.podSecurityContext
+  - secondary.containerSecurityContext
+  - secondary.startupProbe
+  - secondary.livenessProbe
+  - secondary.readinessProbe
+  - secondary.updateStrategy
+  - passwordUpdateJob.fips
+  - passwordUpdateJob.podSecurityContext
+  - passwordUpdateJob.containerSecurityContext
+  - passwordUpdateJob.annotations
+  - volumePermissions.fips
+  - metrics.fips
+  - metrics.containerSecurityContext
+  - metrics.livenessProbe
+  - metrics.readinessProbe
+  - metrics.annotations

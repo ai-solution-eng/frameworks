@@ -1,0 +1,26 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+  - {{ .Values.ezua.virtualService.endpoint | quote }}
+  gateways:
+  - {{ .Values.ezua.virtualService.istioGateway }}
+  tls:
+  - match:
+    - port: 443
+      sniHosts:
+      - {{ .Values.ezua.virtualService.endpoint }}
+    route:
+    - destination:
+        host: {{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 80
+  http:
+  - route:
+    - destination:
+        host: {{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 80
