@@ -17,7 +17,7 @@ After installation, the web UI can be accessed at the URL provided in the values
 
 To use the cluster-admin token:
 ```shell
-k exec -it headlamp-8466698f5b-zht5j -- cat /var/run/secrets/kubernetes.io/serviceaccount/token
+kubectl exec -it <headlamp-pod> -n <headlamp-namespace> -- cat /var/run/secrets/kubernetes.io/serviceaccount/token
 ```
 
 To create a token scoped to the privs of a specific account (where sa is the name of the k8s sa and ns is the namespace):
