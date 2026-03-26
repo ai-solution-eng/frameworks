@@ -1,0 +1,180 @@
+{{- if .Values.deployment.functions.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supabase.functions.fullname" . }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.functions.enabled }}
+  replicas: {{ .Values.deployment.functions.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.functions.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.deployment.functions.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "supabase.functions.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.image.functions.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "supabase.functions.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.deployment.functions.podSecurityContext | nindent 8 }}
+      containers:
+        - args:
+            - start
+            - --main-service
+            - /home/deno/functions/main
+          name: {{ include "supabase.functions.name" $ }}
+          securityContext:
+            {{- toYaml .Values.deployment.functions.securityContext | nindent 12 }}
+          image: "{{ .Values.image.functions.repository }}:{{ .Values.image.functions.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.functions.pullPolicy }}
+          {{- if .Values.deployment.functions.envFrom }}
+          envFrom:
+            {{- toYaml .Values.deployment.functions.envFrom | nindent 12 }}
+          {{- end }}
+          env:
+            {{- range $key, $value := .Values.environment.functions }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+
+            {{- if .Values.deployment.kong.enabled }}
+            - name: SUPABASE_URL
+              value: http://{{ include "supabase.kong.fullname" . }}:{{ .Values.service.kong.port }}
+            {{- end }}
+
+            - name: DB_HOSTNAME
+              {{- if .Values.deployment.db.enabled }}
+              value: {{ include "supabase.db.fullname" . }}
+              {{- else }}
+              value: $(DB_HOST)
+              {{- end }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.secret.db.secretRef }}
+                  name: {{ .Values.secret.db.secretRef }}
+                  key: {{ .Values.secret.db.secretRefKey.password | default "password" }}
+                  {{- else }}
+                  name: {{ include "supabase.secret.db" . }}
+                  key: password
+                  {{- end }}
+            - name: DB_PASSWORD_ENC
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.secret.db.secretRef }}
+                  name: {{ .Values.secret.db.secretRef }}
+                  key: {{ .Values.secret.db.secretRefKey.password | default "password" }}
+                  {{- else }}
+                  name: {{ include "supabase.secret.db" . }}
+                  key: password_encoded
+                  {{- end }}
+            - name: DB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.secret.db.secretRef }}
+                  name: {{ .Values.secret.db.secretRef }}
+                  key: {{ .Values.secret.db.secretRefKey.database | default "database" }}
+                  {{- else }}
+                  name: {{ include "supabase.secret.db" . }}
+                  key: database
+                  {{- end }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.secret.jwt.secretRef }}
+                  name: {{ .Values.secret.jwt.secretRef }}
+                  key: {{ .Values.secret.jwt.secretRefKey.secret | default "secret" }}
+                  {{- else }}
+                  name: {{ include "supabase.secret.jwt" . }}
+                  key: secret
+                  {{- end }}
+            - name: SUPABASE_ANON_KEY
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.secret.jwt.secretRef }}
+                  name: {{ .Values.secret.jwt.secretRef }}
+                  key: {{ .Values.secret.jwt.secretRefKey.anonKey | default "anonKey" }}
+                  {{- else }}
+                  name: {{ include "supabase.secret.jwt" . }}
+                  key: anonKey
+                  {{- end }}
+            - name: SUPABASE_SERVICE_ROLE_KEY
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.secret.jwt.secretRef }}
+                  name: {{ .Values.secret.jwt.secretRef }}
+                  key: {{ .Values.secret.jwt.secretRefKey.serviceKey | default "serviceKey" }}
+                  {{- else }}
+                  name: {{ include "supabase.secret.jwt" . }}
+                  key: serviceKey
+                  {{- end }}
+            - name: SUPABASE_DB_URL
+              value: $(DB_DRIVER)://$(DB_USERNAME):$(DB_PASSWORD_ENC)@$(DB_HOSTNAME):$(DB_PORT)/$(DB_DATABASE)?search_path=auth&sslmode=$(DB_SSL)
+          {{- with .Values.deployment.functions.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.functions.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+          {{- with .Values.deployment.functions.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.persistence.functions.enabled }}
+            - name: functions-storage
+              mountPath: /home/deno/functions
+          {{- end }}
+          {{- if .Values.persistence.deno.enabled }}
+            - name: deno-cache
+              mountPath: /root/.cache/deno
+          {{- end }}
+            - mountPath: /home/deno/functions/main/index.ts
+              name: functions-main
+              subPath: index.ts
+          {{- with .Values.deployment.functions.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        {{- with .Values.deployment.functions.volumes }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.persistence.functions.enabled }}
+        - name: functions-storage
+          persistentVolumeClaim:
+            claimName: {{ include "supabase.pvc.name" (dict "root" $ "name" "functions") }}
+        {{- end }}
+        {{- if .Values.persistence.deno.enabled }}
+        - name: deno-cache
+          persistentVolumeClaim:
+            claimName: {{ include "supabase.pvc.name" (dict "root" $ "name" "deno") }}
+        {{- end }}
+        - name: functions-main
+          configMap:
+            name: {{ include "supabase.functions.fullname" . }}-main
+      {{- with .Values.deployment.functions.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.functions.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.functions.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
