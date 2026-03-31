@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-inspector.fullname" . }}-client
+  labels:
+    {{- include "mcp-inspector.labels" . | nindent 4 }}
+    app.kubernetes.io/component: client
+  {{- with .Values.service.client.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.client.type }}
+  ports:
+    - port: {{ .Values.service.client.port }}
+      targetPort: client
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "mcp-inspector.selectorLabels" . | nindent 4 }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-inspector.fullname" . }}-proxy
+  labels:
+    {{- include "mcp-inspector.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxy
+  {{- with .Values.service.proxy.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.proxy.type }}
+  ports:
+    - port: {{ .Values.service.proxy.port }}
+      targetPort: proxy
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "mcp-inspector.selectorLabels" . | nindent 4 }}
+

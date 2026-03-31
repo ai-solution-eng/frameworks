@@ -1,0 +1,35 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+MCP Inspector has been deployed with two services:
+
+1. Client UI (MCPI) - Port {{ .Values.config.clientPort }}
+2. Proxy Server (MCPP) - Port {{ .Values.config.serverPort }}
+
+To access the MCP Inspector:
+
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  URL: http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}
+{{- end }}
+{{- else if contains "NodePort" .Values.service.client.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "mcp-inspector.fullname" . }}-client)
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo "Visit http://$NODE_IP:$NODE_PORT to use MCP Inspector"
+{{- else if contains "LoadBalancer" .Values.service.client.type }}
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+  
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "mcp-inspector.fullname" . }}-client --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo "Visit http://$SERVICE_IP:{{ .Values.service.client.port }} to use MCP Inspector"
+{{- else if contains "ClusterIP" .Values.service.client.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "mcp-inspector.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 6274:{{ .Values.config.clientPort }} 6277:{{ .Values.config.serverPort }}
+  
+  Then visit http://localhost:6274 to use MCP Inspector
+{{- end }}
+
+For more information about using MCP Inspector:
+- Documentation: https://modelcontextprotocol.io/docs/tools/inspector
+- GitHub: https://github.com/modelcontextprotocol/inspector

@@ -1,0 +1,201 @@
+ezua:
+  #Use next options in order to configure the application endpoint.
+  virtualService:
+    endpoint: "mcp-inspector.${DOMAIN_NAME}/?MCP_PROXY_FULL_ADDRESS=https://mcp-inspector.${DOMAIN_NAME}/proxy&MCP_PROXY_AUTH_TOKEN=test_token"
+    istioGateway: "istio-system/ezaf-gateway"
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/modelcontextprotocol/inspector
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Environment variables
+env:
+  - name: HOST
+    value: "0.0.0.0"
+  - name: MCP_AUTO_OPEN_ENABLED
+    value: "false"
+  - name: CLIENT_PORT
+    value: "6274"
+  - name: SERVER_PORT
+    value: "6277"
+  - name: ALLOWED_ORIGINS
+    value: "http://localhost:6274,https://mcp-inspector.${DOMAIN_NAME}"
+
+# Whether to add AIE self-signed certificates to root CAs
+# Requires a trust-manager bundle with useDefaultCAs set to true
+# More details here https://gist.github.hpe.com/jeff-oxenberg/70462e0777bf02c38be9823324de9f6d
+certificatesPolicy:
+  enabled: false
+  # The list of environment variables to inject
+  env:
+    - name: SSL_CERT_DIR
+      value: /etc/ssl/certs
+    - name: REQUESTS_CA_BUNDLE
+      value: /etc/ssl/certs/ca-certificates.crt
+    - name: SSL_CERT_FILE
+      value: /etc/ssl/certs/ca-certificates.crt
+    - name: AIOHTTP_CLIENT_SESSION_SSL
+      value: /etc/ssl/certs/ca-certificates.crt
+    - name: NODE_EXTRA_CA_CERTS
+      value: /etc/ssl/certs/ca-certificates.crt
+  # The list of volume mounts for the containers
+  volumeMounts:
+    - mountPath: /etc/ssl/certs/ca-certificates.crt
+      name: etc-ssl-certs
+      readOnly: true
+      subPath: ca-certificates.crt
+  # The volume definition (at the pod level)
+  volumes:
+    - name: etc-ssl-certs
+      configMap:
+        name: ezaf-root-ca
+        items:
+          - key: ezaf-root-ca.crt
+            path: ca-certificates.crt
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+  runAsNonRoot: true
+  runAsUser: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# MCP Inspector Configuration
+config:
+  # Client UI port (MCPI)
+  clientPort: 6274
+  # Proxy server port (MCPP)
+  serverPort: 6277
+  # Host binding
+  host: "0.0.0.0"
+  # Disable auto-open browser
+  autoOpenEnabled: false
+  
+  # Optional: MCP server configurations
+  # This allows pre-configuring servers in the inspector
+  mcpServers: {}
+    # example-filesystem:
+    #   type: "streamable-http"
+    #   url: "http://mcp-filesystem:8000/"
+    # example-stdio:
+    #   type: "stdio"
+    #   command: "npx"
+    #   args: ["@modelcontextprotocol/server-everything"]
+
+# Service for Client UI (MCPI)
+service:
+  client:
+    type: ClusterIP
+    port: 6274
+    targetPort: 6274
+    annotations: {}
+  
+  # Service for Proxy Server (MCPP)
+  proxy:
+    type: ClusterIP
+    port: 6277
+    targetPort: 6277
+    annotations: {}
+
+# Ingress for Client UI
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: mcp-inspector.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: client
+  tls: []
+  #  - secretName: mcp-inspector-tls
+  #    hosts:
+  #      - mcp-inspector.example.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+# Persistence for config and session data (optional)
+persistence:
+  enabled: false
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  mountPath: /config
+
+# Additional environment from secrets/configmaps
+envFrom: []
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: client
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: client
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Network Policy
+networkPolicy:
+  enabled: false
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: default
+  egress:
+    - {} # Allow all egress
+

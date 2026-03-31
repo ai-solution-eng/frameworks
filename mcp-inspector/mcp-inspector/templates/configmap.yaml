@@ -1,0 +1,14 @@
+{{- if .Values.config.mcpServers }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-inspector.fullname" . }}-config
+  labels:
+    {{- include "mcp-inspector.labels" . | nindent 4 }}
+data:
+  mcp-config.json: |
+    {
+      "mcpServers": {{ .Values.config.mcpServers | toJson | nindent 8 }}
+    }
+{{- end }}
+

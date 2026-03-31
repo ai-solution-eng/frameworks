@@ -1,0 +1,14 @@
+apiVersion: v2
+appVersion: latest
+description: A Helm chart for MCP Inspector - Visual testing tool for MCP servers
+keywords:
+- mcp
+- inspector
+- testing
+- debugging
+maintainers:
+- email: your-email@example.com
+  name: Your Name
+name: mcp-inspector
+type: application
+version: 1.0.0
