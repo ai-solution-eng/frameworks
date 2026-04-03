@@ -1,20 +1,18 @@
-# Porting Guide: PaddleOCR-VL + Gotenberg on HPE AIE (PCAI)
+# Porting Guide: PaddleOCR VL Pipeline on HPE AIE (PCAI)
 
 ## What This Is
 
-A headless document OCR pipeline deployed on HPE Private Cloud AI via BYOA (Bring Your Own Application). Upload a `.docx`, `.pptx`, or `.pdf` and get structured text back.
+A headless document OCR pipeline (PaddleOCR-VL + Gotenberg) deployed on HPE Private Cloud AI via BYOA (Bring Your Own Application). Upload a `.docx`, `.pptx`, or `.pdf` and get structured text back.
 
 ```
-User → [Adapter :8080] → [Gotenberg :3000] → PDF → [Layout Detection (ONNX/CPU)] → [VLM on MLIS (GPU)]
-                                                                                            ↓
-                                                                                    Structured markdown
+User → [Adapter :8080] → [Gotenberg :3000] → PDF → [Layout Detection (ONNX/CPU)] → [VLM on MLIS (GPU)] → Structured markdown
 ```
 
 ## Components
 
 | Component | Where it runs | What it does |
 |-----------|--------------|--------------|
-| **PaddleOCR-VL 0.9B** | MLIS (Tier 1, GPU) | Vision-language model for text/table/formula recognition |
+| **PaddleOCR-VL (0.9B)** | MLIS (Tier 1, GPU) | Vision-language model for text/table/formula recognition |
 | **Adapter** | Helm chart pod (Tier 2, CPU) | Orchestrates the pipeline, runs layout detection via ONNX |
 | **Gotenberg** | Helm chart pod (Tier 2, CPU) | Converts docx/pptx to PDF via LibreOffice |
 
