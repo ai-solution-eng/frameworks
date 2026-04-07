@@ -1,0 +1,34 @@
+ezua:
+  enabled: true
+  virtualService:
+    endpoint: "webollama.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/dkruyt/webollama
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Endpoint for Ollama - update this to point to your Ollama service
+ollamaUrl: "http://ollama.ollama.svc.cluster.local:11434"
+
+secretKey: "change-in-production"
+
+serviceAccount:
+  create: true
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 5000
+
+ingress:
+  enabled: false
+
+resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
