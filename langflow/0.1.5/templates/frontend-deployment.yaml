@@ -1,0 +1,107 @@
+{{- if .Values.langflow.frontend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "langflow.fullname" . }}-frontend
+  labels:
+    app: {{ template "langflow.name" . }}
+    chart: {{ template "langflow.chart" . }}
+    release: {{ .Release.Name }}
+    langflow-scope: "frontend"
+spec:
+  replicas: {{ .Values.langflow.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "langflow.name" . }}
+      chart: {{ template "langflow.chart" . }}
+      release: {{ .Release.Name }}
+      langflow-scope: "frontend"
+  template:
+    metadata:
+      {{- with .Values.langflow.frontend.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app: {{ template "langflow.name" . }}
+        chart: {{ template "langflow.chart" . }}
+        release: {{ .Release.Name }}
+        langflow-scope: "frontend"
+    spec:
+      serviceAccountName: {{ include "langflow.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+
+      volumes:
+        - name: nginx-template
+          configMap:
+            name: langflow-nginx-template
+
+        - name: nginx
+          emptyDir: {}
+
+        - name: nginx-cache
+          emptyDir: {}
+
+        - name: tmp
+          emptyDir: {}
+
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.langflow.frontend.image.repository }}:{{ .Values.langflow.frontend.image.tag | default .Values.langflow.global.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.langflow.frontend.image.imagePullPolicy | default .Values.langflow.global.image.imagePullPolicy }}
+
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.langflow.frontend.service.port }}
+
+          volumeMounts:
+            - name: nginx-template
+              mountPath: /etc/nginx/templates/default.conf.template
+              subPath: default.conf.template
+              readOnly: true
+
+            - name: nginx
+              mountPath: "/tmp/nginx"
+
+            - name: nginx-cache
+              mountPath: "/var/cache/nginx"
+
+            - name: tmp
+              mountPath: /tmp
+
+          livenessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: {{ .Values.langflow.frontend.probe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.langflow.frontend.probe.periodSeconds }}
+            timeoutSeconds: {{ .Values.langflow.frontend.probe.timeoutSeconds }}
+            failureThreshold: {{ .Values.langflow.frontend.probe.failureThreshold }}
+
+          readinessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: {{ .Values.langflow.frontend.probe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.langflow.frontend.probe.periodSeconds }}
+            timeoutSeconds: {{ .Values.langflow.frontend.probe.timeoutSeconds }}
+            failureThreshold: {{ .Values.langflow.frontend.probe.failureThreshold }}
+
+          env:
+            - name: BACKEND_URL
+              value: "http://{{ template "langflow.fullname" . }}-backend.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.langflow.backend.service.port }}"
+
+            - name: FRONTEND_PORT
+              value: "{{ .Values.langflow.frontend.service.port }}"
+
+            - name: LANGFLOW_MAX_FILE_SIZE_UPLOAD
+              value: "500"
+
+          resources:
+            {{- toYaml .Values.langflow.frontend.resources | nindent 12 }}
+
+{{- end }}
