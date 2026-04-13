@@ -58,6 +58,10 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
+            - mountPath: /etc/nginx/nginx.conf
+              name: nginx-config
+              readOnly: true
+              subPath: nginx.conf          
           {{- if .Values.persistence.enabled }}
             - name: data
               mountPath: {{ .Values.persistence.mountPath}}
@@ -66,6 +70,13 @@ spec:
           {{- toYaml . | nindent 12 }}
           {{- end }}   
       volumes:
+      - configMap:
+          defaultMode: 420
+          items:
+          - key: nginx.conf
+            path: nginx.conf
+          name: presenton-nginx-config
+        name: nginx-config      
       {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
       - name: data
         persistentVolumeClaim:
