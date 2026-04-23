@@ -86,13 +86,13 @@ additionalLabels: {}
 podAnnotations: {}
 podLabels: {}
 
-resources: {}
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
+resources: 
+  limits:
+    cpu: 3
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 128Mi
 
 containerSecurityContext:
   runAsNonRoot: true
@@ -117,7 +117,7 @@ lifecycle:
 
 # Unless .Values.image.useUnprivilegedImage is set to true, ensures that the pre-existing
 # files on the storage and snapshot volume are owned by the container's user and fsGroup.
-updateVolumeFsOwnership: true
+updateVolumeFsOwnership: false
 
 nodeSelector: {}
 
