@@ -502,7 +502,7 @@ nginx:
   replicas: 1
   revisionHistoryLimit: 10
   resources:
-    limilts:
+    limits:
       memory: 1024Mi
       cpu: 250m
     requests:
