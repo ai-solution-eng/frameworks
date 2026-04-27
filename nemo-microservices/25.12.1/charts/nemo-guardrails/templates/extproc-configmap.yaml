@@ -1,0 +1,9 @@
+{{- if .Values.guardrailsExtProc.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "helm.fullname" . }}-extproc-config
+data:
+    config.yaml: |
+    {{- toYaml .Values.guardrailsExtProc.configFile.data | nindent 6 }} 
+{{- end }}

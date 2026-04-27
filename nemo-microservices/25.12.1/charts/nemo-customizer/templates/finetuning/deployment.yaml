@@ -1,0 +1,127 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ft.fullname" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "ft.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ft.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ft.serviceAccountName" . }}
+      imagePullSecrets:
+        {{- include "nemo-common.imagepullsecrets" . | nindent 8 }}
+      containers:
+      - name: {{ .Chart.Name }}
+        image: "{{ .Values.apiImage.registry }}/{{ .Values.apiImage.repository }}:{{ default .Chart.AppVersion .Values.apiImage.tag }}"
+        imagePullPolicy: {{ .Values.apiImage.imagePullPolicy }}
+        env:
+          {{- include "validate.wandb" .}}
+          {{- include "validate.openTelemetry" .}}
+          {{- include "validate.sequence_packing" .}}
+          - name: CONFIG_PATH
+            value: /app/config/config.yaml
+          {{ include "nemo-common.postgresql.password" . | nindent 10 | trim }}
+          - name: POSTGRES_DB_DSN
+            {{ include "nemo-common.postgresql.uri" . | nindent 12 | trim }}
+          - name: POSTGRES_SECRET_NAME
+            value: {{ include "nemo-common.postgresql.secret-name" .}}
+          - name: POSTGRES_SECRET_KEY
+            value: {{ include "nemo-common.postgresql.password-key" .}}
+          - name: "CONSOLE_LOG_LEVEL"
+            value: "{{ .Values.logging.logLevel }}"
+          - name: WANDB_ENCRYPTION_KEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "ft.wandb.secretName" .}}
+                key: {{ include "ft.wandb.secretKey" .}}
+          - name: NGC_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.ngcAPISecret }}
+                key: {{ .Values.ngcAPISecretKey }}
+          {{- if .Values.hfAPISecret }}
+          - name: HF_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.hfAPISecret }}
+                key: {{ .Values.hfAPISecretKey }}
+          {{- end }}
+          - name: KUBERNETES_NAMESPACE
+            value : {{ .Release.Namespace }}
+          - name: CUSTOMIZATIONS_CALLBACK_URL
+            value: {{ printf "http://%s.%s.svc.cluster.local:9009"  (include "nemo-common.servicename" .) .Release.Namespace | quote }}
+          - name: WANDB_SECRET_NAME
+            value: {{ include "ft.wandb.secretName" .}}
+          - name: WANDB_SECRET_KEY
+            value: {{ include "ft.wandb.secretKey" .}}
+          {{- if .Values.logging.logHealthEndpoints }}
+          - name: LOG_HEALTH_ENDPOINTS
+            value: "{{ .Values.logging.logHealthEndpoints }}"
+          {{- end }}
+
+          {{- if .Values.customizerConfig.openTelemetry.enabled }}
+          - name: HOST_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.hostIP
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: {{include "openTelemetry.exporterOtlpEndpoint" .}}
+          - name: OTEL_SERVICE_NAME
+            value: {{ .Chart.Name }}
+          - name: OTEL_TRACES_EXPORTER
+            value: {{ .Values.customizerConfig.openTelemetry.tracesExporter }}
+          - name: OTEL_METRICS_EXPORTER
+            value: {{ .Values.customizerConfig.openTelemetry.metricsExporter }}
+          - name: OTEL_LOGS_EXPORTER
+            value: {{ .Values.customizerConfig.openTelemetry.logsExporter }}
+          - name: OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED
+            value: "true"
+          - name: OTEL_PYTHON_EXCLUDED_URLS
+            value: health
+          - name: OTEL_LOG_LEVEL
+            value: "{{ .Values.logging.logLevel }}"
+          {{- else }}
+          - name: OTEL_SDK_DISABLED
+            value: "true"
+          {{- end }}
+          {{- if .Values.awsDeploy.enabled }}
+          - name: AWS_EFA_ENABLED
+            value: "true"
+          {{- end }}
+          {{ include "nemo-common.env" . | nindent 10 | trim }}
+        ports:
+          - name: api
+            containerPort: 8000
+          - name: internal
+            containerPort: 9009
+        livenessProbe:
+          httpGet:
+            path: /v1/health/live
+            port: api
+          initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+          timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: /v1/health/ready
+            port: api
+          initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+          timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+        volumeMounts:
+        - name: config
+          mountPath: "/app/config"
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "ft.fullname" .}}-config
+          items:
+          - key: "config.yaml"
+            path: "config.yaml"

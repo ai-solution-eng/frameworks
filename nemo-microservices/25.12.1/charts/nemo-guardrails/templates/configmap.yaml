@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "helm.fullname" . }}-config-store
+data:
+  {{- range $mountedFilePath, $fileConfig := .Values.configStore.files }}
+    {{ include "helm.filepathToConfigMapKey" $mountedFilePath }}: |
+      {{- include "validate.configStore.files" (dict "mountedFilePath" $mountedFilePath "filePathKey" (index $fileConfig "filePath") "dataKey" (index $fileConfig "data")) }}
+      {{- if hasKey $fileConfig "data" }}
+        {{- if typeIs "string" (index $fileConfig "data") }}
+          {{- index $fileConfig "data" | nindent 6 }}
+        {{- else }}
+          {{- toYaml (index $fileConfig "data") | nindent 6 }}
+        {{- end }}
+      {{- else if hasKey $fileConfig "filePath" }}
+        {{- index $fileConfig "filePath" | nindent 6 }}
+      {{- end }}
+  {{- end }}

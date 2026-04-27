@@ -1,0 +1,142 @@
+{{- if not (.Values.existingPlatformConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.platformConfigmapName }}
+  labels:
+    {{- include "nemo-platform.labels" . | nindent 4 }}
+data:
+  config.yaml: |-
+    # NeMo Microservices Platform deployment configuration
+    platform:
+      # Base URL for the platform
+      base_url: "{{ .Values.core.config.platform.base_url }}"
+
+      {{- with index .Subcharts "core" }}
+      jobs_url: "{{ printf "http://%s:%s" (include "nemo-core.api-servicename" . ) (toString .Values.api.service.port) }}"
+      models_url: "{{ printf "http://%s:%s" (include "nemo-core.api-servicename" . ) (toString .Values.api.service.port) }}"
+      inference_gateway_url: "{{ printf "http://%s:%s" (include "nemo-core.api-servicename" . ) (toString .Values.api.service.port) }}"
+      {{- end }}
+
+      {{- with index .Subcharts "data-store" }}
+      datastore_url: "http://{{ include "nemo-common.servicename" . }}:{{ .Values.service.http.port }}/v1/hf"
+      {{- end }}
+
+      # Enable/disable service account token authentication in-between services
+      enable_service_account_auth: {{ .Values.core.config.platform.enable_service_account_auth }}
+
+      # Global image pull secrets for the platform
+      image_pull_secrets:
+        {{ include "nemo-common.imagepullsecrets" . | nindent 8 | trim }}
+
+    {{- with (index .Subcharts "core") }}
+    # NeMo Microservices Platform jobs configuration
+    jobs:
+      schedule_interval_seconds: {{ $.Values.core.config.jobs.schedule_interval_seconds }}
+      reconciler_interval_seconds: {{ $.Values.core.config.jobs.reconciler_interval_seconds }}
+
+      # Executor profiles configuration
+      executors:
+      {{- range .Values.config.jobs.executors }}
+        - profile: {{ .profile }}
+          backend: {{ .backend }}
+          provider: {{ .provider }}
+          config:
+          {{- if or (eq .backend "kubernetes_job") (eq .backend "volcano_job") }}
+            storage:
+              pvc_name: {{ (include "nemo-core.persistentVolumeClaim" $.Subcharts.core ) }}
+              volume_permissions_image: {{ $.Values.core.config.jobs.storage.volumePermissionsImage }}
+            logging:
+              enabled: {{ $.Values.core.logging.sidecar.enabled }}
+              configmap: {{ (include "nemo-core.logsidecar-configmap" $.Subcharts.core ) }}
+              image:
+                repository: {{ $.Values.core.logging.sidecar.image.repository }}
+                tag: {{ $.Values.core.logging.sidecar.image.tag }}
+            ttl_seconds_after_finished: {{ $.Values.core.config.jobs.ttl_seconds_after_finished }}
+            {{- with $.Values.global.imagePullSecrets }}
+            image_pull_secrets:
+              {{- range . }}
+              - name: {{ .name }}
+              {{- end }}
+            {{- end }}
+            {{- with .config }}
+            {{- with .pod_metadata }}
+            pod_metadata:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with .job_metadata }}
+            job_metadata:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with .node_selector }}
+            node_selector:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with .tolerations }}
+            tolerations:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with .affinity }}
+            affinity:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- end }}
+          {{- else}}
+          {{- with .config }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- end }}
+      {{- end }}
+      
+      # Configure to use k8s secrets for sensitive information
+      secrets:
+        backend: kubernetes
+        kubernetes:
+          config_type: in-cluster
+          namespace: {{ .Release.Namespace }}
+
+    # NeMo Microservices Platform models configuration
+    models:
+      host: "{{ .Values.config.models.host }}"
+      port: {{ .Values.config.models.port }}
+      huggingface_model_puller: {{ include "nemo-common.image" (dict "image" .Values.config.models.huggingface_model_puller "Chart" .Chart) | quote }}
+      controller:
+        interval_seconds: {{ .Values.config.models.controller.interval_seconds }}
+        model_deployment_garbage_collection_ttl_seconds: {{ .Values.config.models.controller.model_deployment_garbage_collection_ttl_seconds }}
+        backends:
+          {{- toYaml .Values.config.models.controller.backends | nindent 10 }}
+      # Configure to use k8s secrets for sensitive information
+      secrets:
+        backend: kubernetes
+        kubernetes:
+          config_type: in-cluster
+          namespace: {{ .Release.Namespace }}
+
+    # NeMo Microservices Platform inference gateway configuration
+    inference_gateway:
+      host: "{{ .Values.config.inference_gateway.host }}"
+      port: {{ .Values.config.inference_gateway.port }}
+      refresh_model_cache_interval_sec: {{ .Values.config.inference_gateway.refresh_model_cache_interval_sec }}
+      # Configure to use k8s secrets for sensitive information
+      secrets:
+        backend: kubernetes
+        kubernetes:
+          config_type: in-cluster
+          namespace: {{ .Release.Namespace }}
+    {{- end }}
+
+    {{- with (index .Subcharts "data-designer") }}
+    # NeMo Data Designer configuration
+    data_designer: {{ .Values.config | toYaml | nindent 6 }}
+    {{- end }}
+
+    {{- with (index .Subcharts "auditor") }}
+    # NeMo Auditor configuration
+    auditor: {{ .Values.config | toYaml | nindent 6 }}
+    {{- end }}
+
+    {{- with (index .Subcharts "safe-synthesizer") }}
+    # Safe Synthesizer configuration
+    safe_synthesizer: {{ .Values.config | toYaml | nindent 6 }}
+    {{- end }}
+{{- end }}

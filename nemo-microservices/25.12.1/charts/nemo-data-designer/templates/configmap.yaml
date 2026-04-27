@@ -1,0 +1,14 @@
+{{- if not .Values.global.platformConfigmapName }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.platformConfigmapName }}
+data:
+  config.yaml: |-
+    platform:
+      jobs_url: http://nemo-core-api:8000
+      datastore_url: http://nemo-data-store:3000/v1/hf
+
+    data_designer:
+      {{ toYaml .Values.config | nindent 6 }}
+{{- end }}

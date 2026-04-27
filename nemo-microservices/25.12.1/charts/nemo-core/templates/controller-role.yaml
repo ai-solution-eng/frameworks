@@ -1,0 +1,61 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "nemo-core.controllerServiceAccountName" . }}
+  labels:
+    {{- include "nemo-core.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list", "watch", "create"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list", "create", "delete"]
+- apiGroups: [""] 
+  resources: ["configmaps"]
+  verbs: ["create", "delete"]
+{{- if .Values.config.jobs.enabled_backends.volcano }}
+# Volcano
+- apiGroups: ["batch.volcano.sh"]
+  resources: ["jobs", "jobs/status"]
+  verbs: ["get","list","watch","update","delete","create","patch"]
+- apiGroups: ["scheduling.incubator.k8s.io", "scheduling.volcano.sh"]
+  resources: ["queues", "queues/status", "podgroups"]
+  verbs: ["create", "get", "list", "watch", "update", "patch", "bind", "updateStatus", "delete"]
+{{- end }}
+{{- if (include "nemo-core.models.nimOperatorEnabled" . | eq "true") }}
+# NIM Operator
+- apiGroups: ["apps.nvidia.com"]
+  resources: ["nimservices", "nimservices/status"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["apps.nvidia.com"]
+  resources: ["nimcaches", "nimcaches/status"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "nemo-core.controllerServiceAccountName" . }}
+  labels:
+    {{- include "nemo-core.labels" . | nindent 4 }} 
+subjects:
+- kind: ServiceAccount
+  name: {{ include "nemo-core.controllerServiceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "nemo-core.controllerServiceAccountName" . }}
+  apiGroup: rbac.authorization.k8s.io

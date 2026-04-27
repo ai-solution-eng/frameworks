@@ -1,0 +1,30 @@
+{{/* templates/gateway.yaml */}}
+{{- if and (not .Values.gke.existingGateway) .Values.gke.gateway.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.gke.gateway.name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  gatewayClassName: {{ .Values.gke.gateway.gatewayClassName }}
+  listeners:
+  {{- range .Values.gke.gateway.listeners }}
+  - name: {{ .name }}
+    port: {{ .port }}
+    protocol: {{ .protocol }}
+    {{- if .hostname }}
+    hostname: {{ .hostname | quote }}
+    {{- end}}
+    {{- if and (eq .protocol "HTTPS") .tls }}
+    tls:
+      mode: {{ .tls.mode }}
+      certificateRefs:
+      {{- range .tls.certificateRefs }}
+      - name: {{ .name }}
+      {{- end }}
+    {{- end }}
+    allowedRoutes:
+      namespaces:
+        from: All # Routes in all namespaces may be used by this Gateway
+  {{- end }}
+{{- end }}

@@ -1,0 +1,165 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helm.fullname" . }}
+  labels:
+    {{- include "helm.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "helm.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "helm.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      imagePullSecrets:
+        {{ include "nemo-common.imagepullsecrets" . | nindent 8 | trim }}
+      serviceAccountName: {{ include "helm.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        {{- if .Values.postgresql.enabled }}
+        - name: wait-for-postgres
+          image: {{ include "nemo-common.postgresql.wait-image" . }}
+          command:
+            - 'sh'
+            - '-c'
+            - 'for i in $(seq 1 50); do echo "Waiting for PostgreSQL to start (attempt $i of 50)"; nc -z {{ include "nemo-common.postgresql.host" . }} {{ include "nemo-common.postgresql.port" . }} && exit 0; sleep 5; done; echo "Failed to connect after 50 attempts."; exit 1'
+        {{- end }}
+        - name: guardrails-db-migration
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          workingDir: /app/services/guardrails
+          env:
+            {{- if or .Values.postgresql.enabled .Values.externalDatabase.host .Values.externalDatabase.uriSecret.name }}
+            {{ include "nemo-common.postgresql.password" . | nindent 12 | trim }}
+            - name: POSTGRES_URI
+              {{ include "nemo-common.postgresql.uri" . | nindent 14 | trim }}
+            {{- end }}
+            - name: PYTHONPATH
+              value: "/app/services/guardrails"
+            {{ include "nemo-common.env" . | nindent 12 | trim }}
+            - name: LOG_LEVEL
+              value: "{{ .Values.logLevel | default "INFO" }}"
+          command: ["/app/.venv/bin/alembic"]
+          args: ["upgrade", "head"]
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "nemo-common.mainimage" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            {{ include "nemo-common.env" . | nindent 12 | trim }}
+            - name: LOG_LEVEL
+              value: "{{ .Values.logLevel | default "INFO" }}"
+            {{- if or .Values.postgresql.enabled .Values.externalDatabase.host .Values.externalDatabase.uriSecret.name }}
+            {{ include "nemo-common.postgresql.password" . | nindent 12 | trim }}
+            - name: DB_URI
+              {{ include "nemo-common.postgresql.uri" . | nindent 14 | trim }}
+            {{- end }}
+            {{- if .Values.external.entityStore.endpoint }}
+            - name: ENTITY_STORE_URL
+              value: "{{ .Values.external.entityStore.endpoint }}"
+            {{- end }}
+            {{- if .Values.guardrails.nvcfAPIKeySecretName }}
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.guardrails.nvcfAPIKeySecretName }}
+                  key: NVIDIA_API_KEY
+            {{- end }}
+            {{ include "helm.otelEnvVars" . | nindent 12 }}
+          {{- if .Values.configStore.nfs.enabled }}
+          volumeMounts:
+            - name: config-store
+              mountPath: {{ .Values.configStore.nfs.mountPath }}
+          {{- else }}
+          volumeMounts:
+            - name: config-store
+              mountPath: {{ .Values.env.CONFIG_STORE_PATH | default "/app/services/guardrails/config-store" | quote }}
+          {{- end }}
+        {{- if .Values.guardrailsExtProc.enabled }}
+        - name: guardrails-ext-proc-service
+          image: "{{ .Values.guardrailsExtProc.extProcImage.repository }}:{{ default .Chart.AppVersion .Values.guardrailsExtProc.extProcImage.tag }}"
+          imagePullPolicy: {{ .Values.guardrailsExtProc.extProcImage.imagePullPolicy | default .Values.image.pullPolicy }}
+          command: ["/main"]
+          ports:
+            - name: grpc
+              containerPort: 8443
+          env:
+            - name: GR_GUARDRAILS__BASE_URL
+              value: "http://localhost:{{ .Values.service.port }}"
+            # Hardcode gRPC listen address for ext-proc service
+            - name: GR_GRPC__ADDRESS
+              value: ":8443"
+            # OpenTelemetry
+            {{- include "helm.otelEnvVars" . | nindent 12 }}
+            # Add the ext_proc service related env vars after OTel ones because we need to override some of the OTel env vars like service name
+            {{- range $k, $v := .Values.guardrailsExtProc.env }}
+            - name: "{{ $k }}"
+              value: "{{ $v }}"
+            {{- end }}
+            # Prefer deriving CONFIG_PATH in a self-contained way based on volumes and volumeMounts.
+            - name: CONFIG_PATH
+              value: "/mnt/config/config.yaml"
+          volumeMounts:
+          - name: extproc-config
+            mountPath: "/mnt/config"
+        {{- end }}
+      {{- if .Values.configStore.nfs.enabled }}
+      volumes:
+        - name: config-store
+          persistentVolumeClaim:
+            claimName: config-store-nfs-pvc
+      {{- else }}
+      volumes:
+        - name: config-store
+          configMap:
+            name:  {{ include "helm.fullname" . }}-config-store
+            items:
+              {{- range $filePath, $fileContent := .Values.configStore.files }}
+              - key: {{ include "helm.filepathToConfigMapKey" $filePath }}
+                path: {{ $filePath }}
+              {{- end }}
+      {{- end }}
+      {{- if .Values.guardrailsExtProc.enabled }}
+        - name: extproc-config
+          configMap:
+            name: {{ include "helm.fullname" . }}-extproc-config
+            items:
+            - key: config.yaml
+              path: config.yaml
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

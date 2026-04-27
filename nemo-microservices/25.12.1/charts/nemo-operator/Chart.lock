@@ -1,0 +1,9 @@
+dependencies:
+- name: nemo-operator-crds
+  repository: file://charts/nemo-operator-crds
+  version: 0.1.2
+- name: nemo-common
+  repository: file://../../../library/
+  version: 0.2.0
+digest: sha256:01257c6dad9670a84872eca6b6b6be98f07bee90175afebd060157418fe8de5e
+generated: "2025-12-16T16:20:13.435461073Z"

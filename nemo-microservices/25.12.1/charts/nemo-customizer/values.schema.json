@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Values",
+  "type": "object",
+  "properties": {
+    "wandb": {
+      "description": "Configures how WandB behaves",
+      "type": "object",
+      "properties": {
+        "secretValue": {
+          "type": ["string", "null"],
+          "pattern": "^(|[a-zA-Z0-9]{32})$"
+        }
+      },
+      "required": []
+    },
+    "customizerConfig": {
+      "description": "Configures how Customizer behaves",
+      "type": "object",
+      "properties": {
+        "training": {
+          "type": "object",
+          "properties": {
+            "training_timeout": {
+              "description": "The timeout in seconds for training.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        },
+        "openTelemetry": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "tracesExporter": {
+              "type": "string",
+              "enum": ["otlp", "console", "none"]
+            },
+            "metricsExporter": {
+              "type": "string",
+              "enum": ["otlp", "console", "none"]
+            },
+            "logsExporter": {
+              "type": "string",
+              "enum": ["otlp", "console", "none"]
+            },
+            "exporterOtlpEndpoint": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "customizationTargets": {
+      "type": "object",
+      "properties": {
+        "overrideExistingTargets": {
+          "type": "boolean"
+        },
+        "targets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "namespace": { "type": "string" },
+              "version": { "type": "string" },
+              "enabled": { "type": "boolean" },
+              "model_uri": { "type": "string" },
+              "model_path": { "type": "string" },
+              "base_model": { "type": "string" },
+              "num_parameters": { "type": "integer" },
+              "precision": { "type": "string" }
+            },
+            "required": [
+              "name",
+              "namespace",
+              "enabled",
+              "model_uri",
+              "base_model",
+              "num_parameters",
+              "precision"
+            ]
+          }
+        }
+      }
+    },
+    "customizationConfigTemplates": {
+      "type": "object",
+      "properties": {
+        "overrideExistingTemplates": {
+          "type": "boolean"
+        },
+        "templates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "namespace": { "type": "string" },
+              "target": { "type": "string" },
+              "training_options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "training_type": { "type": "string" },
+                    "finetuning_type": { "type": "string" },
+                    "num_gpus": { "type": "integer" },
+                    "num_nodes": { "type": "integer" },
+                    "tensor_parallel_size": { "type": "integer" },
+                    "micro_batch_size": { "type": "integer" }
+                  },
+                  "required": [
+                    "training_type",
+                    "finetuning_type",
+                    "num_gpus",
+                    "micro_batch_size"
+                  ]
+                }
+              },
+              "max_seq_length": { "type": "integer" },
+              "prompt_template": { "type": "string" }
+            },
+            "required": [
+              "name",
+              "namespace",
+              "target",
+              "training_options",
+              "max_seq_length"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

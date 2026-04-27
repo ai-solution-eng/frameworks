@@ -1,0 +1,94 @@
+# -- Namespace to restrict the NeMo Operator microservice to watch resources in. Leave it empty to watch all namespaces.
+restrictedNamespace: ""
+
+# -- Additional environment variables to pass to controller manager. The format is `NAME: value` or `NAME: valueFrom: {object}`.
+env:
+  {}
+
+controllerManager:
+  serviceAccount:
+    # -- Annotations to add to the service account.
+    annotations: {}
+  kubeRbacProxy:
+    # -- Arguments to pass to the `kube-rbac-proxy` container.
+    args:
+    - --secure-listen-address=0.0.0.0:8443
+    - --upstream=http://127.0.0.1:8080/
+    - --logtostderr=true
+    - --v=0
+    containerSecurityContext:
+      # -- Whether to allow container privilege escalation.
+      allowPrivilegeEscalation: false
+      capabilities:
+        # -- List of capabilities to drop.
+        drop:
+        - ALL
+    image:
+      # -- The repository for the `kube-rbac-proxy` image.
+      repository: gcr.io/kubebuilder/kube-rbac-proxy
+      # -- The tag for the `kube-rbac-proxy` image.
+      tag: v0.15.0
+    resources:
+      limits:
+        # -- The CPU limit for the `kube-rbac-proxy` container.
+        cpu: 500m
+        # -- The memory limit for the `kube-rbac-proxy` container.
+        memory: 128Mi
+      requests:
+        # -- The CPU request for the `kube-rbac-proxy` container.
+        cpu: 5m
+        # -- The memory request for the `kube-rbac-proxy` container.
+        memory: 64Mi
+  manager:
+    # -- The scheduler to use for the controller manager.
+    scheduler: volcano
+    # -- Arguments to pass to the manager container.
+    args:
+    - --health-probe-bind-address=:8081
+    - --metrics-bind-address=127.0.0.1:8080
+    - --leader-elect
+    - --leader-election-id=nemo.nko.nvidia.com
+    containerSecurityContext:
+      # -- Whether to allow container privilege escalation.
+      allowPrivilegeEscalation: false
+      capabilities:
+        # -- List of capabilities to drop.
+        drop:
+        - ALL
+    image:
+      # -- The repository for the NeMo Operator microservice image.
+      repository: nvcr.io/nvidia/nemo-microservices/nemo-operator
+      # -- The tag for the NeMo Operator microservice image. The default value is `appVersion` from the `Chart.yaml` file.
+      tag: ""
+    resources:
+      limits:
+        # -- The CPU limit for the operator manager container.
+        cpu: 1024m
+        # -- The memory limit for the operator manager container.
+        memory: 2Gi
+      requests:
+        # -- The CPU request for the operator manager container.
+        cpu: 512m
+        # -- The memory request for the operator manager container.
+        memory: 1Gi
+  # -- The number of operator replicas to run.
+  replicas: 1
+
+# -- (list) Image pull secrets for accessing the NGC container registry.
+imagePullSecrets:
+  - name: nvcrimagepullsecret
+# -- The Kubernetes cluster domain.
+kubernetesClusterDomain: cluster.local
+
+metricsService:
+  # -- Whether to enable the metrics service for the NeMo Operator microservice. If you enable it, the microservice exposes a metrics endpoint for Prometheus.
+  # Before installing this chart, you should have Prometheus installed in your environment.
+  enabled: true
+  # -- The metrics service ports configuration.
+  ports:
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: https
+  # -- The type of the metrics service.
+  type: ClusterIP

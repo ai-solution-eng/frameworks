@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nemo-auditor.fullname" . }}
+  labels:
+    {{- include "nemo-auditor.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "nemo-auditor.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "nemo-auditor.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      imagePullSecrets:
+        {{ include "nemo-common.imagepullsecrets" . | nindent 8 | trim }}
+      serviceAccountName: {{ include "nemo-auditor.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "nemo-common.mainimage" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: NEMO_MICROSERVICES_AUDITOR_JOB_IMAGE
+              value: {{ include "nemo-common.mainimage" . | quote }}
+            {{- if or .Values.postgresql.enabled .Values.externalDatabase.host .Values.externalDatabase.uriSecret.name }}
+            {{ include "nemo-common.postgresql.password" . | nindent 12 | trim }}
+            - name: POSTGRES_URI
+              {{ include "nemo-common.postgresql.uri" . | nindent 14 | trim }}
+            {{- end }}
+            {{- if .Values.auditorApiKeysSecretName }}
+            - name: NIM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auditorApiKeysSecretName }}
+                  key: NIM_API_KEY
+                  optional: true
+            - name: REST_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auditorApiKeysSecretName }}
+                  key: REST_API_KEY
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auditorApiKeysSecretName }}
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: OPENAICOMPATIBLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auditorApiKeysSecretName }}
+                  key: OPENAICOMPATIBLE_API_KEY
+                  optional: true
+            {{- end }}
+            {{ include "nemo-common.env" . | nindent 12 | trim }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath:  /etc/nmp/config.yaml
+              subPath: config.yaml
+          {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "nemo-common.platform-configmap-name" . }}
+      {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

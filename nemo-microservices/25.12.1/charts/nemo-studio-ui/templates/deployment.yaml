@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nemo-studio-ui.fullname" . }}
+  labels:
+    {{- include "nemo-studio-ui.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "nemo-studio-ui.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "nemo-studio-ui.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      imagePullSecrets:
+        {{ include "nemo-common.imagepullsecrets" . | nindent 8 | trim }}
+      serviceAccountName: {{ include "nemo-studio-ui.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "nemo-common.mainimage" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: VITE_APP_ENV
+              value: prd
+            - name: VITE_BASE_URL
+              value: {{ .Values.baseRoute | quote }}
+            - name: VITE_PLATFORM_BASE_URL
+              value: {{ .Values.platformBaseUrl | quote }}
+            - name: VITE_NIM_PROXY_MICROSERVICE_INTERNAL_URL
+              value: {{ .Values.nimProxyInternalUrl | quote }}
+            - name: VITE_NIM_PROXY_MICROSERVICE_URL
+              value: {{ .Values.nimProxyUrl | quote }}
+            - name: VITE_DATA_STORE_MICROSERVICE_URL
+              value: {{ .Values.dataStoreUrl | quote }}
+            {{- if .Values.customizerUrl }}
+            - name: VITE_CUSTOMIZER_MICROSERVICE_URL
+              value: {{ .Values.customizerUrl | quote }}
+            {{- end }}
+            {{- if .Values.evaluatorUrl }}
+            - name: VITE_EVALUATOR_MICROSERVICE_URL
+              value: {{ .Values.evaluatorUrl | quote }}
+            {{- end }}
+            {{- if .Values.entityStoreUrl }}
+            - name: VITE_ENTITY_STORE_MICROSERVICE_URL
+              value: {{ .Values.entityStoreUrl | quote }}
+            {{- end }}
+            - name: VITE_TELEMETRY_ENABLED
+              value: {{ .Values.openTelemetry.enabled | quote }}
+            {{- if .Values.openTelemetry.enabled }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.openTelemetry.serviceName | quote }}
+            - name: VITE_OTEL_SERVICE_NAME
+              value: {{ .Values.openTelemetry.serviceName | quote }}
+            - name: VITE_OTEL_PROXY_URL
+              value: {{ .Values.openTelemetry.proxyURL | quote }}
+            - name: VITE_OTEL_COLLECTOR_URL
+              value: {{ .Values.openTelemetry.collectorURL | quote }}
+            {{- end }}
+            {{ include "nemo-common.env" . | nindent 12 | trim }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

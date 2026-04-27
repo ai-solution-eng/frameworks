@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nemo-core.persistentVolumeClaim" . }}
+  labels:
+    {{- include "nemo-core.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.config.jobs.storage.existingPersistentVolumeName }}
+  volumeName: {{ .Values.config.jobs.storage.existingPersistentVolumeName }}
+  {{- else if .Values.config.jobs.storage.storageClass }}
+  storageClassName: {{ .Values.config.jobs.storage.storageClass }}
+  {{- end }}
+  {{- with .Values.config.jobs.storage.accessModes }}
+  accessModes:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.config.jobs.storage.size }}

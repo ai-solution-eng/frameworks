@@ -1,0 +1,119 @@
+# Default values for nemo-studio-ui.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+# -- Specifies a base url or path (e.g. studio for https://domain.com/studio)
+baseRoute: studio
+# -- The base url for platform endpoints
+platformBaseUrl: http://nemo.test:3000
+# -- The internal URL of the NeMo NIM Proxy microservice.
+nimProxyInternalUrl: http://nemo-nim-proxy:8000
+# -- The external URL of the NeMo NIM Proxy microservice.
+nimProxyUrl: http://nim.test:3000
+# -- The external URL of the NeMo Data Store microservice.
+dataStoreUrl: http://data-store.test:3000
+# -- The external URL of the NeMo Customizer microservice (if different from the platform base url).
+customizerUrl: ""
+# -- The external URL of the NeMo Evaluator microservice (if different from the platform base url).
+evaluatorUrl: ""
+# -- The external URL of the NeMo Entity Store microservice (if different from the platform base url).
+entityStoreUrl: ""
+# -- OpenTelemetry environment configuration variables for the Studio UI
+openTelemetry:
+  enabled: false
+  serviceName: nemo-studio-ui
+  proxyURL: ""
+  collectorURL: ""
+
+# Environment variables to pass to containers. This is an object formatted like NAME: value or NAME: valueFrom: {object}
+env: {}
+
+image:
+  repository: nvcr.io/nvidian/nemo-llm/nemo-studio-ui
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext:
+  # capabilities:
+  #   drop:
+  #   - ALL
+  readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 3000
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# This enables doing a runtime replacement of env variables for Vite.
+volumes:
+  - name: html
+    emptyDir: {}
+  - name: run
+    emptyDir: {}
+  - name: temp
+    emptyDir: {}
+volumeMounts:
+  - name: html
+    mountPath: /usr/share/nginx/html
+  - name: run
+    mountPath: /var/run
+  - name: temp
+    mountPath: /tmp
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

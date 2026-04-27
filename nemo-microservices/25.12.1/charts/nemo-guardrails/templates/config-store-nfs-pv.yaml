@@ -1,0 +1,16 @@
+{{- if .Values.configStore.nfs.enabled }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: config-store-nfs-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadOnlyMany
+  nfs:
+    path: {{ .Values.configStore.nfs.path }}
+    server: {{ .Values.configStore.nfs.server }}
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: {{ .Values.configStore.nfs.storageClass }}
+{{- end }}

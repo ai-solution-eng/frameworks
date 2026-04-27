@@ -1,0 +1,57 @@
+operator:
+  replicas: 1
+  upgradeCRD: true
+  image:
+    repository: nvcr.io/nvidia/cloud-native/k8s-nim-operator
+    tag: v2.0.2
+    pullSecrets: []
+    pullPolicy: Always
+  args:
+    - --health-probe-bind-address=:8081
+    - --metrics-bind-address=:8080
+    - --leader-elect
+  resources:
+      limits:
+        cpu: "1"
+        memory: 256Mi
+      requests:
+        cpu: 500m
+        memory: 128Mi
+  nodeSelector: {}
+  annotations: {}
+  podAnnotations: {}
+  tolerations:
+  - key: "node-role.kubernetes.io/control-plane"
+    operator: "Equal"
+    value: ""
+    effect: "NoSchedule"
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 1
+          preference:
+            matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: In
+                values: [""]
+  podSecurityContext:
+    seccompProfile:
+      # Required for VMWare TKGS platform
+      type: RuntimeDefault
+    runAsNonRoot: true
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+metricsService:
+  ports:
+  - name: metrics
+    port: 8080
+    protocol: TCP
+  type: ClusterIP
+
+nfd:
+  nodeFeatureRules:
+    deviceID: false

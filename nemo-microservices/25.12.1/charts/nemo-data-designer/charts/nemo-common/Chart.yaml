@@ -1,0 +1,10 @@
+apiVersion: v2
+appVersion: latest
+description: Library chart for common elements across NeMo Microservices helm charts
+keywords:
+- library
+- common
+kubeVersion: '>=v1.23.0-0'
+name: nemo-common
+type: library
+version: 0.2.0

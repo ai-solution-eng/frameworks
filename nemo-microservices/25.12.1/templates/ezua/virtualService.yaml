@@ -1,0 +1,144 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ printf "%s-%s-virtual-service" .Release.Name .Chart.Name }}
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway | required ".Values.ezua.virtualService.istioGateway is required !\n" }}
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint | required ".Values.ezua.virtualService.endpoint is required !\n" }}
+  http:
+    # Studio UI
+    - match:
+        - uri:
+            prefix: /studio
+      route:
+        - destination:
+            host: nemo-studio.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 3000
+    # Entity Store (namespaces, projects, models, datasets)
+    - match:
+        - uri:
+            prefix: /v1/namespaces
+      route:
+        - destination:
+            host: nemo-entity-store.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8000
+    - match:
+        - uri:
+            prefix: /v1/projects
+      route:
+        - destination:
+            host: nemo-entity-store.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8000
+    - match:
+        - uri:
+            prefix: /v1/datasets
+      route:
+        - destination:
+            host: nemo-entity-store.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8000
+    - match:
+        - uri:
+            prefix: /v1/models
+      route:
+        - destination:
+            host: nemo-entity-store.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8000
+    # NOTE: After deploying a NIMService, add these routes manually via kubectl:
+    # /v1/models/nim (rewrite to /v1/models) → <nim-service>:8000
+    # /v1/chat → <nim-service>:8000
+    # /v1/completions → <nim-service>:8000
+    # See troubleshoot_deployment.md for the full VirtualService with NIM routes.
+    # Data Store
+    - match:
+        - uri:
+            prefix: /v1/datastore
+      route:
+        - destination:
+            host: nemo-data-store.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 3000
+    - match:
+        - uri:
+            prefix: /v1/hf
+      route:
+        - destination:
+            host: nemo-data-store.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 3000
+    # Data Store — Git LFS paths (used by huggingface_hub upload)
+    - match:
+        - uri:
+            regex: "/.+\\.git/.*"
+      route:
+        - destination:
+            host: nemo-data-store.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 3000
+    - match:
+        - uri:
+            prefix: /v1/customization
+      route:
+        - destination:
+            host: nemo-customizer.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8000
+    # Evaluator
+    - match:
+        - uri:
+            prefix: /v1/evaluation
+      route:
+        - destination:
+            host: nemo-evaluator.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 7331
+    # Guardrails
+    - match:
+        - uri:
+            prefix: /v1/guardrail
+      route:
+        - destination:
+            host: nemo-guardrails.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 7331
+    # Deployment Management
+    - match:
+        - uri:
+            prefix: /v1/deployment
+      route:
+        - destination:
+            host: nemo-deployment-management.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8000
+    # Core API (jobs, v2 endpoints)
+    - match:
+        - uri:
+            prefix: /v1/jobs
+      route:
+        - destination:
+            host: nemo-core-api.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8000
+    - match:
+        - uri:
+            prefix: /v2/
+      route:
+        - destination:
+            host: nemo-core-api.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8000
+    # NIM Proxy (inference — catch-all)
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: nemo-nim-proxy.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8000
