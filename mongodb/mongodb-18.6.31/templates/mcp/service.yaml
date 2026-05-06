@@ -1,0 +1,68 @@
+{{- /*
+Copyright Broadcom, Inc. All Rights Reserved.
+SPDX-License-Identifier: APACHE-2.0
+*/}}
+
+{{- if .Values.mcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mongodb.mcp.fullname" . }}
+  namespace: {{ include "mongodb.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: mcp
+  {{- if .Values.mcp.service.annotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.mcp.service.annotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.mcp.service.type }}
+  {{- if and .Values.mcp.service.clusterIP (eq .Values.mcp.service.type "ClusterIP") }}
+  clusterIP: {{ .Values.mcp.service.clusterIP }}
+  {{- end }}
+  {{- if ne .Values.mcp.service.type "ClusterIP" }}
+  externalTrafficPolicy: {{ .Values.mcp.service.externalTrafficPolicy | quote }}
+  {{- end }}
+  {{- if and (eq .Values.mcp.service.type "LoadBalancer") (not (empty .Values.mcp.service.loadBalancerSourceRanges)) }}
+  loadBalancerSourceRanges: {{ .Values.mcp.service.loadBalancerSourceRanges }}
+  {{- end }}
+  {{- if and (eq .Values.mcp.service.type "LoadBalancer") (not (empty .Values.mcp.service.loadBalancerIP)) }}
+  loadBalancerIP: {{ .Values.mcp.service.loadBalancerIP }}
+  {{- end }}
+  {{- if and (eq .Values.mcp.service.type "LoadBalancer") (not (empty .Values.mcp.service.loadBalancerClass)) }}
+  loadBalancerClass: {{ .Values.mcp.service.loadBalancerClass }}
+  {{- end }}
+  {{- if ne .Values.mcp.service.sessionAffinity "None" }}
+  sessionAffinity: {{ .Values.mcp.service.sessionAffinity }}
+  {{- if .Values.mcp.service.sessionAffinityConfig }}
+  sessionAffinityConfig: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.service.sessionAffinityConfig "context" .) | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  ports:
+    {{- if .Values.mcp.auth.enabled }}
+    - name: https
+      port: {{ .Values.mcp.service.ports.https }}
+      protocol: TCP
+      targetPort: https
+      {{- if and (or (eq .Values.mcp.service.type "NodePort") (eq .Values.mcp.service.type "LoadBalancer")) (not (empty .Values.mcp.service.nodePorts.https)) }}
+      nodePort: {{ .Values.mcp.service.nodePorts.https }}
+      {{- else if eq .Values.mcp.service.type "ClusterIP" }}
+      nodePort: null
+      {{- end }}
+    {{- else }}
+    - name: http
+      port: {{ .Values.mcp.service.ports.http }}
+      protocol: TCP
+      targetPort: http
+      {{- if and (or (eq .Values.mcp.service.type "NodePort") (eq .Values.mcp.service.type "LoadBalancer")) (not (empty .Values.mcp.service.nodePorts.http)) }}
+      nodePort: {{ .Values.mcp.service.nodePorts.http }}
+      {{- else if eq .Values.mcp.service.type "ClusterIP" }}
+      nodePort: null
+      {{- end }}
+    {{- end }}
+    {{- if .Values.mcp.service.extraPorts }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.mcp.service.extraPorts "context" $) | nindent 4 }}
+    {{- end }}
+  {{- $podLabels := include "common.tplvalues.merge" ( dict "values" ( list .Values.mcp.podLabels .Values.commonLabels) "context" . ) }}
+  selector: {{- include "common.labels.matchLabels" ( dict "customLabels" $podLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: mcp
+{{- end }}

@@ -1,0 +1,62 @@
+{{- /*
+Copyright Broadcom, Inc. All Rights Reserved.
+SPDX-License-Identifier: APACHE-2.0
+*/}}
+
+{{- if and .Values.mcp.enabled .Values.mcp.ingress.enabled -}}
+apiVersion: {{ include "common.capabilities.ingress.apiVersion" . }}
+kind: Ingress
+metadata:
+  name: {{ include "mongodb.mcp.fullname" . }}
+  namespace: {{ include "mongodb.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: mcp
+  annotations:
+    {{- if .Values.mcp.ingress.certManager }}
+    kubernetes.io/tls-acme: "true"
+    {{- end }}
+    {{- if or .Values.mcp.ingress.annotations .Values.commonAnnotations }}
+    {{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.mcp.ingress.annotations .Values.commonAnnotations ) "context" . ) }}
+    {{- include "common.tplvalues.render" ( dict "value" $annotations "context" $) | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.mcp.ingress.ingressClassName }}
+  ingressClassName: {{ .Values.mcp.ingress.ingressClassName | quote }}
+  {{- end }}
+  rules:
+    {{- if .Values.mcp.ingress.hostname }}
+    - http:
+        paths:
+          {{- if .Values.mcp.ingress.extraPaths }}
+          {{- toYaml .Values.mcp.ingress.extraPaths | nindent 10 }}
+          {{- end }}
+          - path: {{ .Values.mcp.ingress.path }}
+            pathType: {{ .Values.mcp.ingress.pathType }}
+            backend: {{- include "common.ingress.backend" (dict "serviceName" (include "mongodb.mcp.fullname" .) "servicePort" (ternary "https" "http" .Values.mcp.auth.enabled) "context" $)  | nindent 14 }}
+      {{- if ne .Values.mcp.ingress.hostname "*" }}
+      host: {{ include "common.tplvalues.render" (dict "value" .Values.mcp.ingress.hostname "context" $) }}
+      {{- end }}
+    {{- end }}
+    {{- range .Values.mcp.ingress.extraHosts }}
+    - host: {{ .name | quote }}
+      http:
+        paths:
+          - path: {{ default "/" .path }}
+            pathType: {{ default "ImplementationSpecific" .pathType }}
+            backend: {{- include "common.ingress.backend" (dict "serviceName" (include "mongodb.mcp.fullname" $) "servicePort" (ternary "https" "http" $.Values.mcp.auth.enabled) "context" $)  | nindent 14 }}
+    {{- end }}
+    {{- if .Values.mcp.ingress.extraRules }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.mcp.ingress.extraRules "context" $) | nindent 4 }}
+    {{- end }}
+  {{- if or (and .Values.mcp.ingress.tls (or (include "common.ingress.certManagerRequest" ( dict "annotations" .Values.mcp.ingress.annotations )) .Values.mcp.ingress.selfSigned)) .Values.mcp.ingress.extraTls }}
+  tls:
+    {{- if and .Values.mcp.ingress.tls (or (include "common.ingress.certManagerRequest" ( dict "annotations" .Values.mcp.ingress.annotations )) .Values.mcp.ingress.selfSigned) }}
+    - hosts:
+        - {{ .Values.mcp.ingress.hostname | quote }}
+      secretName: {{ printf "%s-tls" .Values.mcp.ingress.hostname }}
+    {{- end }}
+    {{- if .Values.mcp.ingress.extraTls }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.mcp.ingress.extraTls "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- end }}

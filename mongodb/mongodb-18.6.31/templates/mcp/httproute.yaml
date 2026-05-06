@@ -1,0 +1,71 @@
+{{- /*
+Copyright Broadcom, Inc. All Rights Reserved.
+SPDX-License-Identifier: APACHE-2.0
+*/}}
+
+{{- if and .Values.mcp.enabled .Values.mcp.httpRoute.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "mongodb.mcp.fullname" . }}
+  namespace: {{ include "mongodb.namespace" . | quote }}
+  {{- $labels := include "common.tplvalues.merge" (dict "values" (list .Values.mcp.httpRoute.labels .Values.commonLabels) "context" .) }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" $labels "context" .) | nindent 4 }}
+    app.kubernetes.io/component: mcp
+  {{- if or .Values.mcp.httpRoute.annotations .Values.commonAnnotations }}
+  {{- $annotations := include "common.tplvalues.merge" (dict "values" (list .Values.mcp.httpRoute.annotations .Values.commonAnnotations) "context" .) }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" $annotations "context" .) | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+  {{- if .Values.mcp.httpRoute.parentRefs }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.mcp.httpRoute.parentRefs "context" .) | nindent 4 }}
+  {{- else }}
+    - name: gateway
+      namespace: {{ include "mongodb.namespace" . | quote }}
+  {{- end }}
+  hostnames: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.httpRoute.hostnames "context" .) | nindent 4 }}
+  rules:
+    - backendRefs:
+        - name: {{ include "mongodb.mcp.fullname" . }}
+          port: {{ ternary .Values.mcp.service.ports.https .Values.mcp.service.ports.http .Values.mcp.auth.enabled }}
+          weight: 1
+      {{- if .Values.mcp.httpRoute.matches }}
+      matches: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.httpRoute.matches "context" .) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcp.httpRoute.filters }}
+      filters: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.httpRoute.filters "context" .) | nindent 8 }}
+      {{- end }}
+  {{- if .Values.mcp.httpRoute.extraRules }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.mcp.httpRoute.extraRules "context" .) | nindent 4 }}
+  {{- end }}
+---
+{{- if and .Values.mcp.auth.enabled .Values.mcp.backendTLSPolicy.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: {{ include "mongodb.mcp.fullname" . }}
+  namespace: {{ include "mongodb.namespace" . | quote }}
+  {{- $labels := include "common.tplvalues.merge" (dict "values" (list .Values.mcp.backendTLSPolicy.labels .Values.commonLabels) "context" .) }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" $labels "context" .) | nindent 4 }}
+    app.kubernetes.io/component: mcp
+  {{- if or .Values.mcp.backendTLSPolicy.annotations .Values.commonAnnotations }}
+  {{- $annotations := include "common.tplvalues.merge" (dict "values" (list .Values.mcp.backendTLSPolicy.annotations .Values.commonAnnotations) "context" .) }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" $annotations "context" .) | nindent 4 }}
+  {{- end }}
+spec:
+  targetRefs:
+    - kind: Service
+      name: {{ include "mongodb.mcp.fullname" . }}
+      group: ""
+  validation:
+    hostname: {{ default (printf "%s.%s.svc.%s" (include "mongodb.mcp.fullname" .) (include "mongodb.namespace" .) (default "cluster.local" .Values.clusterDomain)) .Values.mcp.backendTLSPolicy.hostname }}
+    {{- if .Values.mcp.backendTLSPolicy.subjectAltNames }}
+    subjectAltNames: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.backendTLSPolicy.subjectAltNames "context" .) | nindent 6 }}
+    {{- end }}
+    caCertificateRefs:
+      - name: {{ include "mongodb.mcp.auth.tls.secretName" . }}
+        kind: Secret
+        group: ""
+{{- end }}
+{{- end }}

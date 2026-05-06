@@ -1,0 +1,51 @@
+annotations:
+  fips: "true"
+  images: |
+    - name: kube-rbac-proxy
+      version: 0.21.2
+      image: registry-1.docker.io/bitnami/kube-rbac-proxy:latest
+    - name: kubectl
+      version: 1.36.0
+      image: registry-1.docker.io/bitnami/kubectl:latest
+    - name: mcp-mongodb
+      version: 1.10.0
+      image: registry-1.docker.io/bitnami/mcp-mongodb:latest
+    - name: mongodb
+      version: 8.2.7
+      image: registry-1.docker.io/bitnami/mongodb:latest
+    - name: mongodb-exporter
+      version: 0.50.0
+      image: registry-1.docker.io/bitnami/mongodb-exporter:latest
+    - name: nginx
+      version: 1.30.0
+      image: registry-1.docker.io/bitnami/nginx:latest
+    - name: os-shell
+      version: "5"
+      image: registry-1.docker.io/bitnami/os-shell:latest
+  licenses: Apache-2.0
+  tanzuCategory: service
+apiVersion: v2
+appVersion: 8.2.7
+dependencies:
+- name: common
+  repository: oci://registry-1.docker.io/bitnamicharts
+  tags:
+  - bitnami-common
+  version: 2.38.0
+description: "MongoDB(R) is a relational open source NoSQL database. Easy to use, it stores data in JSON-like documents. Automated scalability and high-performance. Ideal for developing cloud native applications."
+home: https://bitnami.com
+icon: https://dyltqmyl993wv.cloudfront.net/assets/stacks/mongodb/img/mongodb-stack-220x234.png
+keywords:
+- mongodb
+- database
+- nosql
+- cluster
+- replicaset
+- replication
+maintainers:
+- name: "Broadcom, Inc. All Rights Reserved."
+  url: https://github.com/bitnami/charts
+name: mongodb
+sources:
+- https://github.com/bitnami/charts/tree/main/bitnami/mongodb
+version: 18.6.31
