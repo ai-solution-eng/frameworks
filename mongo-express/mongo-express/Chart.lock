@@ -1,0 +1,9 @@
+dependencies:
+- name: common
+  repository: oci://ghcr.io/cowboysysop/charts
+  version: 2.31.3
+- name: mongodb
+  repository: oci://ghcr.io/cowboysysop/charts
+  version: 15.1.5
+digest: sha256:7018ab5d17b17034488a4d803d07298568ff70fbb2dd93220cb273376ffd3c0b
+generated: "2025-08-04T11:48:58.16004303Z"

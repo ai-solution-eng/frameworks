@@ -1,0 +1,302 @@
+{{- /*
+Copyright Broadcom, Inc. All Rights Reserved.
+SPDX-License-Identifier: APACHE-2.0
+*/}}
+
+{{- if .Values.mcp.enabled }}
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ include "mongodb.mcp.fullname" . }}
+  namespace: {{ include "mongodb.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: mcp
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.mcp.autoscaling.hpa.enabled }}
+  replicas: {{ .Values.mcp.replicaCount }}
+  {{- end }}
+  {{- if .Values.mcp.updateStrategy }}
+  strategy: {{- toYaml .Values.mcp.updateStrategy | nindent 4 }}
+  {{- end }}
+  {{- $podLabels := include "common.tplvalues.merge" ( dict "values" ( list .Values.mcp.podLabels .Values.commonLabels) "context" . ) }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" ( dict "customLabels" $podLabels "context" $ ) | nindent 6 }}
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      {{- $podAnnotations := include "common.tplvalues.merge" (dict "values" (list .Values.mcp.podAnnotations .Values.commonAnnotations) "context" .) }}
+      {{- if or .Values.mcp.podAnnotations .Values.commonAnnotations }}
+      annotations: {{- include "common.tplvalues.render" (dict "value" $podAnnotations "context" $) | nindent 8 }}
+      {{- end }}
+      {{- $podLabels := include "common.tplvalues.merge" (dict "values" (list .Values.mcp.podLabels .Values.commonLabels) "context" .) }}
+      labels: {{- include "common.labels.standard" ( dict "customLabels" $podLabels "context" $ ) | nindent 8 }}
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: {{ include "mongodb.mcp.serviceAccountName" . }}
+      {{- include "mongodb.mcp.imagePullSecrets" . | nindent 6 }}
+      automountServiceAccountToken: {{ .Values.mcp.automountServiceAccountToken }}
+      {{- if .Values.mcp.hostAliases }}
+      hostAliases: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.hostAliases "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcp.affinity }}
+      affinity: {{- include "common.tplvalues.render" ( dict "value" .Values.mcp.affinity "context" $) | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAffinity: {{- include "common.affinities.pods" (dict "type" .Values.mcp.podAffinityPreset "component" "mcp" "customLabels" $podLabels "context" $) | nindent 10 }}
+        podAntiAffinity: {{- include "common.affinities.pods" (dict "type" .Values.mcp.podAntiAffinityPreset "component" "mcp" "customLabels" $podLabels "context" $) | nindent 10 }}
+        nodeAffinity: {{- include "common.affinities.nodes" (dict "type" .Values.mcp.nodeAffinityPreset.type "key" .Values.mcp.nodeAffinityPreset.key "values" .Values.mcp.nodeAffinityPreset.values) | nindent 10 }}
+      {{- end }}
+      {{- if .Values.mcp.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" ( dict "value" .Values.mcp.nodeSelector "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcp.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.tolerations "context" .) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcp.priorityClassName }}
+      priorityClassName: {{ .Values.mcp.priorityClassName | quote }}
+      {{- end }}
+      {{- if .Values.mcp.schedulerName }}
+      schedulerName: {{ .Values.mcp.schedulerName | quote }}
+      {{- end }}
+      {{- if .Values.mcp.runtimeClassName }}
+      runtimeClassName: {{ .Values.mcp.runtimeClassName | quote }}
+      {{- end }}
+      {{- if .Values.mcp.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.topologySpreadConstraints "context" .) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcp.podSecurityContext.enabled }}
+      securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.mcp.podSecurityContext "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcp.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ .Values.mcp.terminationGracePeriodSeconds }}
+      {{- end }}
+      {{- if .Values.mcp.initContainers }}
+      initContainers:
+        {{- include "common.tplvalues.render" (dict "value" .Values.mcp.initContainers "context" $) | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mcp-mongodb
+          image: {{ template "mongodb.mcp.image" . }}
+          imagePullPolicy: {{ .Values.mcp.image.pullPolicy }}
+          {{- if .Values.mcp.containerSecurityContext.enabled }}
+          securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.mcp.containerSecurityContext "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if .Values.mcp.command }}
+          command: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.command "context" $) | nindent 12 }}
+          {{- else }}
+          command:
+            - /bin/bash
+          {{- end }}
+          {{- if .Values.mcp.args }}
+          args: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.args "context" $) | nindent 12 }}
+          {{- else }}
+          args:
+            - -ec
+            - |
+              {{- if and .Values.mcp.useRootCredentials .Values.usePasswordFiles }}
+              # Read credentials
+              export MONGODB_USERNAME="{{ .Values.auth.rootUser }}"
+              export MONGODB_PASSWORD="$(< /bitnami/mongodb/secrets/mongodb-root-password)"
+              export MONGODB_DATABASE="admin"
+              {{- end }}
+              
+              # MongoDB connection details
+              MONGODB_HOST="{{ include "mongodb.service.nameOverride" . }}.{{ include "mongodb.namespace" . }}.svc.{{ .Values.clusterDomain }}:{{ int .Values.service.ports.mongodb }}"
+              
+              # Execute MCP MongoDB server
+              exec mongodb-mcp-server \
+                --connectionString "mongodb://${MONGODB_USERNAME}:${MONGODB_PASSWORD}@${MONGODB_HOST}/${MONGODB_DATABASE}" \
+                --transport http \
+                --httpHost 0.0.0.0 \
+                --httpPort {{ .Values.mcp.containerPorts.http }} \
+                --loggers stderr \
+                {{- if .Values.mcp.readOnly }}
+                --readOnly \
+                {{- end }}
+                {{- if .Values.mcp.extraArgs }}
+                {{- range .Values.mcp.extraArgs }}
+                {{ . }} \
+                {{- end }}
+                {{- end }}
+          {{- end }}
+          env:
+            {{- if and .Values.mcp.useRootCredentials (not .Values.usePasswordFiles) }}
+            - name: MONGODB_USERNAME
+              value: {{ .Values.auth.rootUser | quote }}
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mongodb.secretName" . }}
+                  key: mongodb-root-password
+            - name: MONGODB_DATABASE
+              value: "admin"
+            {{- end }}
+            {{- if include "common.fips.enabled" . }}
+            - name: OPENSSL_FIPS
+              value: {{ include "common.fips.config" (dict "tech" "openssl" "fips" .Values.mcp.fips "global" .Values.global) | quote }}
+            {{- end }}
+            {{- if .Values.mcp.extraEnvVars }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.mcp.extraEnvVars "context" $) | nindent 12 }}
+            {{- end }}
+          envFrom:
+            {{- if .Values.mcp.extraEnvVarsCM }}
+            - configMapRef:
+                name: {{ include "common.tplvalues.render" (dict "value" .Values.mcp.extraEnvVarsCM "context" $) }}
+            {{- end }}
+            {{- if .Values.mcp.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ include "common.tplvalues.render" (dict "value" .Values.mcp.extraEnvVarsSecret "context" $) }}
+            {{- end }}
+          {{- if .Values.mcp.resources }}
+          resources: {{- toYaml .Values.mcp.resources | nindent 12 }}
+          {{- else if ne .Values.mcp.resourcesPreset "none" }}
+          resources: {{- include "common.resources.preset" (dict "type" .Values.mcp.resourcesPreset) | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.mcp.containerPorts.http }}
+            {{- if .Values.mcp.extraContainerPorts }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.mcp.extraContainerPorts "context" $) | nindent 12 }}
+            {{- end }}
+          {{- if .Values.mcp.customLivenessProbe }}
+          livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.customLivenessProbe "context" $) | nindent 12 }}
+          {{- else if .Values.mcp.livenessProbe.enabled }}
+          livenessProbe: {{- include "common.tplvalues.render" (dict "value" (omit .Values.mcp.livenessProbe "enabled") "context" $) | nindent 12 }}
+            exec:
+              command:
+                - pgrep
+                - -f
+                - mongodb-mcp-server
+          {{- end }}
+          {{- if .Values.mcp.customReadinessProbe }}
+          readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.customReadinessProbe "context" $) | nindent 12 }}
+          {{- else if .Values.mcp.readinessProbe.enabled }}
+          readinessProbe: {{- include "common.tplvalues.render" (dict "value" (omit .Values.mcp.readinessProbe "enabled") "context" $) | nindent 12 }}
+            tcpSocket:
+              port: http
+          {{- end }}
+          {{- if .Values.mcp.customStartupProbe }}
+          startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.customStartupProbe "context" $) | nindent 12 }}
+          {{- else if .Values.mcp.startupProbe.enabled }}
+          startupProbe: {{- include "common.tplvalues.render" (dict "value" (omit .Values.mcp.startupProbe "enabled") "context" $) | nindent 12 }}
+            tcpSocket:
+              port: http
+          {{- end }}
+          {{- if .Values.mcp.lifecycleHooks }}
+          lifecycle: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.lifecycleHooks "context" $) | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: empty-dir
+              mountPath: /.mongodb
+              subPath: app-mongodb-dir
+            {{- if and .Values.mcp.useRootCredentials .Values.usePasswordFiles }}
+            - name: secrets
+              mountPath: /bitnami/mongodb/secrets
+              readOnly: true
+            {{- end }}
+            {{- if .Values.mcp.extraVolumeMounts }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.mcp.extraVolumeMounts "context" $) | nindent 12 }}
+            {{- end }}
+        {{- if .Values.mcp.auth.enabled }}
+        - name: kube-rbac-proxy
+          image: {{ template "mongodb.mcp.auth.image" . }}
+          imagePullPolicy: {{ .Values.mcp.auth.image.pullPolicy }}
+          {{- if .Values.mcp.auth.containerSecurityContext.enabled }}
+          securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.mcp.auth.containerSecurityContext "context" $) | nindent 12 }}
+          {{- end }}
+          args:
+            - --secure-listen-address=0.0.0.0:{{ .Values.mcp.auth.containerPorts.https }}
+            - --upstream=http://127.0.0.1:{{ .Values.mcp.containerPorts.http }}/
+            - --proxy-endpoints-port={{ .Values.mcp.auth.containerPorts.health }}
+            - --v=10
+            - --tls-cert-file=/certs/tls.crt
+            - --tls-private-key-file=/certs/tls.key
+            {{- if .Values.mcp.auth.extraArgs  }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.mcp.auth.extraArgs "context" $) | nindent 12 }}
+            {{- end }}
+          env:
+            {{- if include "common.fips.enabled" . }}
+            - name: OPENSSL_FIPS
+              value: {{ include "common.fips.config" (dict "tech" "openssl" "fips" .Values.mcp.auth.fips "global" .Values.global) | quote }}
+            - name: GODEBUG
+              value: {{ include "common.fips.config" (dict "tech" "golang" "fips" .Values.mcp.auth.fips "global" .Values.global) | quote }}
+            {{- end }}
+            {{- if .Values.mcp.auth.extraEnvVars }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.mcp.auth.extraEnvVars "context" $) | nindent 12 }}
+            {{- end }}
+          {{- if .Values.mcp.auth.resources }}
+          resources: {{- toYaml .Values.mcp.auth.resources | nindent 12 }}
+          {{- else if ne .Values.mcp.auth.resourcesPreset "none" }}
+          resources: {{- include "common.resources.preset" (dict "type" .Values.mcp.auth.resourcesPreset) | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.mcp.auth.containerPorts.https }}
+            - name: health
+              containerPort: {{ .Values.mcp.auth.containerPorts.health }}
+            {{- if .Values.mcp.auth.extraContainerPorts }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.mcp.auth.extraContainerPorts "context" $) | nindent 12 }}
+            {{- end }}
+          {{- if .Values.mcp.auth.customLivenessProbe }}
+          livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.auth.customLivenessProbe "context" $) | nindent 12 }}
+          {{- else if .Values.mcp.auth.livenessProbe.enabled }}
+          livenessProbe: {{- include "common.tplvalues.render" (dict "value" (omit .Values.mcp.auth.livenessProbe "enabled") "context" $) | nindent 12 }}
+            tcpSocket:
+              port: health
+          {{- end }}
+          {{- if .Values.mcp.auth.customReadinessProbe }}
+          readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.auth.customReadinessProbe "context" $) | nindent 12 }}
+          {{- else if .Values.mcp.auth.readinessProbe.enabled }}
+          readinessProbe: {{- include "common.tplvalues.render" (dict "value" (omit .Values.mcp.auth.readinessProbe "enabled") "context" $) | nindent 12 }}
+            httpGet:
+              path: /healthz
+              port: health
+              scheme: HTTPS
+          {{- end }}
+          {{- if .Values.mcp.auth.customStartupProbe }}
+          startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.mcp.auth.customStartupProbe "context" $) | nindent 12 }}
+          {{- else if .Values.mcp.auth.startupProbe.enabled }}
+          startupProbe: {{- include "common.tplvalues.render" (dict "value" (omit .Values.mcp.auth.startupProbe "enabled") "context" $) | nindent 12 }}
+            httpGet:
+              path: /healthz
+              port: health
+              scheme: HTTPS
+          {{- end }}
+          volumeMounts:
+            - name: certs
+              mountPath: /certs
+              readOnly: true
+            {{- if .Values.mcp.auth.extraVolumeMounts }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.mcp.auth.extraVolumeMounts "context" $) | nindent 12 }}
+            {{- end }}
+        {{- end }}
+        {{- if .Values.mcp.sidecars }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.mcp.sidecars "context" $) | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: empty-dir
+          emptyDir: {}
+        {{- if and .Values.mcp.useRootCredentials .Values.usePasswordFiles }}
+        - name: secrets
+          secret:
+            secretName: {{ include "mongodb.secretName" . }}
+            defaultMode: 256
+        {{- end }}
+        {{- if .Values.mcp.auth.enabled }}
+        - name: certs
+          secret:
+            secretName: {{ include "mongodb.mcp.auth.tls.secretName" . }}
+            defaultMode: 256
+            items:
+              - key: {{ ternary "tls.crt" .Values.mcp.auth.tls.certFilename .Values.mcp.auth.tls.autoGenerated.enabled }}
+                path: tls.crt
+              - key: {{ ternary "tls.key" .Values.mcp.auth.tls.keyFilename .Values.mcp.auth.tls.autoGenerated.enabled }}
+                path: tls.key
+        {{- end }}
+        {{- if .Values.mcp.extraVolumes }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.mcp.extraVolumes "context" $) | nindent 8 }}
+        {{- end }}
+{{- end }}

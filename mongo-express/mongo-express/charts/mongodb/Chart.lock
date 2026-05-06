@@ -1,0 +1,6 @@
+dependencies:
+- name: common
+  repository: oci://ghcr.io/cowboysysop/charts
+  version: 2.31.3
+digest: sha256:cb4a4fc9c475a6d7ffe5f08d5f3465d2b4b73b611793657624f72f7864400170
+generated: "2025-08-03T09:24:56.953466691Z"
