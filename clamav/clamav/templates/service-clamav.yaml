@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "clamav.fullname" . }}-server
+  labels:
+    {{- include "clamav.server.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.clamavServer.service.type }}
+  ports:
+    - port: {{ .Values.clamavServer.service.port }}
+      targetPort: clamd
+      protocol: TCP
+      name: clamd
+  selector:
+    {{- include "clamav.server.selectorLabels" . | nindent 4 }}
