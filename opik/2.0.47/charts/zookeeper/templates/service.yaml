@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "zookeeper.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "zookeeper.labels" . | nindent 4 }}
+  {{- $annotations := merge .Values.service.annotations .Values.commonAnnotations }}
+  {{- with $annotations }}
+  annotations: 
+{{ toYaml . | indent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.ports.client | default 2181 }}
+      targetPort: client
+      protocol: TCP
+      name: client
+    - port: {{ .Values.service.ports.admin | default 8080 }}
+      targetPort: admin
+      protocol: TCP
+      name: admin
+  selector:
+    {{- include "zookeeper.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "zookeeper.fullname" . }}-headless
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "zookeeper.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - port: {{ .Values.service.ports.client | default 2181 }}
+      targetPort: client
+      protocol: TCP
+      name: client
+    - port: {{ .Values.service.ports.quorum | default 2888 }}
+      targetPort: quorum
+      protocol: TCP
+      name: quorum
+    - port: {{ .Values.service.ports.leaderElection | default 3888 }}
+      targetPort: leader-election
+      protocol: TCP
+      name: leader-election
+    - port: {{ .Values.service.ports.admin | default 8080 }}
+      targetPort: admin
+      protocol: TCP
+      name: admin
+  selector:
+    {{- include "zookeeper.selectorLabels" . | nindent 4 }}

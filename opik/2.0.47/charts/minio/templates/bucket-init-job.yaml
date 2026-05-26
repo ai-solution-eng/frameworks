@@ -1,0 +1,82 @@
+{{- if .Values.defaultBuckets }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "minio.fullname" . }}-post-job
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "minio.labels" . | nindent 4 }}
+  {{- $annotations := merge (include "minio.annotations" . | fromYaml) .Values.bucketInitJob.annotations }}
+  {{- with $annotations }}
+  annotations: 
+{{ toYaml . | indent 4 }}
+  {{- end }}
+spec:
+  ttlSecondsAfterFinished: {{ .Values.bucketInitJob.ttlSecondsAfterFinished }}
+  activeDeadlineSeconds: {{ .Values.bucketInitJob.activeDeadlineSeconds }}
+  completions: {{ .Values.bucketInitJob.completions }}
+  parallelism: {{ .Values.bucketInitJob.parallelism }}
+  backoffLimit: {{ .Values.bucketInitJob.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "minio.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: bucket-init
+      {{- with .Values.bucketInitJob.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+{{- with (include "minio.imagePullSecrets" .) }}
+{{ . | nindent 6 }}
+{{- end }}
+      restartPolicy: {{ .Values.bucketInitJob.restartPolicy }}
+      securityContext: {{ include "cloudpirates.renderPodSecurityContext" . | nindent 8 }}
+      containers:
+        - name: bucket-init
+          image: {{ include "minio.image" . }}
+          imagePullPolicy: {{ .Values.image.imagePullPolicy }}
+          command: ["/bin/sh", "/scripts/provision-buckets.sh"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "minio.secretName" . }}
+                  key: {{ include "minio.rootUser" . }}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "minio.secretName" . }}
+                  key: {{ include "minio.rootPasswordKey" . }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: tmp
+              mountPath: /tmp
+          {{- if .Values.bucketInitJob.resources }}
+          resources: {{- toYaml .Values.bucketInitJob.resources | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- $securityContext := include "cloudpirates.renderContainerSecurityContext" . | fromYaml }}
+            {{- $_ := set $securityContext "readOnlyRootFilesystem" false }}
+            {{- toYaml $securityContext | nindent 12 }}
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "minio.fullname" . }}-bucket-init
+            defaultMode: 0755
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,85 @@
+# Complete MySQL setup with init-job and automated backups
+# This demonstrates all available features with mixed password methods
+# Prerequisites for production database:
+#   kubectl create secret generic prod-db-secret --from-literal=password=prod_password
+#
+# Usage: helm install my-mysql ./ -f examples/complete-setup-values.yaml
+
+fullnameOverride: "my-mysql"
+
+auth:
+  rootPassword: "mySecureRootPassword"
+
+# Initialize multiple databases and users
+initJob:
+  enabled: true
+  databases:
+    # MyApp database - plain text (dev/test)
+    - name: myapp
+      username: myapp
+      password: myapp_password
+    
+    # Production database - secret reference (production)
+    - name: production
+      username: produser
+      passwordSecretRef:
+        secretName: prod-db-secret
+        secretKey: password
+
+# Enable automated backups to S3
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  
+  storage:
+    bucket: "my-mysql-backups"
+    region: "us-east-1"
+    prefix: "mysql-backups"
+    endpoint: ""  # Empty for AWS S3, or set to MinIO URL
+    existingSecret: "aws-s3-credentials"
+  
+  retention: 7  # Keep last 7 backups
+  
+  resources:
+    limits:
+      memory: 512Mi
+      cpu: 500m
+    requests:
+      memory: 256Mi
+      cpu: 250m
+
+# Primary MySQL configuration
+primary:
+  configuration: |-
+    [mysqld]
+    default-authentication-plugin=mysql_native_password
+    skip-name-resolve
+    explicit_defaults_for_timestamp
+    port=3306
+    datadir=/var/lib/mysql
+    max_allowed_packet=64M
+    bind-address=0.0.0.0
+    character-set-server=utf8mb4
+    collation-server=utf8mb4_unicode_ci
+    # Performance tuning
+    innodb_buffer_pool_size=2G
+    innodb_log_file_size=512M
+    max_connections=500
+  
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: "gp3-csi-ext4"
+  
+  resources:
+    limits:
+      memory: 4Gi
+      cpu: 2000m
+    requests:
+      memory: 2Gi
+      cpu: 1000m
+
+service:
+  type: ClusterIP
+  port: 3306
+

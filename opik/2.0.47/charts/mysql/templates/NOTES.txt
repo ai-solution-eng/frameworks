@@ -1,0 +1,58 @@
+CHART NAME: {{ .Chart.Name }}
+CHART VERSION: {{ .Chart.Version }}
+APP VERSION: {{ .Chart.AppVersion }}
+
+** Please be patient while the chart is being deployed **
+
+MySQL can be accessed via port {{ .Values.service.port }} on the following DNS name from within your cluster:
+
+    {{ include "mysql.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+
+To get your root password run:
+
+    kubectl get secret --namespace {{ .Release.Namespace }} {{ include "mysql.secretName" . }} -o jsonpath="{.data.mysql-root-password}" | base64 -d
+
+To connect to your database:
+
+1. Run a MySQL client pod:
+
+    kubectl run -i --tty mysql-client --image=mysql:{{ .Values.image.tag }} --restart=Never -- bash
+
+2. Connect using the MySQL CLI:
+
+    mysql -h {{ include "mysql.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local -u root -p
+
+To connect from outside the cluster:
+
+1. Forward the MySQL port:
+
+    kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "mysql.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+2. Connect from your local machine:
+
+    mysql -h 127.0.0.1 -P {{ .Values.service.port }} -u root -p
+
+{{- if .Values.auth.database }}
+
+A database named "{{ .Values.auth.database }}" has been created.
+{{- end }}
+
+{{- if .Values.auth.username }}
+
+A user named "{{ .Values.auth.username }}" has been created with full access to the "{{ .Values.auth.database }}" database.
+
+To get your user password run:
+
+    kubectl get secret --namespace {{ .Release.Namespace }} {{ include "mysql.secretName" . }} -o jsonpath="{.data.mysql-password}" | base64 -d
+{{- end }}
+
+{{- if .Values.primary.persistence.enabled }}
+
+Persistence is enabled. Data will be stored on a PersistentVolumeClaim.
+
+PVC: {{ if .Values.primary.persistence.existingClaim }}{{ .Values.primary.persistence.existingClaim }}{{ else }}data-{{ include "mysql.fullname" . }}-0{{ end }}
+{{- else }}
+
+WARNING: Persistence is disabled! Data will be lost when the pod is terminated.
+{{- end }}
+

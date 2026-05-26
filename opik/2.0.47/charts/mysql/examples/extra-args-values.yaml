@@ -1,0 +1,59 @@
+# Example: MySQL with extra flags, custom configuration, and environment variables
+# Usage: helm install mysql ./ -f examples/extra-args-values.yaml
+
+auth:
+  rootPassword: "changeme"
+
+primary:
+  # Additional command-line arguments passed to mysqld
+  # These are automatically converted to my.cnf format and appended to the configuration
+  extraFlags: "--max-connections=500 --max-allowed-packet=64M --log-bin-trust-function-creators=1 --thread-stack=256K --group-concat-max-len=1000000"
+
+  # Custom MySQL configuration (completely replaces default configuration)
+  # extraFlags will be appended to this configuration
+  configuration: |-
+    [mysqld]
+    authentication_policy='* ,,'
+    skip-name-resolve
+    port=3306
+    datadir=/var/lib/mysql
+    bind-address=0.0.0.0
+    character-set-server=utf8mb4
+    collation-server=utf8mb4_unicode_ci
+
+  # Extra environment variables to add to the MySQL container
+  # Supports both simple values and valueFrom (for secrets/configmaps)
+  extraEnvVars:
+    # Simple value example
+    - name: MY_CUSTOM_VAR
+      value: "my-custom-value"
+    
+    # Another simple value
+    - name: DEBUG_MODE
+      value: "true"
+    
+    # Value from Secret
+    - name: MY_SECRET_VAR
+      valueFrom:
+        secretKeyRef:
+          name: my-secret
+          key: my-secret-key
+    
+    # Value from ConfigMap
+    - name: MY_CONFIG_VAR
+      valueFrom:
+        configMapKeyRef:
+          name: my-configmap
+          key: my-config-key
+    
+    # Value from Secret with optional key
+    - name: DATABASE_URL
+      valueFrom:
+        secretKeyRef:
+          name: app-secrets
+          key: database-url
+          optional: false
+
+  persistence:
+    enabled: true
+    size: 20Gi

@@ -1,0 +1,16 @@
+apiVersion: v2
+appVersion: 8.4.2
+description: A simple, standalone MySQL Helm chart
+home: https://github.com/comet-ml/comet-mysql-helm
+keywords:
+- mysql
+- database
+- sql
+maintainers:
+- email: liyak@comet.com
+  name: Liya Katz
+name: mysql
+sources:
+- https://github.com/mysql/mysql-server
+type: application
+version: 1.0.7

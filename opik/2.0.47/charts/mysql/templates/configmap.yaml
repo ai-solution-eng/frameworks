@@ -1,0 +1,32 @@
+{{- if not .Values.primary.existingConfigmap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mysql.configmapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mysql.labels" . | nindent 4 }}
+data:
+  my.cnf: |-
+    {{- $config := .Values.primary.configuration }}
+    {{- $config = regexReplaceAll "(?m)^([^#]*datadir=).*$" $config (printf "${1}%s" .Values.primary.dataDir) }}
+    {{- if not (contains "datadir=" $config) }}
+    # Data directory (automatically set from primary.dataDir)
+    datadir={{ .Values.primary.dataDir }}
+    {{- end }}
+    {{ $config | nindent 4 }}
+    {{- if .Values.primary.extraFlags }}
+    # Additional flags from primary.extraFlags
+    {{- include "mysql.extraFlagsToConfig" . | nindent 4 }}
+    {{- end }}
+    {{- if .Values.tls.enabled }}
+    # TLS/SSL Configuration
+    ssl-ca=/etc/mysql/ssl/ca.crt
+    ssl-cert=/etc/mysql/ssl/tls.crt
+    ssl-key=/etc/mysql/ssl/tls.key
+    {{- if .Values.tls.requireSecureTransport }}
+    require_secure_transport=ON
+    {{- end }}
+    {{- end }}
+{{- end }}
+

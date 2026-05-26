@@ -1,0 +1,96 @@
+{{- if .Values.initJob.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "mysql.fullname" . }}-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mysql.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init
+  {{- with .Values.initJob.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "mysql.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init
+        {{- with .Values.global.commonLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: init-databases
+          image: {{ include "mysql.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "Waiting for MySQL to be ready..."
+              
+              # Wait for MySQL to be available
+              for i in $(seq 1 30); do
+                if mysql -h {{ include "mysql.fullname" . }} -u root -p${MYSQL_ROOT_PASSWORD} -e "SELECT 1;" >/dev/null 2>&1; then
+                  echo "MySQL is ready!"
+                  break
+                fi
+                echo "Waiting for MySQL... ($i/30)"
+                sleep 10
+              done
+              
+              # Check if MySQL is available
+              if ! mysql -h {{ include "mysql.fullname" . }} -u root -p${MYSQL_ROOT_PASSWORD} -e "SELECT 1;" >/dev/null 2>&1; then
+                echo "ERROR: MySQL is not available after 300 seconds"
+                exit 1
+              fi
+              
+              echo "Initializing databases and users..."
+              
+              # Enable log_bin_trust_function_creators to allow triggers/functions without SUPER privilege
+              echo "Setting log_bin_trust_function_creators=1..."
+              mysql -h {{ include "mysql.fullname" . }} -u root -p${MYSQL_ROOT_PASSWORD} -e "SET GLOBAL log_bin_trust_function_creators=1;" || echo "Warning: Could not set log_bin_trust_function_creators (may already be set or binary logging disabled)"
+              
+              {{- range $index, $db := .Values.initJob.databases }}
+              echo "Creating database '{{ $db.name }}' and user '{{ $db.username }}'..."
+              mysql -h {{ include "mysql.fullname" $ }} -u root -p${MYSQL_ROOT_PASSWORD} -e "CREATE DATABASE IF NOT EXISTS \`{{ $db.name }}\` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci;"
+              mysql -h {{ include "mysql.fullname" $ }} -u root -p${MYSQL_ROOT_PASSWORD} -e "CREATE USER IF NOT EXISTS '{{ $db.username }}'@'%' IDENTIFIED BY '${DB_{{ $index }}_PASSWORD}';"
+              mysql -h {{ include "mysql.fullname" $ }} -u root -p${MYSQL_ROOT_PASSWORD} -e "GRANT ALL PRIVILEGES ON \`{{ $db.name }}\`.* TO '{{ $db.username }}'@'%';"
+              mysql -h {{ include "mysql.fullname" $ }} -u root -p${MYSQL_ROOT_PASSWORD} -e "FLUSH PRIVILEGES;"
+              echo "✅ Database '{{ $db.name }}' and user '{{ $db.username }}' created successfully"
+              {{- end }}
+              
+              echo "All databases and users initialized successfully!"
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mysql.secretName" . }}
+                  key: mysql-root-password
+            {{- range $index, $db := .Values.initJob.databases }}
+            - name: DB_{{ $index }}_PASSWORD
+              {{- if $db.password }}
+              value: {{ $db.password | quote }}
+              {{- else if $db.passwordSecretRef }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $db.passwordSecretRef.secretName }}
+                  key: {{ $db.passwordSecretRef.secretKey }}
+              {{- end }}
+            {{- end }}
+          {{- with .Values.initJob.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
+

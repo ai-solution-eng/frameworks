@@ -1,0 +1,48 @@
+# Example: Backup to AWS S3 using IAM Role (IRSA)
+# This configuration uses IAM Roles for Service Accounts (IRSA)
+# instead of static access keys for better security
+
+# Create a ServiceAccount with IAM role annotation
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/mysql-backup-role"
+
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # 2 AM daily
+  
+  # Use the ServiceAccount with IAM role
+  serviceAccountName: ""  # Empty = use default MySQL ServiceAccount
+  
+  storage:
+    bucket: "my-mysql-backups"
+    region: "us-east-1"
+    prefix: "mysql-backups"
+    endpoint: ""  # Empty for AWS S3
+    existingSecret: ""  # Empty = use IAM role instead of static credentials
+  
+  retention: 7
+  
+  databases:
+    - myapp
+    - production
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# MySQL configuration (customize as needed)
+auth:
+  rootPassword: "changeme"
+  database: "myapp"
+
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: "gp3"
+

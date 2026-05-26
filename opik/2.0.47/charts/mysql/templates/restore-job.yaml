@@ -1,0 +1,143 @@
+{{- if .Values.restore.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "mysql.fullname" . }}-restore
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mysql.labels" . | nindent 4 }}
+    app.kubernetes.io/component: restore
+spec:
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        {{- include "mysql.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: restore
+        {{- with .Values.global.commonLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ .Values.restore.serviceAccountName | default (include "mysql.serviceAccountName" .) }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mysql-restore
+          image: {{ include "mysql.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              
+              BACKUP_DIR="/tmp/restore"
+              {{- if .Values.restore.backupFile }}
+              BACKUP_FILE="{{ .Values.restore.backupFile }}"
+              {{- else }}
+              echo "❌ ERROR: restore.backupFile is required"
+              exit 1
+              {{- end }}
+              
+              echo "Starting MySQL restore at $(date)"
+              echo "Backup file: ${BACKUP_FILE}"
+              echo "S3 Source: {{ .Values.restore.storage.bucket }}/{{ .Values.restore.storage.prefix }}"
+              
+              # Create temporary directory
+              mkdir -p ${BACKUP_DIR}
+              
+              # Wait for MySQL to be ready
+              echo "Waiting for MySQL to be ready..."
+              for i in $(seq 1 30); do
+                if mysql -h {{ include "mysql.fullname" . }} -u root -p${MYSQL_ROOT_PASSWORD} -e "SELECT 1;" >/dev/null 2>&1; then
+                  echo "MySQL is ready!"
+                  break
+                fi
+                echo "Waiting for MySQL... ($i/30)"
+                sleep 10
+              done
+              
+              # Check if MySQL is available
+              if ! mysql -h {{ include "mysql.fullname" . }} -u root -p${MYSQL_ROOT_PASSWORD} -e "SELECT 1;" >/dev/null 2>&1; then
+                echo "❌ ERROR: MySQL is not available after 300 seconds"
+                exit 1
+              fi
+              
+              # Set S3 endpoint option
+              {{- if .Values.restore.storage.endpoint }}
+              S3_ENDPOINT="--endpoint-url {{ .Values.restore.storage.endpoint }}"
+              {{- else }}
+              S3_ENDPOINT=""
+              {{- end }}
+              
+              # Download from S3-compatible storage
+              echo "Downloading backup from S3..."
+              aws s3 cp s3://{{ .Values.restore.storage.bucket }}/{{ .Values.restore.storage.prefix }}/${BACKUP_FILE} \
+                ${BACKUP_DIR}/${BACKUP_FILE} \
+                ${S3_ENDPOINT} \
+                --region {{ .Values.restore.storage.region }}
+              echo "✅ Backup downloaded successfully!"
+              
+              # Check if backup file exists
+              if [ ! -f "${BACKUP_DIR}/${BACKUP_FILE}" ]; then
+                echo "❌ ERROR: Backup file not found: ${BACKUP_DIR}/${BACKUP_FILE}"
+                exit 1
+              fi
+              
+              BACKUP_SIZE=$(du -h ${BACKUP_DIR}/${BACKUP_FILE} | cut -f1)
+              echo "Backup file size: ${BACKUP_SIZE}"
+              
+              # Restore backup
+              echo "Restoring MySQL backup..."
+              
+              if [[ "${BACKUP_FILE}" == *.gz ]]; then
+                echo "Detected gzipped backup, decompressing and restoring..."
+                gunzip -c ${BACKUP_DIR}/${BACKUP_FILE} | \
+                  mysql -h {{ include "mysql.fullname" . }} \
+                    -u root \
+                    -p${MYSQL_ROOT_PASSWORD}
+              else
+                echo "Restoring uncompressed backup..."
+                mysql -h {{ include "mysql.fullname" . }} \
+                  -u root \
+                  -p${MYSQL_ROOT_PASSWORD} < ${BACKUP_DIR}/${BACKUP_FILE}
+              fi
+              
+              echo "✅ Restore completed successfully!"
+              echo "Restore completed at $(date)"
+              
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mysql.secretName" . }}
+                  key: mysql-root-password
+            {{- if .Values.restore.storage.existingSecret }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.restore.storage.existingSecret }}
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.restore.storage.existingSecret }}
+                  key: secret-access-key
+            {{- end }}
+          {{- with .Values.restore.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.restore.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.restore.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

@@ -1,0 +1,233 @@
+name: Helm Chart Diff
+
+on:
+  pull_request:
+    branches:
+      - main
+
+# This permission is required for the action to post a comment on the PR
+permissions:
+  pull-requests: write
+
+jobs:
+  helm-diff:
+    runs-on: ubuntu-latest
+
+    # Set the path to your chart
+    env:
+      CHART_PATH: .
+
+    steps:
+      - name: 1. Checkout Base Branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          token: ${{ secrets.GH_PAT_TO_ACCESS_GITHUB_API }}
+
+      - name: 2. Render Base Chart (before.yaml)
+        run: |
+          echo "🎨 Rendering chart from base branch..."
+          
+          # Render with default values.yaml
+          echo "Rendering with default values.yaml..."
+          helm template mysql-test $CHART_PATH --values values.yaml > /tmp/before_values.yaml
+          
+          # Render with all example files
+          for example in examples/*.yaml; do
+            if [ -f "$example" ]; then
+              example_name=$(basename "$example" .yaml)
+              echo "Rendering with $example..."
+              helm template mysql-test $CHART_PATH --values "$example" > "/tmp/before_${example_name}.yaml"
+            fi
+          done
+          
+          echo "✅ Generated base branch manifests"
+
+      - name: 3. Checkout PR Branch (HEAD)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          token: ${{ secrets.GH_PAT_TO_ACCESS_GITHUB_API }}
+
+      - name: 4. Render PR Chart (after.yaml)
+        run: |
+          echo "🎨 Rendering chart from PR branch..."
+          
+          # Render with default values.yaml
+          echo "Rendering with default values.yaml..."
+          helm template mysql-test $CHART_PATH --values values.yaml > /tmp/after_values.yaml
+          
+          # Render with all example files
+          for example in examples/*.yaml; do
+            if [ -f "$example" ]; then
+              example_name=$(basename "$example" .yaml)
+              echo "Rendering with $example..."
+              helm template mysql-test $CHART_PATH --values "$example" > "/tmp/after_${example_name}.yaml"
+            fi
+          done
+          
+          echo "✅ Generated PR branch manifests"
+
+      - name: 5. Generate Diffs
+        run: |
+          echo "🔍 Generating diffs..."
+          
+          # Generate diff for default values.yaml
+          diff -u /tmp/before_values.yaml /tmp/after_values.yaml > /tmp/diff_values.txt || true
+          
+          # Generate diffs for all example files
+          HAS_DIFF=false
+          for example in examples/*.yaml; do
+            if [ -f "$example" ]; then
+              example_name=$(basename "$example" .yaml)
+              diff -u "/tmp/before_${example_name}.yaml" "/tmp/after_${example_name}.yaml" > "/tmp/diff_${example_name}.txt" || true
+              if [ -s "/tmp/diff_${example_name}.txt" ]; then
+                HAS_DIFF=true
+              fi
+            fi
+          done
+          
+          # Check if default values diff exists
+          if [ -s /tmp/diff_values.txt ]; then
+            HAS_DIFF=true
+          fi
+          
+          echo "HAS_DIFF=$HAS_DIFF" | tee -a $GITHUB_ENV
+          echo "✅ Diffs generated"
+
+      - name: 6. Generate and Post Diff Comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMMENT_BODY_FILE=/tmp/comment_body.txt
+          
+          if [ "$HAS_DIFF" == "true" ]; then
+            echo "📝 Generating PR comment with diffs..."
+            
+            # Start building the comment
+            echo "### 🤖 Helm Chart Diff" > $COMMENT_BODY_FILE
+            echo "" >> $COMMENT_BODY_FILE
+            echo "Changes detected in rendered Helm manifests:" >> $COMMENT_BODY_FILE
+            echo "" >> $COMMENT_BODY_FILE
+            
+            # Add default values.yaml diff
+            if [ -s /tmp/diff_values.txt ]; then
+              echo "<details><summary>📦 Default values.yaml</summary>" >> $COMMENT_BODY_FILE
+              echo "" >> $COMMENT_BODY_FILE
+              echo '```diff' >> $COMMENT_BODY_FILE
+              cat /tmp/diff_values.txt >> $COMMENT_BODY_FILE
+              echo '```' >> $COMMENT_BODY_FILE
+              echo "</details>" >> $COMMENT_BODY_FILE
+              echo "" >> $COMMENT_BODY_FILE
+            fi
+            
+            # Add diffs for all example files
+            for example in examples/*.yaml; do
+              if [ -f "$example" ]; then
+                example_name=$(basename "$example" .yaml)
+                if [ -s "/tmp/diff_${example_name}.txt" ]; then
+                  echo "<details><summary>📄 $(basename "$example")</summary>" >> $COMMENT_BODY_FILE
+                  echo "" >> $COMMENT_BODY_FILE
+                  echo '```diff' >> $COMMENT_BODY_FILE
+                  cat "/tmp/diff_${example_name}.txt" >> $COMMENT_BODY_FILE
+                  echo '```' >> $COMMENT_BODY_FILE
+                  echo "</details>" >> $COMMENT_BODY_FILE
+                  echo "" >> $COMMENT_BODY_FILE
+                fi
+              fi
+            done
+            
+            # Add workflow summary
+            echo "## 📊 Helm Chart Changes Detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📈 Summary" >> $GITHUB_STEP_SUMMARY
+            echo "- **Chart Path**: \`$CHART_PATH\`" >> $GITHUB_STEP_SUMMARY
+            VALUES_LIST="values.yaml"
+            for example in examples/*.yaml; do
+              if [ -f "$example" ]; then
+                VALUES_LIST="${VALUES_LIST} $(basename "$example")"
+              fi
+            done
+            echo "- **Values Files Tested**: \`$VALUES_LIST\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Add preview to summary
+            if [ -s /tmp/diff_values.txt ]; then
+              echo "### 🔍 Default Values Preview" >> $GITHUB_STEP_SUMMARY
+              echo '```diff' >> $GITHUB_STEP_SUMMARY
+              head -30 /tmp/diff_values.txt >> $GITHUB_STEP_SUMMARY
+              if [ $(wc -l < /tmp/diff_values.txt) -gt 30 ]; then
+                echo "..." >> $GITHUB_STEP_SUMMARY
+                echo "# ... and $(($(wc -l < /tmp/diff_values.txt) - 30)) more lines" >> $GITHUB_STEP_SUMMARY
+              fi
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            echo "> 💡 **Full diff posted as PR comment**" >> $GITHUB_STEP_SUMMARY
+            
+            BODY=$(cat $COMMENT_BODY_FILE)
+          else
+            echo "No changes found."
+            VALUES_LIST="- \`values.yaml\`"
+            for example in examples/*.yaml; do
+              if [ -f "$example" ]; then
+                VALUES_LIST="${VALUES_LIST}"$'\n'"- \`$(basename "$example")\`"
+              fi
+            done
+            
+            BODY="✅ No differences found in rendered Helm chart manifests."$'\n\n'"**Tested configurations:**"$'\n'"${VALUES_LIST}"$'\n\n'"🎉 All rendered manifests remain unchanged!"
+
+            # Add to workflow summary
+            echo "## ✅ Helm Chart Diff - No Changes" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📈 Summary" >> $GITHUB_STEP_SUMMARY
+            echo "- **Chart Path**: \`$CHART_PATH\`" >> $GITHUB_STEP_SUMMARY
+            VALUES_SUMMARY="values.yaml"
+            for example in examples/*.yaml; do
+              if [ -f "$example" ]; then
+                VALUES_SUMMARY="${VALUES_SUMMARY} $(basename "$example")"
+              fi
+            done
+            echo "- **Values Files Tested**: \`$VALUES_SUMMARY\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🎉 **No changes detected in the rendered Helm chart!**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Post the comment to the PR using GitHub API
+          # Check if body is too long (GitHub has a 65,536 character limit for comments)
+          BODY_LENGTH=$(echo "$BODY" | wc -c)
+          echo "Body length: $BODY_LENGTH characters"
+
+          if [ $BODY_LENGTH -gt 60000 ]; then
+            echo "Body too long, truncating..."
+            TRUNCATED_BODY=$(echo "$BODY" | head -c 60000)
+            TRUNCATED_BODY="${TRUNCATED_BODY}\n\n... (truncated due to length - see workflow run for full diff)"
+            BODY="$TRUNCATED_BODY"
+          fi
+
+          # Use jq to properly escape the content while preserving newlines
+          jq -n --arg body "$BODY" '{"body": $body}' > /tmp/comment_payload.json
+
+          # Post comment to PR
+          RESPONSE=$(curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d @/tmp/comment_payload.json \
+            -w "\nHTTP_CODE:%{http_code}\n" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" 2>&1)
+
+          # Check if the request was successful
+          HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+          if [ "$HTTP_CODE" != "201" ]; then
+            echo "❌ Failed to post comment. HTTP Code: $HTTP_CODE"
+            echo "$RESPONSE"
+            exit 1
+          else
+            echo "✅ Comment posted successfully!"
+          fi
+

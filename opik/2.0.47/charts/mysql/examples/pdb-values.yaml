@@ -1,0 +1,20 @@
+# Example: Pod Disruption Budget configuration
+# PDB ensures availability during voluntary disruptions (node drains, pod evictions, etc.)
+
+podDisruptionBudget:
+  enabled: true
+  # Option 1: Use minAvailable (recommended for single replica)
+  minAvailable: 1
+  
+  # Option 2: Use maxUnavailable (alternative)
+  # maxUnavailable: 0  # Prevents any disruption for single replica
+  # maxUnavailable: 1  # Allows one pod to be unavailable (for multi-replica setups)
+
+primary:
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# Note: For single replica MySQL, PDB ensures the pod cannot be disrupted
+# For multi-replica setups (future), adjust minAvailable/maxUnavailable accordingly
+

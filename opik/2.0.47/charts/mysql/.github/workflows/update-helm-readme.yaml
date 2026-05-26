@@ -1,0 +1,30 @@
+name: Generate Helm Docs
+run-name: "Generate Helm Docs ${{ github.ref_name }} by @${{ github.actor }}"
+
+on:
+  pull_request:
+    paths:
+      - "Chart.yaml"
+      - "values.yaml"
+      - "README.md.gotmpl"
+      - "templates/**"
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Render helm docs inside the README.md and push changes back to PR branch
+        uses: losisin/helm-docs-github-action@v1
+        with:
+          chart-search-root: .
+          git-push: true
+          git-push-user-name: "CometActions"
+          git-push-user-email: "github-actions@comet.com"
+          git-commit-message: "Update Helm documentation"
+

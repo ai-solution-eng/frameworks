@@ -1,0 +1,14 @@
+# Simple standalone MySQL configuration
+# Usage: helm install my-mysql ./ -f examples/simple-values.yaml
+
+auth:
+  rootPassword: "mySecurePassword123"
+  database: "myapp"
+  username: "appuser"
+  password: "appuserpass"
+
+primary:
+  persistence:
+    enabled: true
+    size: 10Gi
+

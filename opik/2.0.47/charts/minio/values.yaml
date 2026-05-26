@@ -1,0 +1,309 @@
+## @section Global parameters
+global:
+  ## @param global.imageRegistry Global Docker Image registry
+  imageRegistry: ""
+  ## @param global.imagePullSecrets Global Docker registry secret names as an array
+  imagePullSecrets: []
+
+## @section Common parameters
+## @param nameOverride String to partially override minio.fullname
+nameOverride: ""
+## @param fullnameOverride String to fully override minio.fullname
+fullnameOverride: ""
+## @param commonLabels Labels to add to all deployed objects
+commonLabels: {}
+## @param commonAnnotations Annotations to add to all deployed objects
+commonAnnotations: {}
+
+## @section MinIO image configuration
+image:
+  ## @param image.registry MinIO image registry
+  registry: docker.io
+  ## @param image.repository MinIO image repository
+  repository: cloudpirates/image-minio
+  ## @param image.tag MinIO image tag (immutable tags are recommended)
+  ## IMPORTANT: We are using a, by default, hardened image provided by us, which patches cve´s but does not in any way modify the behavior of minio. You are free to switch over to vanilla versions if this concerns you.
+  tag: "RELEASE.2025-10-15T17-29-55Z-hardened@sha256:11e00b6678a57044dd98a7ff53e65dd6d03be0300a97d69e6df9ccb773321eac"
+  ## @param image.useCpuV1 Use the Minio image tags suitable for old cpus (see https://github.com/minio/minio/issues/18365)
+  useCpuV1: false
+  ## @param iamge.tagCpuV1 The cpuv1 Minio image tag (immutable tags are recommended)
+  tagCpuV1: "RELEASE.2025-10-15T17-29-55Z-cpuv1@sha256:972a52bffe49337b8d36ff0901a6878601a1ca367e01d8cb619657f8188a17ff"
+  ## @param image.imagePullPolicy MinIO image pull policy
+  imagePullPolicy: Always
+
+## @section MinIO Authentication
+auth:
+  ## @param auth.rootUser MinIO root username
+  rootUser: "admin"
+  ## @param auth.rootPassword MinIO root password. If not set, a random password will be generated
+  rootPassword: ""
+  ## @param auth.existingSecret Name of existing secret containing MinIO credentials
+  existingSecret: ""
+  ## @param auth.existingSecretUserKey Key in existing secret containing username
+  existingSecretUserKey: "user"
+  ## @param auth.existingSecretPasswordKey Key in existing secret containing password
+  existingSecretPasswordKey: "password"
+
+## @section MinIO configuration
+config:
+  ## @param config.region MinIO server default region
+  region: ""
+  ## @param config.browserEnabled Enable MinIO web browser
+  browserEnabled: true
+  ## @param config.domain MinIO server domain
+  domain: ""
+  ## @param config.serverUrl MinIO server URL for console
+  serverUrl: ""
+  ## @param config.minioOpts String of parameteres to use when starting the MinIO Server (example: '--console-address=":9001"')
+  minioOpts: ""
+  ## @param config.minioVolumes The directories or drives the minio server uses as the storage backend (example: '/mnt/drive1/minio')
+  minioVolumes: ""
+  ## @param config.minioConfigEnvFile Specifies the full path to the file the MinIO server process uses for loading environment variables
+  minioConfigEnvFile: ""
+  ## @param config.minioScannerSpeed Manage the maximum wait period for the scanner when balancing MinIO read/write performance to scanner processes (fastest, fast, default, slow, slowest)
+  minioScannerSpeed: ""
+  ## @param config.minioCompressionEnabled Set to on to enable data compression for new objects. Defaults to off.
+  minioCompressionEnabled: ""
+  ## @param config.minioCompressionAllowEncryption Set to on to encrypt objects after compressing them. Defaults to off.
+  minioCompressionAllowEncryption: ""
+  ## @param config.minioCompressionExtensions Comma-separated list of the file extensions to compress. Setting a new list of file extensions replaces the previously configured list. Defaults to "*"
+  minioCompressionExtensions: ""
+  ## @param config.minioCompressionMimeTypes Comma-separated list of the MIME types to compress. Setting a new list of types replaces the previously configured list. Defaults to "text/*, application/json, application/xml, binary/octet-stream"
+  minioCompressionMimeTypes: ""
+
+  ## @param config.extraEnvVars Extra environment variables to be set on MinIO containers
+  extraEnvVars: []
+
+## @section Bucket provisioning
+## @param defaultBuckets Comma, semi-colon or space separated list of buckets to create at initialization
+## Format: "bucket-name" or "bucket-name:policy" where policy can be: none, download, upload, or public
+## e.g: "my-bucket, my-second-bucket:download, my-public-bucket:public"
+defaultBuckets: ""
+
+## @section postJob Configuration for the Job '{{ .Release.Name }}-post-job'
+postJob:
+  ## postJob.annotations Additional annotations for the Job
+  annotations:
+    helm.sh/hook: post-install,post-upgrade  # @schema hidden: true
+
+## @section Bucket Initialization Job
+bucketInitJob:
+  ## @param bucketInitJob.ttlSecondsAfterFinished Seconds after which the job is automatically deleted after completion (success or failure)
+  ttlSecondsAfterFinished: 30
+  ## @param bucketInitJob.activeDeadlineSeconds Maximum duration in seconds for the job execution before it is terminated
+  activeDeadlineSeconds: 300
+  ## @param bucketInitJob.completions Number of successful completions required for the job
+  completions: 1
+  ## @param bucketInitJob.parallelism Number of pods running in parallel
+  parallelism: 1
+  ## @param bucketInitJob.backoffLimit Number of retries before considering the job as failed
+  backoffLimit: 3
+  ## @param bucketInitJob.restartPolicy Restart policy for the job pods (OnFailure or Never)
+  restartPolicy: OnFailure
+  ## @param bucketInitJob.annotations Additional annotations for the bucket initialization job
+  annotations: {}
+  ## @param bucketInitJob.podAnnotations Additional annotations for the bucket initialization job pods
+  podAnnotations: {}
+  ## @param bucketInitJob.resources Resource requests and limits for the bucket initialization job
+  resources: {}
+    # limits:
+    #   cpu: 100m
+    #   memory: 128Mi
+    # requests:
+    #   cpu: 50m
+    #   memory: 64Mi
+
+## @section Deployment configuration
+replicaCount: 1
+
+## @section Pod annotations and labels
+podAnnotations: {}
+podLabels: {}
+
+## @section Security Context
+podSecurityContext:
+  ## @param podSecurityContext.fsGroup Group ID for the volumes of the pod
+  fsGroup: 1001
+  ## @param podSecurityContext.fsGroupChangePolicy Defines behavior of changing ownership and permission of the volume before being exposed inside Pod. Valid values are "OnRootMismatch" and "Always"
+  fsGroupChangePolicy: "OnRootMismatch"
+
+containerSecurityContext:
+  ## @param containerSecurityContext.allowPrivilegeEscalation Enable container privilege escalation
+  allowPrivilegeEscalation: false
+  ## @param containerSecurityContext.runAsNonRoot Configure the container to run as a non-root user
+  runAsNonRoot: true
+  ## @param containerSecurityContext.runAsUser User ID for the MinIO container
+  runAsUser: 1001
+  ## @param containerSecurityContext.runAsGroup Group ID for the MinIO container
+  runAsGroup: 1001
+  ## @param containerSecurityContext.readOnlyRootFilesystem Mount container root filesystem as read-only
+  readOnlyRootFilesystem: true
+  ## @param containerSecurityContext.capabilities.drop Linux capabilities to be dropped
+  capabilities:
+    drop:
+      - ALL
+
+## @param priorityClassName Priority class for the minio instance
+priorityClassName: ""
+
+## @section Service configuration
+service:
+  ## @param service.type MinIO service type
+  type: ClusterIP
+  ## @param service.port MinIO service port
+  port: 9000
+  ## @param service.consolePort MinIO console service port
+  consolePort: 9090
+  ## @param service.annotations Service annotations
+  annotations: {}
+  ## @param service.nodePorts Service node ports
+  nodePorts:
+    ## @param service.nodePorts.api Service api node port
+    api: ""
+    ## @param service.nodePorts.api Service console node port
+    console: ""
+
+## @section Ingress configuration
+ingress:
+  ## @param ingress.enabled Enable ingress record generation for MinIO
+  enabled: false
+  ## @param ingress.className IngressClass that will be used to implement the Ingress
+  className: ""
+  ## @param ingress.annotations Additional annotations for the Ingress resource
+  annotations:
+    {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  ## @param ingress.hosts[0].host Hostname for MinIO ingress
+  ## @param ingress.hosts[0].paths[0].path Path for MinIO ingress
+  ## @param ingress.hosts[0].paths[0].pathType Path type for MinIO ingress
+  hosts:
+    - host: minio.local
+      paths:
+        - path: /
+          pathType: Prefix
+  ## @param ingress.tls TLS configuration for MinIO ingress
+  tls: []
+  #  - secretName: minio-tls
+  #    hosts:
+  #      - minio.local
+
+## @section Console Ingress configuration
+consoleIngress:
+  ## @param consoleIngress.enabled Enable ingress record generation for MinIO Console
+  enabled: false
+  ## @param consoleIngress.className IngressClass that will be used to implement the Ingress
+  className: ""
+  ## @param consoleIngress.annotations Additional annotations for the Console Ingress resource
+  annotations:
+    {}
+    # nginx.ingress.kubernetes.io/proxy-body-size: 1000m
+  ## @param consoleIngress.hosts[0].host Hostname for MinIO Console ingress
+  ## @param consoleIngress.hosts[0].paths[0].path Path for MinIO Console ingress
+  ## @param consoleIngress.hosts[0].paths[0].pathType Path type for MinIO Console ingress
+  hosts:
+    - host: minio-console.local
+      paths:
+        - path: /
+          pathType: Prefix
+  ## @param consoleIngress.tls TLS configuration for MinIO Console ingress
+  tls: []
+
+## @section Resources
+resources:
+  {}
+  ## We usually recommend not to specify default resources and to leave this as a conscious
+  ## choice for the user. This also increases chances charts run on environments with little
+  ## resources, such as Minikube. If you do want to specify resources, uncomment the following
+  ## lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+## @section Persistence
+persistence:
+  ## @param persistence.enabled Enable persistence using Persistent Volume Claims
+  enabled: true
+  ## @param persistence.storageClass Persistent Volume storage class
+  storageClass: ""
+  ## @param persistence.annotations Persistent Volume Claim annotations
+  annotations: {}
+  ## @param persistence.size Persistent Volume size
+  size: 8Gi
+  ## @param persistence.accessModes Persistent Volume access modes
+  accessModes:
+    - ReadWriteOnce
+  ## @param persistence.existingClaim The name of an existing PVC to use for persistence
+  existingClaim: ""
+  ## @param mountPath The path where to mount the data volume
+  mountPath: /mnt/data
+
+serviceAccount:
+  ## @param serviceAccount.create Enable the creation of a ServiceAccount for MinIO
+  create: true
+  ## @param serviceAccount.name Name of the created ServiceAccount
+  ## If not set and create is true, a name is generated using the common.names.fullname template
+  ##
+  name: ""
+  ## @param serviceAccount.automountServiceAccountToken Enable/disable auto mounting of the service account token
+  ##
+  automountServiceAccountToken: false
+  ## @param serviceAccount.annotations Custom annotations for MinIO serviceAccount
+  ##
+  annotations: {}
+
+## @section Liveness and readiness probes
+livenessProbe:
+  ## @param livenessProbe.enabled Enable livenessProbe on MinIO containers
+  enabled: true
+  ## @param livenessProbe.initialDelaySeconds Initial delay seconds for livenessProbe
+  initialDelaySeconds: 30
+  ## @param livenessProbe.periodSeconds Period seconds for livenessProbe
+  periodSeconds: 10
+  ## @param livenessProbe.timeoutSeconds Timeout seconds for livenessProbe
+  timeoutSeconds: 5
+  ## @param livenessProbe.failureThreshold Failure threshold for livenessProbe
+  failureThreshold: 3
+  ## @param livenessProbe.successThreshold Success threshold for livenessProbe
+  successThreshold: 1
+
+readinessProbe:
+  ## @param readinessProbe.enabled Enable readinessProbe on MinIO containers
+  enabled: true
+  ## @param readinessProbe.initialDelaySeconds Initial delay seconds for readinessProbe
+  initialDelaySeconds: 5
+  ## @param readinessProbe.periodSeconds Period seconds for readinessProbe
+  periodSeconds: 5
+  ## @param readinessProbe.timeoutSeconds Timeout seconds for readinessProbe
+  timeoutSeconds: 3
+  ## @param readinessProbe.failureThreshold Failure threshold for readinessProbe
+  failureThreshold: 3
+  ## @param readinessProbe.successThreshold Success threshold for readinessProbe
+  successThreshold: 1
+
+startupProbe:
+  ## @param startupProbe.enabled Enable startupProbe on MinIO containers
+  enabled: false
+  ## @param startupProbe.initialDelaySeconds Initial delay seconds for startupProbe
+  initialDelaySeconds: 10
+  ## @param startupProbe.periodSeconds Period seconds for startupProbe
+  periodSeconds: 10
+  ## @param startupProbe.timeoutSeconds Timeout seconds for startupProbe
+  timeoutSeconds: 5
+  ## @param startupProbe.failureThreshold Failure threshold for startupProbe
+  failureThreshold: 30
+  ## @param startupProbe.successThreshold Success threshold for startupProbe
+  successThreshold: 1
+
+## @section Node Selection
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+## @param extraObjects Array of extra objects to deploy with the release
+extraObjects: []

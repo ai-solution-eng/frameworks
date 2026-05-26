@@ -1,0 +1,104 @@
+{{- if .Values.defaultBuckets }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "minio.fullname" . }}-bucket-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "minio.labels" . | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations:
+    {{- include "minio.annotations" . | nindent 4 }}
+  {{- end }}
+data:
+  provision-buckets.sh: |
+    #!/bin/sh
+    set -e
+
+    MINIO_SERVICE="{{ include "minio.fullname" . }}"
+    MINIO_PORT="{{ .Values.service.port }}"
+    MINIO_URL="http://${MINIO_SERVICE}:${MINIO_PORT}"
+    MINIO_STARTUP_TIMEOUT="${MINIO_STARTUP_TIMEOUT:-300}"
+
+    echo "=== MinIO Bucket Provisioning ==="
+    echo "Target: $MINIO_URL"
+    echo "Service: $MINIO_SERVICE"
+    echo "Port: $MINIO_PORT"
+
+    ########################
+    # Wait for MinIO and configure client
+    ########################
+    wait_for_minio() {
+        local waited_time
+        waited_time=0
+        echo "Waiting for MinIO to be ready and configuring client..."
+
+        while [ "$waited_time" -lt "$MINIO_STARTUP_TIMEOUT" ]; do
+            # Try to configure alias (might fail if MinIO not ready)
+            if mc alias set local "$MINIO_URL" "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" 2>/dev/null; then
+                echo "Alias configured, testing connection..."
+                # Try a simple operation to verify MinIO is actually ready
+                if mc ls local >/dev/null 2>&1; then
+                    echo "MinIO is ready!"
+                    return 0
+                else
+                    echo "Alias set but MinIO not fully ready yet..."
+                fi
+            fi
+
+            echo "MinIO not ready yet, waiting... (${waited_time}s/${MINIO_STARTUP_TIMEOUT}s)"
+            sleep 5
+            waited_time=$((waited_time + 5))
+        done
+
+        echo "Timeout: MinIO not ready after ${MINIO_STARTUP_TIMEOUT}s"
+        return 1
+    }
+
+    ########################
+    # Create default buckets
+    ########################
+    minio_create_default_buckets() {
+        if [ -n "{{ .Values.defaultBuckets }}" ]; then
+            buckets=$(echo "{{ .Values.defaultBuckets }}" | tr ',;' ' ')
+            echo "Creating default buckets..."
+            
+            for b in $buckets; do
+                bucket_name=$(echo "$b" | cut -d':' -f1)
+                bucket_policy=$(echo "$b" | cut -s -d':' -f2)
+                
+                # trim whitespaces (xargs and sed are not installed)
+                set -- $bucket_name
+                bucket_name="$1"
+
+                if [ -z "$bucket_name" ]; then
+                    continue
+                fi
+                
+                echo "Processing bucket: $bucket_name"
+                
+                {{- if .Values.config.region }}
+                mc mb --ignore-existing --region "{{ .Values.config.region }}" "local/$bucket_name"
+                {{- else }}
+                mc mb --ignore-existing "local/$bucket_name"
+                {{- end }}
+                echo "Bucket local/$bucket_name processed."
+                
+                if [ -n "$bucket_policy" ]; then
+                    echo "Setting policy $bucket_policy for local bucket $bucket_name"
+                    mc anonymous set "$bucket_policy" "local/$bucket_name"
+                fi
+            done
+        fi
+    }
+
+    ########################
+    # Main execution
+    ########################
+
+    wait_for_minio
+
+    minio_create_default_buckets
+
+    echo "Bucket provisioning completed successfully."
+{{- end }}
