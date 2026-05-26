@@ -1,0 +1,19 @@
+<testsuites>
+	<testsuite tests="2" failures="0" time="0.003" name="deployment">
+		<properties>
+			<property name="helm-unittest.version" value="1.6"></property>
+		</properties>
+		<testcase classname="deployment" name="renders with defaults" time="0.002"></testcase>
+		<testcase classname="deployment" name="should use our simple values" time="0.001"></testcase>
+	</testsuite>
+	<testsuite tests="5" failures="0" time="0.004" name="ingress">
+		<properties>
+			<property name="helm-unittest.version" value="1.6"></property>
+		</properties>
+		<testcase classname="ingress" name="renders with defaults" time="0.001"></testcase>
+		<testcase classname="ingress" name="renders a second docker ingress" time="0.001"></testcase>
+		<testcase classname="ingress" name="we can exclude ingressClassName for repo ingress and docker ingress" time="0.001"></testcase>
+		<testcase classname="ingress" name="is disabled by default" time="0.001"></testcase>
+		<testcase classname="ingress" name="renders with tls config when provided" time="0.001"></testcase>
+	</testsuite>
+</testsuites>
