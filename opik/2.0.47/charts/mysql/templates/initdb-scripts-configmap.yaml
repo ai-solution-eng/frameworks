@@ -1,0 +1,20 @@
+{{- if .Values.initdbScripts }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mysql.fullname" . }}-initdb-scripts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mysql.labels" . | nindent 4 }}
+    app.kubernetes.io/component: initdb-scripts
+data:
+  {{- range $key, $value := .Values.initdbScripts }}
+  {{ $key }}: |-
+    {{- if kindIs "string" $value }}
+    {{- $value | nindent 4 }}
+    {{- else }}
+    {{- $value | toYaml | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+

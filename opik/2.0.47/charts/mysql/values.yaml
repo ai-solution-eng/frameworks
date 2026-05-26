@@ -1,0 +1,469 @@
+## MySQL configuration
+##
+
+## @section Global parameters
+
+## Global image registry
+global:
+  imageRegistry: ""
+  storageClass: ""
+  ## @param global.commonLabels Common labels to add to all resources
+  commonLabels: {}
+
+## @section Common parameters
+
+## @param nameOverride String to partially override mysql.fullname
+nameOverride: ""
+
+## @param fullnameOverride String to fully override mysql.fullname
+fullnameOverride: ""
+
+## @section MySQL parameters
+
+## MySQL image
+image:
+  ## @param image.registry MySQL image registry
+  registry: docker.io
+  ## @param image.repository MySQL image repository
+  repository: mysql
+  ## @param image.tag MySQL image tag (immutable tags are recommended)
+  tag: "8.4.2"
+  ## @param image.pullPolicy MySQL image pull policy
+  pullPolicy: IfNotPresent
+  ## @param image.pullSecrets MySQL image pull secrets
+  pullSecrets: []
+
+## MySQL authentication
+auth:
+  ## @param auth.rootPassword Password for the root user
+  rootPassword: "changeme"
+  ## @param auth.database Name for a custom database to create
+  database: "my_database"
+  ## @param auth.username Name for a custom user to create
+  username: ""
+  ## @param auth.password Password for the custom user
+  password: ""
+  ## @param auth.existingSecret Name of existing secret containing passwords
+  existingSecret: ""
+
+## MySQL architecture
+architecture:
+  ## @param architecture.mode MySQL architecture mode (standalone or replication)
+  ## Options: standalone, replication (future)
+  mode: standalone
+
+## MySQL primary configuration
+primary:
+  ## @param primary.dataDir MySQL data directory path 
+  ## Default: /var/lib/mysql (official MySQL image default)
+  ## If you need to migrate from Bitnami MySQL use /bitnami/mysql/data
+  dataDir: /var/lib/mysql
+
+  ## @param primary.configuration MySQL primary configuration to be injected as ConfigMap
+  ## Note: datadir will be automatically set from primary.dataDir if not specified
+  configuration: |-
+    [mysqld]
+    authentication_policy='* ,,'
+    skip-name-resolve
+    explicit_defaults_for_timestamp
+    port=3306
+    datadir=/var/lib/mysql
+    socket=/var/run/mysqld/mysqld.sock
+    pid-file=/var/run/mysqld/mysqld.pid
+    max_allowed_packet=16M
+    bind-address=0.0.0.0
+    character-set-server=utf8mb4
+    collation-server=utf8mb4_unicode_ci
+    slow_query_log=0
+    long_query_time=10.0
+
+  ## @param primary.existingConfigmap Name of existing ConfigMap with MySQL primary configuration
+  existingConfigmap: ""
+
+  ## @param primary.extraFlags Additional command-line arguments to pass to mysqld
+  ## Space-separated string of flags
+  ## Example: "--max-connections=500 --log-bin-trust-function-creators=1"
+  extraFlags: ""
+
+  ## @param primary.extraEnvVars Array with extra environment variables to add to MySQL container
+  ## Example:
+  ##   extraEnvVars:
+  ##     - name: MY_ENV_VAR
+  ##       value: "my-value"
+  ##     - name: MY_SECRET_ENV_VAR
+  ##       valueFrom:
+  ##         secretKeyRef:
+  ##           name: my-secret
+  ##           key: my-key
+  extraEnvVars: []
+
+  ## MySQL primary persistence configuration
+  persistence:
+    ## @param primary.persistence.enabled Enable persistence using Persistent Volume Claims
+    enabled: true
+    ## @param primary.persistence.storageClass Persistent Volume storage class
+    storageClass: ""
+    ## @param primary.persistence.accessModes Persistent Volume access modes
+    accessModes:
+      - ReadWriteOnce
+    ## @param primary.persistence.size Persistent Volume size
+    size: 20Gi
+    ## @param primary.persistence.existingClaim Name of an existing PVC to use
+    existingClaim: ""
+    ## @param primary.persistence.selector Selector to match an existing Persistent Volume
+    selector: {}
+    ## @param primary.persistence.annotations Persistent Volume Claim annotations
+    annotations: {}
+
+  ## MySQL primary resource requests and limits
+  resources:
+    ## @param primary.resources.limits The resources limits for the MySQL primary containers
+    limits:
+      memory: 2Gi
+      cpu: 2000m
+    ## @param primary.resources.requests The requested resources for the MySQL primary containers
+    requests:
+      memory: 512Mi
+      cpu: 500m
+
+  ## @param primary.podAnnotations Annotations for MySQL primary pods
+  podAnnotations: {}
+
+  ## @param primary.podLabels Extra labels for MySQL primary pods
+  podLabels: {}
+
+  ## @param primary.nodeSelector Node labels for MySQL primary pods assignment
+  nodeSelector: {}
+
+  ## @param primary.tolerations Tolerations for MySQL primary pods assignment
+  tolerations: []
+
+  ## @param primary.affinity Affinity for MySQL primary pods assignment
+  affinity: {}
+
+## MySQL service configuration
+service:
+  ## @param service.type MySQL service type
+  type: ClusterIP
+  ## @param service.port MySQL service port
+  port: 3306
+  ## @param service.nodePort Node port for MySQL
+  nodePort: ""
+  ## @param service.clusterIP MySQL service Cluster IP
+  clusterIP: ""
+  ## @param service.loadBalancerIP MySQL service Load Balancer IP
+  loadBalancerIP: ""
+  ## @param service.loadBalancerSourceRanges MySQL service Load Balancer sources
+  loadBalancerSourceRanges: []
+  ## @param service.annotations Additional custom annotations for MySQL service
+  annotations: {}
+
+## ServiceAccount configuration
+serviceAccount:
+  ## @param serviceAccount.create Specifies whether a ServiceAccount should be created
+  create: true
+  ## @param serviceAccount.name The name of the ServiceAccount to use
+  name: ""
+  ## @param serviceAccount.annotations Additional Service Account annotations
+  annotations: {}
+
+## Pod Security Context
+podSecurityContext:
+  ## @param podSecurityContext.enabled Enabled MySQL pods' Security Context
+  enabled: true
+  ## @param podSecurityContext.fsGroup Set MySQL pod's Security Context fsGroup
+  fsGroup: 999
+
+## Container Security Context
+containerSecurityContext:
+  ## @param containerSecurityContext.enabled Enabled MySQL containers' Security Context
+  enabled: true
+  ## @param containerSecurityContext.runAsUser Set MySQL containers' Security Context runAsUser
+  ## Leave empty to let MySQL entrypoint handle user switching (recommended for initialization)
+  runAsUser: ""
+  ## @param containerSecurityContext.runAsNonRoot Set MySQL containers' Security Context runAsNonRoot
+  ## Set to false to allow root (required for MySQL entrypoint initialization)
+  ## The MySQL entrypoint will switch to mysql user (999) after initialization
+  runAsNonRoot: false
+
+## @section Database Initialization
+
+## Init scripts configuration (runs on first initialization)
+## Scripts are mounted to /docker-entrypoint-initdb.d and executed automatically by MySQL
+## Files are executed in alphabetical order
+initdbScripts: {}
+# Example:
+# initdbScripts:
+#   createdb.sql: |-
+#     CREATE DATABASE IF NOT EXISTS myapp DEFAULT CHARACTER SET utf8 DEFAULT COLLATE utf8_general_ci;
+#     CREATE USER IF NOT EXISTS 'myapp'@'%' IDENTIFIED BY 'myapp_password';
+#     GRANT ALL ON `myapp`.* TO 'myapp'@'%';
+#     FLUSH PRIVILEGES;
+
+## Init job configuration
+initJob:
+  ## @param initJob.enabled Enable database initialization job
+  enabled: false
+  
+  ## @param initJob.annotations Annotations for init job
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  
+  ## @param initJob.databases List of databases to create with users
+  ## Password can be provided in two ways:
+  ##   1. Plain string: password: "mypassword"
+  ##   2. Secret reference: passwordSecretRef: {secretName: "my-secret", secretKey: "password"}
+  databases: []
+  # Example 1: Plain text password (for dev/test)
+  # - name: myapp
+  #   username: myapp
+  #   password: myapp_password
+  # 
+  # Example 2: Secret reference (for production)
+  # - name: production
+  #   username: produser
+  #   passwordSecretRef:
+  #     secretName: prod-db-secret
+  #     secretKey: password
+  #
+  # Example 3: Mixed approach
+  # - name: dev
+  #   username: devuser
+  #   password: devpass
+  # - name: prod
+  #   username: produser
+  #   passwordSecretRef:
+  #     secretName: prod-db-secret
+  #     secretKey: password
+  
+  ## @param initJob.resources Init job resource limits
+  resources:
+    limits:
+      memory: 256Mi
+      cpu: 500m
+    requests:
+      memory: 128Mi
+      cpu: 100m
+
+## @section Pod Disruption Budget
+
+## Pod Disruption Budget configuration
+podDisruptionBudget:
+  ## @param podDisruptionBudget.enabled Enable Pod Disruption Budget
+  enabled: false
+  ## @param podDisruptionBudget.minAvailable Minimum number/percentage of pods that should remain scheduled
+  ## Can be a number (e.g., 1) or percentage (e.g., "50%")
+  minAvailable: ""
+  ## @param podDisruptionBudget.maxUnavailable Maximum number/percentage of pods that may be made unavailable
+  ## Can be a number (e.g., 1) or percentage (e.g., "50%")
+  ## Note: Only one of minAvailable or maxUnavailable can be set
+  maxUnavailable: 1
+
+## @section TLS/SSL Configuration
+
+## TLS/SSL configuration for MySQL connections
+tls:
+  ## @param tls.enabled Enable TLS/SSL for MySQL connections
+  enabled: false
+  ## @param tls.existingSecret Name of existing secret containing TLS certificates
+  ## Expected keys: ca.crt (CA certificate), tls.crt (server certificate), tls.key (server private key)
+  existingSecret: ""
+  ## @param tls.certFilename Certificate filename in the secret (default: tls.crt)
+  certFilename: "tls.crt"
+  ## @param tls.certKeyFilename Certificate key filename in the secret (default: tls.key)
+  certKeyFilename: "tls.key"
+  ## @param tls.certCAFilename CA certificate filename in the secret (default: ca.crt)
+  certCAFilename: "ca.crt"
+  ## @param tls.requireSecureTransport Require secure transport (TLS) for all connections
+  ## If true, non-TLS connections will be rejected
+  requireSecureTransport: false
+
+## @section Network Policy
+
+## Network Policy configuration
+networkPolicy:
+  ## @param networkPolicy.enabled Enable NetworkPolicy
+  enabled: false
+  ## @param networkPolicy.allowExternal Allow external traffic (all pods in namespace)
+  ## If false, only allows traffic from pods with matching labels
+  allowExternal: false
+  ## @param networkPolicy.allowedNamespaces List of namespace selectors allowed to connect
+  ## Example: [{matchLabels: {name: production}}]
+  allowedNamespaces: []
+  ## @param networkPolicy.allowedPods List of pod selectors allowed to connect
+  ## Example: [{matchLabels: {app: myapp}}]
+  allowedPods: []
+  ## @param networkPolicy.extraIngress Additional ingress rules
+  extraIngress: []
+  ## @param networkPolicy.extraEgress Additional egress rules
+  extraEgress: []
+
+## @section Backup Configuration
+
+## Backup job configuration
+backup:
+  ## @param backup.enabled Enable automated MySQL backups
+  enabled: false
+  
+  ## @param backup.schedule Cron schedule for backups (default: daily at 2 AM)
+  schedule: "0 2 * * *"
+  
+  ## @param backup.storage S3-compatible storage configuration (AWS S3, MinIO, etc.)
+  storage:
+    ## @param backup.storage.bucket S3 bucket name
+    bucket: ""
+    ## @param backup.storage.region S3 region (for AWS S3)
+    region: "us-east-1"
+    ## @param backup.storage.endpoint S3 endpoint (for MinIO or custom S3-compatible storage)
+    ## Leave empty for AWS S3, set to MinIO URL for MinIO (e.g., "http://minio:9000")
+    endpoint: ""
+    ## @param backup.storage.prefix S3 prefix/path for backups
+    prefix: "mysql-backups"
+    ## @param backup.storage.existingSecret Existing secret with S3 credentials (access-key-id, secret-access-key)
+    ## Leave empty to use IAM roles (IRSA) - requires serviceAccount with role annotation
+    existingSecret: ""
+  
+  ## @param backup.serviceAccountName ServiceAccount name for backup job
+  ## Use this to specify a ServiceAccount with IAM role annotation for IRSA
+  ## If empty, uses the default MySQL ServiceAccount
+  serviceAccountName: ""
+  
+  ## @param backup.retention Number of backups to keep (0 = unlimited)
+  retention: 7
+  
+  ## @param backup.databases List of databases to backup (empty = all databases)
+  databases: []
+  
+  ## @param backup.resources Backup job resource limits
+  resources:
+    limits:
+      memory: 512Mi
+      cpu: 500m
+    requests:
+      memory: 256Mi
+      cpu: 250m
+  
+  ## @param backup.nodeSelector Node labels for backup pod assignment
+  nodeSelector: {}
+  
+  ## @param backup.tolerations Tolerations for backup pod assignment
+  tolerations: []
+
+## @section Metrics Configuration
+
+## Prometheus metrics exporter configuration
+metrics:
+  ## @param metrics.enabled Enable Prometheus metrics exporter sidecar
+  enabled: false
+  
+  ## MySQL exporter image
+  image:
+    ## @param metrics.image.registry MySQL exporter image registry
+    registry: docker.io
+    ## @param metrics.image.repository MySQL exporter image repository
+    repository: prom/mysqld-exporter
+    ## @param metrics.image.tag MySQL exporter image tag
+    tag: "v0.16.0"
+    ## @param metrics.image.pullPolicy MySQL exporter image pull policy
+    pullPolicy: IfNotPresent
+  
+  ## @param metrics.containerPort MySQL exporter container port
+  containerPort: 9104
+  
+  ## @param metrics.resources MySQL exporter resource requests and limits
+  resources:
+    limits:
+      memory: 128Mi
+      cpu: 100m
+    requests:
+      memory: 64Mi
+      cpu: 50m
+  
+  ## @param metrics.extraArgs Extra arguments for mysqld_exporter
+  ## Example: ["--collect.info_schema.tables", "--collect.info_schema.innodb_metrics"]
+  extraArgs: []
+  
+  ## Prometheus Service Monitor
+  serviceMonitor:
+    ## @param metrics.serviceMonitor.enabled Create ServiceMonitor resource for Prometheus Operator
+    enabled: false
+    ## @param metrics.serviceMonitor.namespace Namespace for the ServiceMonitor (defaults to release namespace)
+    namespace: ""
+    ## @param metrics.serviceMonitor.interval Scrape interval
+    interval: 30s
+    ## @param metrics.serviceMonitor.scrapeTimeout Scrape timeout
+    scrapeTimeout: 10s
+    ## @param metrics.serviceMonitor.labels Additional labels for ServiceMonitor
+    labels: {}
+    ## @param metrics.serviceMonitor.annotations Additional annotations for ServiceMonitor
+    annotations: {}
+    ## @param metrics.serviceMonitor.relabelings RelabelConfigs to apply to samples before scraping
+    relabelings: []
+    ## @param metrics.serviceMonitor.metricRelabelings MetricRelabelConfigs to apply to samples before ingestion
+    metricRelabelings: []
+  
+  ## Prometheus Rules
+  prometheusRule:
+    ## @param metrics.prometheusRule.enabled Create PrometheusRule resource for Prometheus Operator
+    enabled: false
+    ## @param metrics.prometheusRule.namespace Namespace for the PrometheusRule (defaults to release namespace)
+    namespace: ""
+    ## @param metrics.prometheusRule.labels Additional labels for PrometheusRule
+    labels: {}
+    ## @param metrics.prometheusRule.rules PrometheusRule definitions
+    ## Example:
+    ##   - alert: MySQLDown
+    ##     expr: mysql_up == 0
+    ##     for: 5m
+    ##     labels:
+    ##       severity: critical
+    ##     annotations:
+    ##       summary: MySQL is down
+    rules: []
+
+## @section Restore Configuration
+
+## Restore job configuration
+restore:
+  ## @param restore.enabled Enable restore job (one-time operation)
+  enabled: false
+  
+  ## @param restore.backupFile Backup filename to restore (e.g., mysql_backup_20250130_020000.sql.gz)
+  backupFile: ""
+  
+  ## @param restore.storage S3-compatible storage configuration (should match backup.storage)
+  storage:
+    ## @param restore.storage.bucket S3 bucket name
+    bucket: ""
+    ## @param restore.storage.region S3 region
+    region: "us-east-1"
+    ## @param restore.storage.endpoint S3 endpoint (for MinIO or custom S3-compatible storage)
+    endpoint: ""
+    ## @param restore.storage.prefix S3 prefix/path
+    prefix: "mysql-backups"
+    ## @param restore.storage.existingSecret Existing secret with S3 credentials (access-key-id, secret-access-key)
+    ## Leave empty to use IAM roles (IRSA) - requires serviceAccount with role annotation
+    existingSecret: ""
+  
+  ## @param restore.serviceAccountName ServiceAccount name for restore job
+  ## Use this to specify a ServiceAccount with IAM role annotation for IRSA
+  ## If empty, uses the default MySQL ServiceAccount
+  serviceAccountName: ""
+  
+  ## @param restore.resources Restore job resource limits
+  resources:
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+    requests:
+      memory: 512Mi
+      cpu: 500m
+  
+  ## @param restore.nodeSelector Node labels for restore pod assignment
+  nodeSelector: {}
+  
+  ## @param restore.tolerations Tolerations for restore pod assignment
+  tolerations: []
+

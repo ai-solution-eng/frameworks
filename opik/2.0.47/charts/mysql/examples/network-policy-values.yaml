@@ -1,0 +1,62 @@
+# Example: Network Policy configuration
+# Network policies restrict network traffic to/from MySQL pods
+
+networkPolicy:
+  enabled: true
+  
+  # Option 1: Allow all pods in the same namespace
+  allowExternal: true
+  
+  # Option 2: Restrict to specific namespaces
+  # allowExternal: false
+  # allowedNamespaces:
+  #   - matchLabels:
+  #       name: production
+  
+  # Option 3: Restrict to specific pods
+  # allowExternal: false
+  # allowedPods:
+  #   - matchLabels:
+  #       app: myapp
+  #       component: backend
+  
+  # Option 4: Combine namespace and pod selectors
+  # allowExternal: false
+  # allowedNamespaces:
+  #   - matchLabels:
+  #       name: production
+  # allowedPods:
+  #   - matchLabels:
+  #       app: myapp
+  
+  # Option 5: Add custom ingress rules (e.g., for monitoring)
+  # extraIngress:
+  #   - ports:
+  #       - port: 3306
+  #         protocol: TCP
+  #     from:
+  #       - namespaceSelector:
+  #           matchLabels:
+  #             name: monitoring
+  #       - podSelector:
+  #           matchLabels:
+  #             app: prometheus
+  
+  # Option 6: Add custom egress rules (e.g., for backup to S3)
+  # extraEgress:
+  #   - ports:
+  #       - port: 443
+  #         protocol: TCP
+  #     to:
+  #       - namespaceSelector:
+  #           matchLabels:
+  #             name: monitoring
+
+primary:
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# Note: Network policies are enforced by the CNI plugin (e.g., Calico, Cilium)
+# Ensure your cluster supports NetworkPolicy before enabling
+

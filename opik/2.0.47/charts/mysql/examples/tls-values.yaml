@@ -1,0 +1,37 @@
+# Example: TLS/SSL configuration for MySQL
+# This example shows how to enable TLS/SSL for MySQL connections
+
+auth:
+  rootPassword: "mySecureRootPassword"
+
+# TLS/SSL Configuration
+tls:
+  enabled: true
+  
+  # Option 1: Use existing secret (recommended for production)
+  # Create the secret first:
+  # kubectl create secret generic mysql-tls-secret \
+  #   --from-file=ca.crt=./ca.crt \
+  #   --from-file=tls.crt=./server.crt \
+  #   --from-file=tls.key=./server.key
+  existingSecret: "mysql-tls-secret"
+  
+  # Option 2: Custom secret key names (if your secret uses different keys)
+  # certFilename: "server.crt"
+  # certKeyFilename: "server.key"
+  # certCAFilename: "ca.crt"
+  
+  # Require TLS for all connections (optional, default: false)
+  # If true, non-TLS connections will be rejected
+  requireSecureTransport: false
+
+primary:
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# Note: After enabling TLS, clients must connect using:
+# mysql -h <host> -u <user> -p --ssl-mode=REQUIRED
+# or
+# mysql -h <host> -u <user> -p --ssl-ca=ca.crt --ssl-cert=client.crt --ssl-key=client.key
+

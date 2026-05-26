@@ -1,0 +1,100 @@
+## Example: MySQL with Prometheus metrics enabled
+## 
+## This example shows how to enable Prometheus metrics exporter
+## with ServiceMonitor for Prometheus Operator integration.
+
+auth:
+  rootPassword: "my-secure-password"
+  database: "myapp"
+
+## Enable metrics exporter sidecar
+metrics:
+  enabled: true
+  
+  ## MySQL exporter image
+  image:
+    registry: docker.io
+    repository: prom/mysqld-exporter
+    tag: "v0.16.0"
+    pullPolicy: IfNotPresent
+  
+  ## Container port for metrics
+  containerPort: 9104
+  
+  ## Resource limits for exporter
+  resources:
+    limits:
+      memory: 128Mi
+      cpu: 100m
+    requests:
+      memory: 64Mi
+      cpu: 50m
+  
+  ## Extra arguments for mysqld_exporter
+  ## Uncomment to enable additional collectors
+  # extraArgs:
+  #   - "--collect.info_schema.tables"
+  #   - "--collect.info_schema.innodb_metrics"
+  #   - "--collect.global_status"
+  #   - "--collect.global_variables"
+  #   - "--collect.slave_status"
+  #   - "--collect.binlog_size"
+  
+  ## ServiceMonitor for Prometheus Operator
+  serviceMonitor:
+    enabled: true
+    ## Namespace where Prometheus is deployed (leave empty for release namespace)
+    namespace: ""
+    ## Scrape interval
+    interval: 30s
+    ## Scrape timeout
+    scrapeTimeout: 10s
+    ## Additional labels to match Prometheus selector
+    labels:
+      release: prometheus
+    ## Additional annotations
+    annotations: {}
+  
+  ## PrometheusRule for alerting
+  prometheusRule:
+    enabled: true
+    namespace: ""
+    labels:
+      release: prometheus
+    rules:
+      - alert: MySQLDown
+        expr: mysql_up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MySQL instance {{ $labels.instance }} is down"
+          description: "MySQL instance {{ $labels.instance }} has been down for more than 5 minutes."
+      
+      - alert: MySQLTooManyConnections
+        expr: mysql_global_status_threads_connected / mysql_global_variables_max_connections * 100 > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MySQL too many connections on {{ $labels.instance }}"
+          description: "MySQL instance {{ $labels.instance }} has more than 80% of max connections used."
+      
+      - alert: MySQLSlowQueries
+        expr: rate(mysql_global_status_slow_queries[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MySQL slow queries detected on {{ $labels.instance }}"
+          description: "MySQL instance {{ $labels.instance }} is experiencing slow queries."
+      
+      - alert: MySQLReplicationLag
+        expr: mysql_slave_status_seconds_behind_master > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MySQL replication lag on {{ $labels.instance }}"
+          description: "MySQL replica {{ $labels.instance }} is {{ $value }} seconds behind master."
+

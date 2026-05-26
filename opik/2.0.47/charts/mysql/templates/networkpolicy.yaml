@@ -1,0 +1,66 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mysql.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mysql.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+    {{- with .Values.global.commonLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mysql.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: primary
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow MySQL client connections
+    - ports:
+        - port: 3306
+          protocol: TCP
+      {{- if or .Values.networkPolicy.allowExternal (or .Values.networkPolicy.allowedNamespaces .Values.networkPolicy.allowedPods) }}
+      from:
+        {{- if .Values.networkPolicy.allowExternal }}
+        - podSelector:
+            matchLabels: {}
+        {{- end }}
+        {{- if .Values.networkPolicy.allowedNamespaces }}
+        {{- range .Values.networkPolicy.allowedNamespaces }}
+        - namespaceSelector:
+            {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.networkPolicy.allowedPods }}
+        {{- range .Values.networkPolicy.allowedPods }}
+        - podSelector:
+            {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- end }}
+      {{- end }}
+    {{- with .Values.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  egress:
+    # Allow DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+

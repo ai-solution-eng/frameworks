@@ -1,0 +1,14 @@
+# MySQL configuration using an existing PVC
+# Useful for migrations from Bitnami MySQL or other MySQL charts
+# Usage: helm install my-mysql ./ -f examples/existing-pvc-values.yaml
+
+auth:
+  rootPassword: "mySecurePassword123"
+  database: "myapp"
+
+primary:
+  persistence:
+    enabled: true
+    # Use an existing PVC instead of creating a new one
+    existingClaim: "data-my-old-mysql-0"
+

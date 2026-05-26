@@ -1,0 +1,195 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "minio.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "minio.labels" . | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations:
+    {{- include "minio.annotations" . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount | default 1 }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "minio.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- $annotations := merge .Values.podAnnotations .Values.commonAnnotations }}
+      {{- with $annotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "minio.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+{{- with (include "minio.imagePullSecrets" .) }}
+{{ . | nindent 6 }}
+{{- end }}
+      serviceAccountName: {{ template "minio.serviceAccountName" . }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+      {{- if .Values.podSecurityContext }}
+      securityContext: {{ include "cloudpirates.renderPodSecurityContext" . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- if .Values.containerSecurityContext }}
+          securityContext: {{ include "cloudpirates.renderContainerSecurityContext" . | nindent 12 }}
+          {{- end }}
+          image: {{ include "minio.image" . }}
+          imagePullPolicy: {{ .Values.image.imagePullPolicy }}
+          command: ["/bin/sh"]
+          args:
+            - -c
+            - |
+              mkdir -p {{ .Values.persistence.mountPath }}
+              exec minio server {{ .Values.persistence.mountPath }} {{ include "minio.serverUrl" . }}
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "minio.secretName" . }}
+                  key: {{ include "minio.rootUser" . }}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "minio.secretName" . }}
+                  key: {{ include "minio.rootPasswordKey" . }}
+            {{- if .Values.config.region }}
+            - name: MINIO_REGION
+              value: {{ .Values.config.region | quote }}
+            {{- end }}
+            {{- if not .Values.config.browserEnabled }}
+            - name: MINIO_BROWSER
+              value: "off"
+            {{- end }}
+            {{- if .Values.config.domain }}
+            - name: MINIO_DOMAIN
+              value: {{ .Values.config.domain | quote }}
+            {{- end }}
+            {{- if .Values.config.serverUrl }}
+            - name: MINIO_SERVER_URL
+              value: {{ .Values.config.serverUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.minioOpts }}
+            - name: MINIO_OPTS
+              value: {{ .Values.config.minioOpts | quote }}
+            {{- end }}
+            {{- if .Values.config.minioVolumes }}
+            - name: MINIO_VOLUMES
+              value: {{ .Values.config.minioVolumes | quote }}
+            {{- end }}
+            {{- if .Values.config.minioConfigEnvFile }}
+            - name: MINIO_CONFIG_ENV_FILE
+              value: {{ .Values.config.minioConfigEnvFile | quote }}
+            {{- end }}
+            {{- if .Values.config.minioScannerSpeed }}
+            - name: MINIO_SCANNER_SPEED
+              value: {{ .Values.config.minioScannerSpeed | quote }}
+            {{- end }}
+            {{- if .Values.config.minioCompressionEnabled }}
+            - name: MINIO_COMPRESSION_ENABLE
+              value: {{ .Values.config.minioCompressionEnabled | quote }}
+            {{- end }}
+            {{- if and .Values.config.minioCompressionEnabled .Values.config.minioCompressionAllowEncryption }}
+            - name: MINIO_COMPRESSION_ALLOW_ENCRYPTION
+              value: {{ .Values.config.minioCompressionAllowEncryption | quote }}
+            {{- end }}
+            {{- if and .Values.config.minioCompressionEnabled .Values.config.minioCompressionExtensions }}
+            - name: MINIO_COMPRESSION_EXTENSIONS
+              value: {{ .Values.config.minioCompressionExtensions | quote }}
+            {{- end }}
+            {{- if and .Values.config.minioCompressionEnabled .Values.config.minioCompressionMimeTypes }}
+            - name: MINIO_COMPRESSION_MIME_TYPES
+              value: {{ .Values.config.minioCompressionMimeTypes | quote }}
+            {{- end }}
+
+            {{- with .Values.config.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: minio
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            - name: console
+              containerPort: {{ .Values.service.consolePort }}
+              protocol: TCP
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: minio
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: minio
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: /minio/health/live
+              port: minio
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.startupProbe.successThreshold }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.resources }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            {{- if .Values.persistence.existingClaim }}
+            claimName: {{ .Values.persistence.existingClaim }}
+            {{- else }}
+            claimName: {{ include "minio.fullname" . }}
+            {{- end }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

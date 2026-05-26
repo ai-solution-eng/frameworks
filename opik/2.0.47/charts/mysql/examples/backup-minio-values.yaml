@@ -1,0 +1,47 @@
+# MySQL configuration with automated backups to MinIO
+# Backups will run daily at 2 AM and upload to MinIO (S3-compatible storage)
+# Prerequisites: Create MinIO credentials secret
+#   kubectl create secret generic minio-credentials \
+#     --from-literal=access-key-id=minioadmin \
+#     --from-literal=secret-access-key=minioadmin
+#
+# Usage: helm install my-mysql ./ -f examples/backup-minio-values.yaml
+
+fullnameOverride: "my-mysql"
+
+auth:
+  rootPassword: "mySecurePassword"
+  database: "myapp"
+
+# Enable automated backups
+backup:
+  enabled: true
+  
+  # Daily at 2 AM
+  schedule: "0 2 * * *"
+  
+  # Store backups in MinIO
+  storage:
+    bucket: "mysql-backups"
+    region: "us-east-1"  # MinIO doesn't use regions, but AWS CLI requires it
+    prefix: "backups"
+    # MinIO endpoint (required for S3-compatible storage)
+    endpoint: "http://minio:9000"
+    existingSecret: "minio-credentials"
+  
+  # Keep last 7 backups
+  retention: 7
+  
+  # Backup all databases
+  databases: []
+
+primary:
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# Note: MinIO endpoint examples:
+# - In-cluster MinIO: http://minio:9000
+# - External MinIO: https://minio.example.com
+# - MinIO with custom port: http://minio.example.com:9000
+

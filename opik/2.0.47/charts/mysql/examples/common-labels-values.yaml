@@ -1,0 +1,40 @@
+# Example: Using global common labels
+# This demonstrates adding custom labels to all resources and pods
+
+# Global common labels applied to all resources
+global:
+  commonLabels:
+    environment: production
+    team: platform
+    cost-center: engineering
+    managed-by: helm
+    monitoring: prometheus
+
+# MySQL configuration (customize as needed)
+auth:
+  rootPassword: "changeme"
+  database: "myapp"
+
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: "gp3"
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "250m"
+  limits:
+    memory: "2Gi"
+    cpu: "1000m"
+
+# Common labels will be added to:
+# - StatefulSet metadata and pod template
+# - Service
+# - ConfigMap
+# - Secret
+# - ServiceAccount
+# - Init Job (if enabled)
+# - Backup CronJob (if enabled)
+# - Restore Job (if enabled)
+

@@ -1,0 +1,23 @@
+{{- if and .Values.sentinel.enabled (eq .Values.architecture "replication") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "redis.fullname" . }}-sentinel
+  namespace: {{ include "cloudpirates.namespace" . }}
+  labels:
+    {{- include "redis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sentinel
+  {{- if (include "redis.annotations" .) }}
+  annotations:
+{{- include "cloudpirates.tplvalues.render" (dict "value" (include "redis.annotations" .) "context" .) | indent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.sentinel.service.type }}
+  ports:
+    - port: {{ .Values.sentinel.service.port }}
+      targetPort: sentinel
+      protocol: TCP
+      name: sentinel
+  selector:
+    {{- include "redis.selectorLabels" . | nindent 4 }}
+{{- end }}

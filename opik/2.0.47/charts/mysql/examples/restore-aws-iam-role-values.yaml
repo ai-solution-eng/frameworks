@@ -1,0 +1,42 @@
+# Example: Restore from AWS S3 using IAM Role (IRSA)
+# This configuration uses IAM Roles for Service Accounts (IRSA)
+# instead of static access keys for better security
+
+# Create a ServiceAccount with IAM role annotation
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/mysql-backup-role"
+
+restore:
+  enabled: true
+  backupFile: "mysql_backup_20250130_020000.sql.gz"  # Replace with actual backup file
+  
+  # Use the ServiceAccount with IAM role
+  serviceAccountName: ""  # Empty = use default MySQL ServiceAccount
+  
+  storage:
+    bucket: "my-mysql-backups"
+    region: "us-east-1"
+    prefix: "mysql-backups"
+    endpoint: ""  # Empty for AWS S3
+    existingSecret: ""  # Empty = use IAM role instead of static credentials
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+# MySQL configuration (must match the original backup)
+auth:
+  rootPassword: "changeme"
+  database: "myapp"
+
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: "gp3"
+

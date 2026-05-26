@@ -1,0 +1,138 @@
+{{- if .Values.backup.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "mysql.fullname" . }}-backup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mysql.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "mysql.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+            {{- with .Values.global.commonLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ .Values.backup.serviceAccountName | default (include "mysql.serviceAccountName" .) }}
+          {{- with .Values.image.pullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: mysql-backup
+              image: {{ include "mysql.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -e
+                  
+                  BACKUP_DIR="/tmp/backup"
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  BACKUP_FILE="mysql_backup_${TIMESTAMP}.sql.gz"
+                  
+                  echo "Starting MySQL backup at $(date)"
+                  echo "Backup file: ${BACKUP_FILE}"
+                  echo "S3 Bucket: {{ .Values.backup.storage.bucket }}/{{ .Values.backup.storage.prefix }}"
+                  
+                  # Create temporary backup directory
+                  mkdir -p ${BACKUP_DIR}
+                  
+                  # Set backup scope
+                  {{- if .Values.backup.databases }}
+                  DB_SCOPE="--databases {{ join " " .Values.backup.databases }}"
+                  echo "Backing up specific databases: {{ join ", " .Values.backup.databases }}"
+                  {{- else }}
+                  DB_SCOPE="--all-databases"
+                  echo "Backing up all databases"
+                  {{- end }}
+                  
+                  # Perform backup
+                  mysqldump -h {{ include "mysql.fullname" . }} \
+                    -u root \
+                    -p${MYSQL_ROOT_PASSWORD} \
+                    --single-transaction \
+                    --quick \
+                    --lock-tables=false \
+                    ${DB_SCOPE} \
+                    | gzip > ${BACKUP_DIR}/${BACKUP_FILE}
+                  
+                  BACKUP_SIZE=$(du -h ${BACKUP_DIR}/${BACKUP_FILE} | cut -f1)
+                  echo "✅ Backup completed successfully!"
+                  echo "Backup size: ${BACKUP_SIZE}"
+                  
+                  # Set S3 endpoint option
+                  {{- if .Values.backup.storage.endpoint }}
+                  S3_ENDPOINT="--endpoint-url {{ .Values.backup.storage.endpoint }}"
+                  {{- else }}
+                  S3_ENDPOINT=""
+                  {{- end }}
+                  
+                  # Upload to S3-compatible storage
+                  echo "Uploading backup to S3..."
+                  aws s3 cp ${BACKUP_DIR}/${BACKUP_FILE} \
+                    s3://{{ .Values.backup.storage.bucket }}/{{ .Values.backup.storage.prefix }}/${BACKUP_FILE} \
+                    ${S3_ENDPOINT} \
+                    --region {{ .Values.backup.storage.region }}
+                  echo "✅ Backup uploaded successfully!"
+                  
+                  # Cleanup old backups (retention)
+                  {{- if gt (.Values.backup.retention | int) 0 }}
+                  echo "Cleaning up old backups (keeping last {{ .Values.backup.retention }})"
+                  aws s3 ls s3://{{ .Values.backup.storage.bucket }}/{{ .Values.backup.storage.prefix }}/ \
+                    ${S3_ENDPOINT} \
+                    | grep mysql_backup_ \
+                    | sort -r \
+                    | tail -n +{{ add1 .Values.backup.retention }} \
+                    | awk '{print $4}' \
+                    | xargs -I {} aws s3 rm s3://{{ .Values.backup.storage.bucket }}/{{ .Values.backup.storage.prefix }}/{} \
+                      ${S3_ENDPOINT}
+                  {{- end }}
+                  
+                  echo "Backup completed at $(date)"
+              env:
+                - name: MYSQL_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "mysql.secretName" . }}
+                      key: mysql-root-password
+                {{- if .Values.backup.storage.existingSecret }}
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.storage.existingSecret }}
+                      key: access-key-id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.storage.existingSecret }}
+                      key: secret-access-key
+                {{- end }}
+              {{- with .Values.backup.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+          {{- with .Values.backup.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backup.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
+

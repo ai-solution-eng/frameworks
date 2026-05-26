@@ -1,0 +1,55 @@
+name: Lint MySQL Helm Chart
+run-name: "Lint Helm Chart ${{ github.ref_name }} by @${{ github.actor }}"
+
+on:
+  pull_request:
+    branches: ['main']
+  push:
+    branches: ['main']
+    paths-ignore:
+      - '.github/**'
+      - 'README.*'
+      - '.gitignore'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+        - name: Checkout
+          uses: actions/checkout@v4.1.1
+
+        - name: Run lint on Helm chart
+          run: |
+              # No dependencies to add for MySQL chart (self-contained)
+              echo "Linting with all example configurations..."
+              
+              # Lint with default values.yaml
+              echo "Linting with default values.yaml..."
+              helm lint --values values.yaml .
+              
+              # Lint with all example files
+              for example in examples/*.yaml; do
+                if [ -f "$example" ]; then
+                  echo "Linting with $(basename $example)..."
+                  helm lint --values "$example" .
+                fi
+              done
+              
+              echo "✅ All lint checks passed!"
+
+        - name: Test Helm template rendering
+          run: |
+              echo "Testing default values..."
+              helm template test-mysql . --dry-run > /dev/null
+              
+              # Test rendering with all example files
+              for example in examples/*.yaml; do
+                if [ -f "$example" ]; then
+                  echo "Testing $(basename $example)..."
+                  helm template test-mysql . -f "$example" --dry-run > /dev/null
+                fi
+              done
+              
+              echo "✅ All templates rendered successfully!"
+

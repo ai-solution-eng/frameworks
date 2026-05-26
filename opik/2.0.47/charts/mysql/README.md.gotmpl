@@ -1,0 +1,403 @@
+MySQL Helm Chart
+
+{{- $chartFile := .Files.Get "Chart.yaml" }}
+{{- if $chartFile }}
+{{- $chart := fromYaml $chartFile }}
+
+![Version: {{ $chart.version }}](https://img.shields.io/badge/Version-{{ $chart.version }}-informational?style=flat-square) ![Type: {{ $chart.type }}](https://img.shields.io/badge/Type-{{ $chart.type }}-informational?style=flat-square) ![AppVersion: {{ $chart.appVersion }}](https://img.shields.io/badge/AppVersion-{{ $chart.appVersion }}-informational?style=flat-square)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/comet-mysql-helm)](https://artifacthub.io/packages/search?repo=comet-mysql-helm)
+
+{{- end }}
+
+{{ template "chart.description" . }}
+
+## Features
+
+- **Official MySQL Images**: Uses `docker.io/mysql:8.4.2`
+- **Standalone Mode**: Simple single-instance deployment
+- **Persistent Storage**: StatefulSet with PVC support (default 20Gi)
+- **Configurable**: Customizable MySQL configuration
+- **Secure**: Kubernetes secrets for passwords
+- **Production Ready**: Resource limits, health checks, security contexts
+- **Database Initialization**: Automated database and user creation (optional)
+- **Automated Backups**: Scheduled backups to S3-compatible storage (optional)
+- **Restore Operations**: One-time restore from S3-compatible storage (optional)
+- **Global Labels**: Common labels support for all resources
+
+## Prerequisites
+
+- Kubernetes 1.19+
+- Helm 3.0+
+- PV provisioner support (if persistence is enabled)
+
+## Installation
+
+### Method 1: Helm Repository (Recommended)
+
+Add the repository to your Helm configuration:
+
+```bash
+helm repo add mysql https://comet-ml.github.io/comet-mysql-helm/
+helm repo update
+```
+
+Then install using the repository:
+
+```bash
+# Basic installation
+helm install my-mysql mysql/mysql
+
+# With custom values
+helm install my-mysql mysql/mysql \
+  --set auth.rootPassword=mypassword \
+  --set auth.database=mydb \
+  --set primary.persistence.size=50Gi
+
+# Using a values file
+helm install my-mysql mysql/mysql -f my-values.yaml
+```
+
+### Method 2: Local Chart
+
+Clone the repository and install directly:
+
+```bash
+git clone https://github.com/comet-ml/comet-mysql-helm.git
+cd comet-mysql-helm
+helm install my-mysql ./
+```
+
+## Using as a Dependency
+
+To use this chart as a dependency in another Helm chart, add it to your `Chart.yaml`:
+
+```yaml
+dependencies:
+  - name: mysql
+    version: "{{- $cf := .Files.Get "Chart.yaml" }}{{- if $cf }}{{- $c := fromYaml $cf }}{{ $c.version }}{{- else }}0.1.7{{- end }}"
+    repository: "https://comet-ml.github.io/comet-mysql-helm/"
+    condition: mysql.enabled
+```
+
+Then run:
+
+```bash
+helm repo add mysql https://comet-ml.github.io/comet-mysql-helm/
+helm dependency update
+helm install my-app .
+```
+
+## Examples
+
+See the `examples/` directory for complete example configurations:
+
+- **Basic**: `simple-values.yaml`
+- **Persistence**: `existing-pvc-values.yaml`
+- **Configuration**: `extra-args-values.yaml` (command-line arguments)
+- **Initialization**: `initdb-scripts-values.yaml` (SQL scripts), `init-job-mixed-values.yaml`, `init-job-secretref-values.yaml`
+- **Availability**: `pdb-values.yaml` (Pod Disruption Budget)
+- **Security**: `network-policy-values.yaml` (Network Policy), `tls-values.yaml` (TLS/SSL)
+- **Backups**: `backup-aws-s3-values.yaml`, `backup-aws-iam-role-values.yaml`, `backup-minio-values.yaml`
+- **Restore**: `restore-aws-s3-values.yaml`, `restore-aws-iam-role-values.yaml`, `restore-minio-values.yaml`
+- **Complete Setup**: `complete-setup-values.yaml`
+- **Labels**: `common-labels-values.yaml`
+
+## Advanced Features
+
+### Database Initialization
+
+The chart supports two methods for database initialization:
+
+#### Method 1: Init Scripts (initdbScripts)
+
+SQL scripts that run automatically on first initialization (Bitnami-style):
+
+```yaml
+initdbScripts:
+  createdb.sql: |-
+    CREATE DATABASE IF NOT EXISTS myapp 
+      DEFAULT CHARACTER SET utf8 
+      DEFAULT COLLATE utf8_general_ci;
+    CREATE USER IF NOT EXISTS 'myapp'@'%' IDENTIFIED BY 'myapp_password';
+    GRANT ALL ON `myapp`.* TO 'myapp'@'%';
+    FLUSH PRIVILEGES;
+```
+
+**Characteristics:**
+- Runs automatically on first initialization only
+- Scripts execute in alphabetical order
+- Mounted to `/docker-entrypoint-initdb.d` (MySQL standard)
+- Only runs when data directory is empty
+
+#### Method 2: Init Job (Helm Hook)
+
+Flexible init job that runs after MySQL is ready:
+
+```yaml
+initJob:
+  enabled: true
+  databases:
+    - name: myapp
+      username: myapp
+      password: myapp_password  # or use passwordSecretRef
+    - name: production
+      username: produser
+      passwordSecretRef:
+        secretName: prod-db-secret
+        secretKey: password
+```
+
+**Characteristics:**
+- Runs as Helm post-install/post-upgrade hook
+- Supports both plain text passwords and secret references
+- Runs every time (can be idempotent with IF NOT EXISTS)
+- More flexible for dynamic configurations
+
+**You can use both methods together** - initdbScripts run first, then initJob runs after.
+
+```yaml
+initJob:
+  enabled: true
+  databases:
+    - name: myapp
+      username: myapp
+      password: myapp_password  # or use passwordSecretRef
+    - name: production
+      username: produser
+      passwordSecretRef:
+        secretName: prod-db-secret
+        secretKey: password
+```
+
+### MySQL Command-Line Arguments
+
+You can pass additional command-line arguments to MySQL in two ways:
+
+#### Method 1: Using `primary.extraFlags` (Appends to Configuration)
+
+The `extraFlags` property automatically converts command-line flags to MySQL configuration format and **appends** them to the existing configuration (default or custom):
+
+```yaml
+primary:
+  extraFlags: "--max-connections=500 --max-allowed-packet=64M --log-bin-trust-function-creators=1 --thread-stack=256K"
+```
+
+**Benefits:**
+- Flags are automatically converted to `my.cnf` format
+- **Appends** to the default configuration (or your custom `primary.configuration`)
+
+#### Method 2: Direct Configuration (Complete Override)
+
+You can provide a complete MySQL configuration that **replaces** the default:
+
+```yaml
+primary:
+  configuration: |-
+    [mysqld]
+    authentication_policy='* ,,'
+    skip-name-resolve
+    port=3306
+    datadir=/var/lib/mysql
+    max-connections=500
+    max-allowed-packet=64M
+    log-bin-trust-function-creators=1
+    thread-stack=256K
+```
+
+**Use cases:**
+- Complete control over the MySQL configuration
+- When you need to override the entire default configuration
+- Custom configurations that differ significantly from defaults
+
+**Note:** 
+- `primary.extraFlags` **appends** flags to the existing configuration (default or custom)
+- `primary.configuration` **completely replaces** the default configuration
+- You can use both together: `primary.configuration` provides the base config, and `primary.extraFlags` adds additional flags on top
+
+See `examples/extra-args-values.yaml` for a complete example.
+
+### Automated Backups
+
+Schedule regular backups to S3-compatible storage (AWS S3, MinIO, etc.):
+
+```yaml
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  storage:
+    bucket: "my-backups"
+    region: "us-east-1"
+    prefix: "mysql-backups"
+    endpoint: ""  # Empty for AWS S3, or "http://minio:9000" for MinIO
+    existingSecret: "aws-s3-credentials"  # Optional - use IAM role if empty
+  retention: 7
+  databases: []  # Empty = all databases
+```
+
+### Restore from Backup
+
+One-time restore operation:
+
+```yaml
+restore:
+  enabled: true
+  backupFile: "mysql_backup_20250130_020000.sql.gz"
+  storage:
+    bucket: "my-backups"
+    region: "us-east-1"
+    prefix: "mysql-backups"
+    existingSecret: "aws-s3-credentials"
+```
+
+### Pod Disruption Budget
+
+Protect MySQL from voluntary disruptions (node drains, pod evictions):
+
+```yaml
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1  # Keep at least 1 pod available (for single replica)
+  # OR
+  # maxUnavailable: 0  # Prevent any disruption
+```
+
+### Network Policy
+
+Restrict network traffic to/from MySQL pods:
+
+```yaml
+networkPolicy:
+  enabled: true
+  allowExternal: true  # Allow all pods in namespace
+  # OR restrict to specific namespaces/pods:
+  # allowExternal: false
+  # allowedNamespaces:
+  #   - matchLabels:
+  #       name: production
+  # allowedPods:
+  #   - matchLabels:
+  #       app: myapp
+```
+
+## Connecting to MySQL
+
+### From Within the Cluster
+
+```bash
+mysql -h <release-name>-mysql -u root -p
+```
+
+### Port Forward (for local development)
+
+```bash
+kubectl port-forward svc/<release-name>-mysql 3306:3306
+mysql -h 127.0.0.1 -P 3306 -u root -p
+```
+
+## Upgrading
+
+### From Helm Repository
+
+```bash
+helm repo update
+helm upgrade my-mysql mysql/mysql -f values.yaml
+```
+
+### From Local Chart
+
+```bash
+helm upgrade my-mysql ./ -f values.yaml
+```
+
+## Migrate from Bitnami MySQL
+
+When migrating from Bitnami MySQL chart to this custom MySQL chart:
+
+1. **Set dataDir to Bitnami's path** in your values:
+
+```yaml
+primary:
+  dataDir: /bitnami/mysql/data
+```
+
+2. **Delete the MySQL StatefulSet before upgrading** (PVCs are preserved):
+
+```bash
+kubectl delete statefulset <release-name>-mysql --cascade=orphan
+```
+
+This allows Helm to recreate the StatefulSet with the new chart while reusing the existing PVC and data.
+
+**Note**: The volume will be mounted at `/bitnami/mysql` (base folder), and MySQL will use `/bitnami/mysql/data` as its datadir, matching Bitnami's structure.
+
+## Uninstalling
+
+```bash
+helm uninstall my-mysql
+```
+
+**Note**: This removes all Kubernetes components but **does not delete PVCs** by default. To delete PVCs:
+
+```bash
+kubectl delete pvc -l app.kubernetes.io/name=mysql
+```
+
+## Troubleshooting
+
+### Check Pod Status
+
+```bash
+kubectl get pods -l app.kubernetes.io/name=mysql
+kubectl describe pod <pod-name>
+kubectl logs <pod-name>
+```
+
+### Check PVC
+
+```bash
+kubectl get pvc
+kubectl describe pvc data-<release-name>-mysql-0
+```
+
+### Connect to MySQL Pod
+
+```bash
+kubectl exec -it <pod-name> -- /bin/bash
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────┐
+│         Service (ClusterIP)         │
+│      <release-name>-mysql:3306      │
+└─────────────────┬───────────────────┘
+                  │
+┌─────────────────▼───────────────────┐
+│         StatefulSet (Primary)        │
+│      <release-name>-mysql-0         │
+│  - MySQL 8.4.2 (Official Image)     │
+│  - Port 3306                         │
+│  - Health Checks                     │
+│  - Resource Limits                   │
+└─────────────────┬───────────────────┘
+                  │
+┌─────────────────▼───────────────────┐
+│      PersistentVolumeClaim          │
+│   data-<release-name>-mysql-0       │
+│  - /var/lib/mysql                    │
+│  - Size: 20Gi (default)              │
+│  - Storage Class: configurable       │
+└─────────────────────────────────────┘
+```
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}
+
+## License
+
+This chart is provided as-is.
+
+{{ template "helm-docs.versionFooter" . }}
+

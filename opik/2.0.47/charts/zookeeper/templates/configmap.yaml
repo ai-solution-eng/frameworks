@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zookeeper.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "zookeeper.labels" . | nindent 4 }}
+  {{- with (include "zookeeper.annotations" .) }}
+  annotations: 
+{{- . | indent 4 }}
+  {{- end }}
+data:
+  zoo.cfg: |
+    tickTime={{ .Values.zookeeperConfig.tickTime | default 2000 }}
+    dataDir={{ .Values.persistence.dataDir | default .Values.persistence.mountPath | default "/data" }}
+    initLimit={{ .Values.zookeeperConfig.initLimit | default 10 }}
+    syncLimit={{ .Values.zookeeperConfig.syncLimit | default 5 }}
+    clientPort={{ .Values.service.ports.client | default 2181 }}
+    electionPortBindRetry={{ .Values.zookeeperConfig.electionPortBindRetry | default 10 }}
+    maxClientCnxns={{ .Values.zookeeperConfig.maxClientCnxns | default 60 }}
+    #standaloneEnabled={{ .Values.zookeeperConfig.standaloneEnabled | default "false" }}
+    {{- if eq .Values.zookeeperConfig.admin.enableServer "true" }}
+    admin.enableServer={{ .Values.zookeeperConfig.admin.enableServer | default "false" }}
+    admin.serverPort={{ .Values.zookeeperConfig.admin.serverPort | default 8080 }}
+    admin.serverAddress={{ .Values.zookeeperConfig.admin.serverAddress | default "0.0.0.0" }}
+    admin.idleTimeout={{ .Values.zookeeperConfig.admin.idleTimeout | default 30000 }}
+    admin.commandUrl={{ .Values.zookeeperConfig.admin.commandUrl | default "/commands" }}
+    {{- end }}
+    4lw.commands.whitelist={{ .Values.zookeeperConfig.commandsWhitelist | default "srvr" }}
+    autopurge.purgeInterval={{ .Values.zookeeperConfig.autopurge.purgeInterval | default 24 }}
+    autopurge.snapRetainCount={{ .Values.zookeeperConfig.autopurge.snapRetainCount | default 3 }}
+    quorumListenOnAllIPs=true
+    {{- if .Values.metrics.enabled }}
+    metricsProvider.className=org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider
+    metricsProvider.httpHost=0.0.0.0
+    metricsProvider.httpPort={{ .Values.metrics.service.port | default 7000 }}
+    metricsProvider.exportJvmInfo=true
+    {{- end }}
+    {{- /* Add a line for each server in the ensemble */}}
+    {{- include "zookeeper.servers" . | nindent 4 }}

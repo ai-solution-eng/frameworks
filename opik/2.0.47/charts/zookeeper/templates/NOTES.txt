@@ -1,0 +1,17 @@
+ZooKeeper has been deployed!
+
+**Connect to your ZooKeeper cluster:**
+
+  kubectl run zk-client --rm --tty -i --restart='Never' \
+    --image bitnami/zookeeper:3.9.2-debian-11-r0 -- bash
+
+  # Inside the pod:
+  zkCli.sh -server {{ include "zookeeper.fullname" . }}:{{ .Values.service.ports.client }}
+
+**To upgrade this release:**
+
+  helm upgrade <RELEASE_NAME> ./charts/zookeeper
+
+**To uninstall/delete the release:**
+
+  helm delete <RELEASE_NAME>

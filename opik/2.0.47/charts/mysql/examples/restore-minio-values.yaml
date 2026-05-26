@@ -1,0 +1,44 @@
+# MySQL configuration with restore from MinIO backup
+# This is a one-time operation to restore from MinIO
+# Prerequisites: Create MinIO credentials secret
+#   kubectl create secret generic minio-credentials \
+#     --from-literal=access-key-id=minioadmin \
+#     --from-literal=secret-access-key=minioadmin
+#
+# Usage: helm install my-mysql ./ -f examples/restore-minio-values.yaml
+
+fullnameOverride: "my-mysql"
+
+auth:
+  rootPassword: "mySecurePassword"
+  database: "myapp"
+
+# Enable restore job (one-time operation)
+restore:
+  enabled: true
+  
+  # Specify the backup file to restore
+  backupFile: "mysql_backup_20250130_020000.sql.gz"
+  
+  # Storage configuration (should match backup storage)
+  storage:
+    bucket: "mysql-backups"
+    region: "us-east-1"  # Required by AWS CLI, but MinIO doesn't use it
+    prefix: "backups"
+    endpoint: "http://minio:9000"  # MinIO endpoint
+    existingSecret: "minio-credentials"
+
+primary:
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: "gp3-csi-ext4"
+
+# Note: 
+# 1. The restore job will download from MinIO and restore
+# 2. Set restore.enabled=false after first successful restore
+# 3. Or upgrade without restore configuration
+# 4. MinIO endpoint examples:
+#    - In-cluster: http://minio:9000
+#    - External: https://minio.example.com
+

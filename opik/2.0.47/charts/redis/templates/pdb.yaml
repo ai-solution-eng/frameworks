@@ -1,0 +1,23 @@
+{{- if .Values.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "redis.fullname" . }}
+  namespace: {{ include "cloudpirates.namespace" . }}
+  labels:
+    {{- include "redis.labels" . | nindent 4 }}
+  {{- if (include "redis.annotations" .) }}
+  annotations:
+{{- include "cloudpirates.tplvalues.render" (dict "value" (include "redis.annotations" .) "context" .) | indent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.pdb.minAvailable }}
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  {{- end }}
+  {{- if .Values.pdb.maxUnavailable }}
+  maxUnavailable: {{ .Values.pdb.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "redis.selectorLabels" . | nindent 6 }}
+{{- end }}

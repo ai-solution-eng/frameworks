@@ -1,0 +1,45 @@
+# Example: Using initdbScripts (Bitnami-style initialization)
+# Scripts are executed automatically by MySQL on first initialization
+# Files are executed in alphabetical order
+
+auth:
+  rootPassword: "mySecureRootPassword"
+
+# Init scripts (runs on first initialization only)
+initdbScripts:
+  # Script 1: Create database and user
+  createdb.sql: |-
+    CREATE DATABASE IF NOT EXISTS myapp 
+      DEFAULT CHARACTER SET utf8 
+      DEFAULT COLLATE utf8_general_ci;
+    
+    CREATE USER IF NOT EXISTS 'myapp'@'%' IDENTIFIED BY 'myapp_password';
+    GRANT ALL PRIVILEGES ON myapp.* TO 'myapp'@'%';
+    FLUSH PRIVILEGES;
+  
+  # Script 2: Create additional database
+  # Note: Files are executed in alphabetical order
+  02-create-prod-db.sql: |-
+    CREATE DATABASE IF NOT EXISTS production 
+      DEFAULT CHARACTER SET utf8mb4 
+      DEFAULT COLLATE utf8mb4_unicode_ci;
+    
+    CREATE USER IF NOT EXISTS 'produser'@'%' IDENTIFIED BY 'prod_password';
+    GRANT ALL PRIVILEGES ON production.* TO 'produser'@'%';
+    FLUSH PRIVILEGES;
+  
+  # Script 3: Additional setup (runs last due to alphabetical order)
+  03-setup-extensions.sql: |-
+    -- Example: Set up any additional configuration
+    SET GLOBAL max_connections = 200;
+    SET GLOBAL max_allowed_packet = 64M;
+
+primary:
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# Note: initdbScripts run automatically on first initialization
+# They only run when the data directory is empty
+# For existing databases, use initJob instead
+

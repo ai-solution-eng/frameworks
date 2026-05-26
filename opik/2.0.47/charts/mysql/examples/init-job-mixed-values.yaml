@@ -1,0 +1,49 @@
+# MySQL configuration with database initialization using MIXED password methods
+# This example demonstrates using both plain text passwords and secret references
+# 
+# Use plain text passwords for:
+#   - Development/test databases
+#   - Non-sensitive data
+#   - Quick setup
+#
+# Use secret references for:
+#   - Production databases
+#   - Sensitive data
+#   - Compliance requirements
+#
+# Prerequisites for production databases:
+#   kubectl create secret generic prod-db-secret --from-literal=password=prod_secure_password
+#
+# Usage: helm install my-mysql ./ -f examples/init-job-mixed-values.yaml
+
+fullnameOverride: "my-mysql"
+
+auth:
+  rootPassword: "mySecureRootPassword"
+
+# Enable init job with mixed password methods
+initJob:
+  enabled: true
+  databases:
+    # Development database - plain text password (OK for dev)
+    - name: myapp_dev
+      username: myapp_dev
+      password: myapp_dev_password
+    
+    # Test database - plain text password (OK for test)
+    - name: myapp_test
+      username: myapp_test
+      password: myapp_test_password
+    
+    # Production database - secret reference (secure)
+    - name: production
+      username: produser
+      passwordSecretRef:
+        secretName: prod-db-secret
+        secretKey: password
+
+primary:
+  persistence:
+    enabled: true
+    size: 20Gi
+

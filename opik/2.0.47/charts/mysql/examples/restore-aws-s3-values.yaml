@@ -1,0 +1,41 @@
+# MySQL configuration with restore from AWS S3 backup
+# This is a one-time operation to restore from a previous backup
+# Prerequisites: Create AWS credentials secret (should be same as backup)
+#   kubectl create secret generic aws-s3-credentials \
+#     --from-literal=access-key-id=AKIA... \
+#     --from-literal=secret-access-key=wJal...
+#
+# Usage: helm install my-mysql ./ -f examples/restore-aws-s3-values.yaml
+
+fullnameOverride: "my-mysql"
+
+auth:
+  rootPassword: "mySecurePassword"
+  database: "myapp"
+
+# Enable restore job (one-time operation)
+restore:
+  enabled: true
+  
+  # Specify the backup file to restore
+  backupFile: "mysql_backup_20250130_020000.sql.gz"
+  
+  # Storage configuration (should match backup storage)
+  storage:
+    bucket: "my-mysql-backups"
+    region: "us-east-1"
+    prefix: "mysql-backups"
+    endpoint: ""  # Empty for AWS S3
+    existingSecret: "aws-s3-credentials"
+
+primary:
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: "gp3-csi-ext4"
+
+# Note: 
+# 1. The restore job will download from S3 and restore
+# 2. Set restore.enabled=false after first successful restore
+# 3. Or upgrade without restore configuration
+

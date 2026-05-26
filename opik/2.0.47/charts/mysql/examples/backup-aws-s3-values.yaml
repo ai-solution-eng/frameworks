@@ -1,0 +1,45 @@
+# MySQL configuration with automated backups to AWS S3
+# Backups will run daily at 2 AM and upload to AWS S3
+# Prerequisites: Create AWS credentials secret
+#   kubectl create secret generic aws-s3-credentials \
+#     --from-literal=access-key-id=AKIA... \
+#     --from-literal=secret-access-key=wJal...
+#
+# Usage: helm install my-mysql ./ -f examples/backup-s3-values.yaml
+
+fullnameOverride: "my-mysql"
+
+auth:
+  rootPassword: "mySecurePassword"
+  database: "myapp"
+
+# Enable automated backups
+backup:
+  enabled: true
+  
+  # Daily at 2 AM
+  schedule: "0 2 * * *"
+  
+  # Store backups in AWS S3
+  storage:
+    bucket: "my-mysql-backups"
+    region: "us-east-1"
+    prefix: "mysql-backups"
+    # Leave endpoint empty for AWS S3
+    endpoint: ""
+    existingSecret: "aws-s3-credentials"
+  
+  # Keep last 14 backups
+  retention: 14
+  
+  # Backup all databases (leave empty) or specify:
+  # databases:
+  #   - myapp
+  #   - another_db
+
+primary:
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: "gp3-csi-ext4"
+
