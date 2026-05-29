@@ -1,0 +1,6 @@
+dependencies:
+- name: openlit
+  repository: https://openlit.github.io/helm/
+  version: 1.20.0
+digest: sha256:7350982d94f12f0337349d82819ba7b6ded1d32caaea9cfb06436d61ad1aaa18
+generated: "2026-05-20T16:14:09.759489-04:00"

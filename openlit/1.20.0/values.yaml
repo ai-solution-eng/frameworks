@@ -1,0 +1,18 @@
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  virtualService:
+    endpoint: "openlit.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  collectorVirtualService:
+    endpoint: "openlit-collector.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+openlit:
+  service:
+    type: ClusterIP
+  config:
+    usageMetrics: false
+  openlit-controller:
+    enabled: true

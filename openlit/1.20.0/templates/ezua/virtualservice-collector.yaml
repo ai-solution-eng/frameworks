@@ -1,0 +1,21 @@
+#More information https://docs.ezmeral.hpe.com/unified-analytics/15/ManageClusters/importing-applications.html?hl=import
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "openlit.fullname" . }}-collector
+  labels:
+    {{- include "openlit.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ezua.collectorVirtualService.istioGateway }}
+  hosts:
+    - {{ .Values.ezua.collectorVirtualService.endpoint | required "\nValid .Values.ezua.collectorVirtualService.endpoint is required !" }}
+  http:
+  - match:
+    - uri:
+        prefix: ""
+    route:
+    - destination:
+        host: {{ include "openlit.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 4318
