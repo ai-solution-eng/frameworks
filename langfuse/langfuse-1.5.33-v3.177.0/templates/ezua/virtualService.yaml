@@ -1,0 +1,23 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ printf "%s-%s-virtual-service" .Release.Name .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway | required ".Values.ezua.virtualService.istioGateway is required !\n" }}
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint | required ".Values.ezua.virtualService.endpoint is required !\n" }}
+  http:
+    - match:
+        - uri:
+            prefix: /
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            # Langfuse exposes its UI/API through the WEB service ("<fullname>-web"),
+            # NOT the bare chart fullname. Pointing anywhere else yields no route / 404.
+            host: {{ include "langfuse.fullname" . }}-web.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.langfuse.web.service.port }}
