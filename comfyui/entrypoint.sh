@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
 
-# ComfyUI Docker Startup File v1.0.2 by John Aldred
-# http://www.johnaldred.com
-# http://github.com/kaouthia
-
 set -e
 
 # --- Force ComfyUI-Manager config (uv off, no file logging, safe DB) ---
