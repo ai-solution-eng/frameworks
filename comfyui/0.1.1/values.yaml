@@ -11,9 +11,9 @@ annotations: {}
 
 #env:
 #- name: http_proxy
-#  value: "http://hpeproxy.its.hpecorp.net:8080"
+#  value: ""
 #- name: https_proxy
-#  value: "http://hpeproxy.its.hpecorp.net:8080"
+#  value: ""
 
 # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
 replicaCount: 1
