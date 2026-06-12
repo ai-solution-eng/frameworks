@@ -1,7 +1,3 @@
-# ComfyUI Docker Build File v1.0.3 by John Aldred
-# https://www.johnaldred.com
-# https://github.com/kaouthia
-
 # Use a minimal Python base image (adjust version as needed)
 FROM python:3.12-slim-bookworm
 
