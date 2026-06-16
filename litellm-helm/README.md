@@ -75,3 +75,93 @@ When no default account is created via `values.yaml`, a new one is automatically
 ```
 kubectl get secret litellm-helm-masterkey -n litellm-helm -o json | jq -r '.data.masterkey' | base64 -d
 ```
+
+---
+
+# Known issue: migration Job may get stuck during install/upgrade on PCAI
+
+During install or upgrade, the LiteLLM Helm Chart runs a Prisma database migration via a Kubernetes Job (`litellm-helm-migrations`). In PCAI environments, this Job may intermittently get stuck at `0/1` completions even though the migration Pod itself completes successfully. When this happens, the overall install/upgrade remains blocked and the new LiteLLM version is not rolled out.
+
+```bash
+$ kubectl -n litellm get pods
+NAME                               READY   STATUS     RESTARTS   AGE
+litellm-helm-657b6b6c97-fh4g6      1/1     Running    0          43h
+litellm-helm-migrations-sbwwm      0/1     Completed  0          8m57s
+litellm-helm-postgresql-0          1/1     Running    0          34d
+```
+
+This seems to be a **race condition** that may occur in PCAI systems due to a conflicting Kyverno scheduler-assignment policy (`assign-custom-scheduler-for-ezua-user-vendor-pods`). Under certain timing conditions, this policy attempts to mutate an immutable Pod field (`spec.schedulerName`) during the Kubernetes Job controller's cleanup phase, which prevents the Job from finalizing. The migration itself is not affected, only the post-completion cleanup is blocked. This issue does not occur in every install/upgrade; it depends on admission timing and cluster load.
+
+In a future release, when LiteLLM becomes a native framework in PCAI, Engineering will work on ensuring this issue is not present.
+
+## Workaround
+
+If you hit this issue, run the recovery script below from a machine with root `kubectl` access to the affected PCAI system. It deletes the stuck Job and surgically removes Pod finalizers via the `/status` subresource to unblock the rollout.
+
+**`recover-litellm-migration-job.sh`**
+
+```bash
+#!/usr/bin/env bash
+
+# Validate if namespace was passed as first argument or not
+if [ -z "$1" ]; then
+    echo "Pass the litellm namespace name as argument to this script. Example:"
+    echo "$(basename "$0") <namespace_name>"
+    exit 1
+fi
+
+NAMESPACE="$1"
+
+# Delete the completed job
+kubectl -n "$NAMESPACE" delete job litellm-helm-migrations
+
+# Find any existing proxy and kill it to ensure port 8005 is clear
+fuser -k 8005/tcp 2>/dev/null
+
+# Start a fresh proxy on port 8005
+kubectl proxy --port=8005 &
+PROXY_PID=$!
+sleep 2
+
+# Loop through and surgically remove finalizers via the status subresource
+for pod in $(kubectl get pods -n "$NAMESPACE" -l job-name=litellm-helm-migrations -o name | cut -d/ -f2); do
+    echo "Wiping finalizers for $pod via status subresource..."
+
+    # This fetches the JSON, strips the finalizer, and sends it to the /status endpoint
+    kubectl get pod "$pod" -n "$NAMESPACE" -o json | \
+    jq 'del(.metadata.finalizers)' | \
+    curl -X PUT "http://localhost:8005/api/v1/namespaces/${NAMESPACE}/pods/$pod/status" \
+    -H "Content-Type: application/json" -d @-
+done
+
+# Cleanup
+kill "$PROXY_PID"
+```
+
+**Usage:**
+
+1. Ensure that `jq` command is installed and available in `$PATH` in the machine where you will be executing this recover script from.
+
+2. Save the script to a file, for example:
+
+```bash
+vi recover-litellm-migration-job.sh
+```
+
+3. Make it executable:
+
+```bash
+chmod +x recover-litellm-migration-job.sh
+```
+
+4. Run it passing the LiteLLM namespace as the first argument:
+
+```bash
+./recover-litellm-migration-job.sh <litellm_namespace>
+```
+
+Example:
+
+```bash
+./recover-litellm-migration-job.sh litellm
+```
