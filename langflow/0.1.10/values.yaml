@@ -1,0 +1,409 @@
+ezua:
+  oidc:
+    client_id: "${OIDC_CLIENT_ID}"
+    client_secret: "${OIDC_CLIENT_SECRET}"
+    domain: "${OIDC_DOMAIN}"
+
+  domainName: "${DOMAIN_NAME}"
+  #Use next options in order to configure the application endpoint.
+  #Example of a VirtualService is here:
+  virtualService:
+    endpoint: "langflow.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+    # Front-facing Service of the langflow-ide chart = langflow.fullname
+    # (== fullnameOverride below) serving the frontend on port 8080.
+    # VERIFY after install:  kubectl get svc -n <ns>
+    targetService: "langflow-service"
+    targetPort: 8080
+
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    matchLabels:
+      istio: "ingressgateway"
+
+  selfSignedCert: false
+
+imagePullSecrets: []
+
+nameOverride: "langflow-service"
+# Override for the name of the helm deployment
+# Note: using `langflow` as service name causes
+# env var collision when deploying on openshift
+# https://github.com/langflow-ai/langflow/issues/4330#issuecomment-2459097917
+fullnameOverride: "langflow-service"
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  # SHOULD BE TRUE FOR SELF-SIGNED CERTIFICATE COPY
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the
+  # fullname template
+  name: ""
+
+ingress:
+  enabled: false
+  annotations:
+    {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: chart-example.local
+      paths: []
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  runAsGroup: 1000
+
+podSecurityContext:
+  fsGroup: 1000
+  runAsUser: 1000
+  runAsNonRoot: true
+  runAsGroup: 1000
+
+langflow:
+  global:
+    image:
+      tag: "1.10.0"
+
+  # Backend pod annotations. The backend StatefulSet template reads annotations
+  # from `.Values.langflow.podAnnotations` (NOT langflow.backend.podAnnotations),
+  # so the Prometheus scrape config must live here to take effect.
+  # NOTE: the scrape only returns data if Langflow's exporter is enabled — see
+  # LANGFLOW_PROMETHEUS_ENABLED in backend.env below. Remove both if unused.
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+
+  backend:
+    replicaCount: 1
+    service:
+      type: ClusterIP
+      port: 7860
+    backendOnly: true
+    numWorkers: 1
+    image:
+      # STOCK Langflow backend image — no custom SSO build. SSO is injected at
+      # runtime as a pluggable auth_service (see volumes/volumeMounts + env below).
+      repository: langflowai/langflow
+      imagePullPolicy: Always
+      tag: "1.10.0"
+    command:
+      - python
+      - -m
+      - langflow
+      - run
+      - --host
+      - 0.0.0.0
+      - --backend-only
+    resources:
+      requests:
+        cpu: 4
+        memory: 10Gi
+      limits:
+        cpu: 6
+        memory: 30Gi
+    probe:
+      failureThreshold: 60
+      periodSeconds: 30
+      timeoutSeconds: 10
+      initialDelaySeconds: 30
+    env:
+      - name: LANGFLOW_PORT
+        value: "7860"
+      - name: LANGFLOW_ALEMBIC_LOG_FILE
+        value: "/app/db/alembic.log"
+      - name: LANGFLOW_UPDATE_STARTER_PROJECTS
+        value: "false"
+      - name: DO_NOT_TRACK
+        value: "true"
+
+      # ----------------------------------------------------------------- #
+      # SSO via pluggable auth_service (no custom image).
+      #   PYTHONPATH        -> dir containing the mounted pcai_keycloak pkg
+      #   LANGFLOW_CONFIG_DIR -> dir where lfx.toml (service registration) lives
+      # ----------------------------------------------------------------- #
+      - name: PYTHONPATH
+        value: "/opt/langflow-sso"
+      - name: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - name: LANGFLOW_CONFIG_DIR
+        value: "/app/data"
+      # Split-horizon OIDC (external issuer for `iss`, internal JWKS for keys)
+      - name: OIDC_ISSUER
+        value: "https://keycloak.pcai-se-ai-application.hst.rdlabs.hpecorp.net/realms/UA"
+      - name: OIDC_JWKS_URL
+        value: "http://keycloak.keycloak.svc.cluster.local/realms/UA/protocol/openid-connect/certs"
+      - name: OIDC_PROVIDER_NAME
+        value: "keycloak"
+      # Optional: uncomment to enforce audience, or to remap claims.
+      # - name: OIDC_AUDIENCE
+      #   value: "langflow"
+      # - name: OIDC_USERNAME_CLAIM
+      #   value: "preferred_username"
+      # - name: OIDC_EMAIL_CLAIM
+      #   value: "email"
+
+      # Enables Langflow's Prometheus exporter on port 9090 so the scrape
+      # annotation in langflow.podAnnotations actually returns metrics.
+      # Remove this (and the annotations) if you don't collect metrics.
+      - name: LANGFLOW_PROMETHEUS_ENABLED
+        value: "true"
+
+
+      # - name: LANGFLOW_SKIP_AUTH_AUTO_LOGIN
+      #   value: "true"
+
+      # SINGLE SOURCE OF TRUTH for auth + secret key = this env block.
+      # Do NOT set `langflow.backend.autoLogin` anywhere in this file. The
+      # StatefulSet has a built-in autoLogin block that, if triggered, injects
+      # its OWN LANGFLOW_SECRET_KEY (defaulting to a random value regenerated on
+      # every `helm upgrade`). Because that block renders AFTER this env list,
+      # it would override the stable Secret-backed key below and make all
+      # previously encrypted data undecryptable. Keep autoLogin unset.
+      #
+      # SECRET_KEY: encrypts stored global variables / credentials (Fernet).
+      # Must stay STABLE across restarts/replicas/upgrades. From a K8s Secret:
+      - name: LANGFLOW_AUTO_LOGIN
+        value: "false"
+      - name: LANGFLOW_SKIP_AUTH_AUTO_LOGIN
+        value: "false"
+      - name: LANGFLOW_NEW_USER_IS_ACTIVE
+        value: "false"
+      - name: LANGFLOW_SUPERUSER
+        value: "admin"
+      - name: LANGFLOW_SUPERUSER_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: langflow-auth
+            key: superuser-password
+      - name: LANGFLOW_SECRET_KEY
+        valueFrom:
+          secretKeyRef:
+            name: langflow-auth
+            key: secret-key
+      - name: NVIDIA_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: langflow-auth
+            key: nvidia-api-key
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    # Backend pod annotations are read from langflow.podAnnotations (above),
+    # not from here — this key is ignored by the StatefulSet template.
+    podAnnotations: {}
+
+    securityContext:
+      capabilities:
+        drop:
+          - ALL
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 1000
+      allowPrivilegeEscalation: false
+      runAsGroup: 1000
+
+    podSecurityContext:
+      fsGroup: 1000
+      runAsUser: 1000
+      runAsNonRoot: true
+      runAsGroup: 1000
+
+    externalDatabase:
+      # Compose in the SQLAlchemy format:
+      # https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls
+      enabled: true
+      driver:
+        value: "postgresql"
+      host:
+        value: "langflow-ide-postgresql-service"
+      port:
+        value: "5432"
+      database:
+        value: "langflow-db"
+      user:
+        value: "langflow"
+      password:
+        valueFrom:
+          secretKeyRef:
+            key: "password"
+            name: "langflow-ide-postgresql-service"
+
+    volumes:
+      - name: flows
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+      - name: data
+        emptyDir: {}
+      - name: db
+        emptyDir: {}
+      # SSO plugin source (pcai_keycloak package) + service-registration toml
+      - name: sso-plugin
+        configMap:
+          name: langflow-service-sso-plugin
+      - name: lfx-config
+        configMap:
+          name: langflow-service-lfx-config
+
+    volumeMounts:
+      - name: flows
+        mountPath: /app/flows
+        readOnly: false
+      - name: tmp
+        mountPath: /tmp
+        readOnly: false
+      - name: data
+        mountPath: /app/data
+        readOnly: false
+      - name: db
+        mountPath: /app/db
+        readOnly: false
+      # Mount the package dir so `import pcai_keycloak.auth` resolves under PYTHONPATH=/opt/langflow-sso
+      - name: sso-plugin
+        mountPath: /opt/langflow-sso/pcai_keycloak
+        readOnly: true
+      # Mount lfx.toml inside LANGFLOW_CONFIG_DIR (=/app/data). subPath keeps the
+      # surrounding emptyDir writable for Langflow's other config-dir files.
+      - name: lfx-config
+        mountPath: /app/data/lfx.toml
+        subPath: lfx.toml
+        readOnly: true
+
+    sqlite:
+      enabled: false
+      volume:
+        size: "1Gi"
+        existingStorageClassName: "default"
+        # If you want the chart to create storage classes, then don't set
+        # existingStorageClassName name and provide configuration values
+        # for the storage class. The settings vary based on cloud
+        # provider. Below are examples for AWS, GCP, and Azure.
+
+        # For AWS
+        # storageClass:
+        #  provisioner: kubernetes.io/aws-ebs
+        #  type: gp2
+        #  fsType: ext4
+        #  extraParams:
+        #     iopsPerGB: "10"
+
+        # For GCP
+        # storageClass:
+        #   provisioner: kubernetes.io/gce-pd
+        #   type: pd-ssd
+        #   fsType: ext4
+        #   extraParams:
+        #      replication-type: none
+
+        # For Azure
+        # storageClass:
+        #   provisioner: kubernetes.io/azure-disk
+        #   fsType: ext4
+        #   type: managed-premium
+        #   extraParams:
+        #     storageaccounttype: Premium_LRS
+        #     kind: Managed
+        #     cachingmode: ReadOnly
+        storageClass: {}
+
+    # having autoLogin set to false enables multi user, if you set autoLogin to true it's single user - superuser is required then
+    # autoLogin: true|false
+    # superuser: <superuser login>
+    # superuserPassword: <superuser password>
+    # secretKey: <encryption key, optional>
+    # newUserIsActive: true|false
+
+  frontend:
+    enabled: true
+    replicaCount: 1
+
+    service:
+      type: ClusterIP
+      port: 8080
+
+    image:
+      # VERIFY the 1.10.0 frontend tag is published; the frontend image can
+      # lag the backend on some releases. Keep frontend == backend version.
+      repository: langflowai/langflow-frontend
+      imagePullPolicy: Always
+      tag: "1.10.0"
+
+    resources:
+      requests:
+        cpu: 1
+        memory: 512Mi
+      limits:
+        cpu: 2
+        memory: 4Gi
+
+    probe:
+      failureThreshold: 3
+      periodSeconds: 10
+      timeoutSeconds: 5
+      initialDelaySeconds: 5
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+    podAnnotations:
+      sidecar.istio.io/inject: "false"
+
+    env:
+      - name: LANGFLOW_MAX_FILE_SIZE_UPLOAD
+        value: "500"
+
+    volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: nginx
+        emptyDir: {}
+      - name: nginx-cache
+        emptyDir: {}
+      - name: nginx-template
+        configMap:
+          name: langflow-nginx-template
+
+    volumeMounts:
+      - name: tmp
+        mountPath: /tmp
+      - name: nginx
+        mountPath: "/tmp/nginx"
+      - name: nginx-cache
+        mountPath: "/var/cache/nginx"
+      - name: nginx-template
+        mountPath: /etc/nginx/templates/default.conf.template
+        subPath: default.conf.template
+        readOnly: true
+
+secretProvider:
+  enabled: false
+
+postgresql:
+  enabled: true
+  fullnameOverride: "langflow-ide-postgresql-service"
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+    tag: 16.4.0-debian-12-r14
+  auth:
+    username: "langflow"
+    password: "langflow-postgres"
+    database: "langflow-db"

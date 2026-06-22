@@ -1,0 +1,5 @@
+# Langflow / lfx pluggable-service registration.
+# Discovered from $LANGFLOW_CONFIG_DIR/lfx.toml at startup. The mapped class
+# overrides the built-in auth_service factory (config files take precedence).
+[services]
+auth_service = "pcai_keycloak.auth:KeycloakAuthService"
