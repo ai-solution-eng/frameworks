@@ -24,9 +24,9 @@ This repository contains all the artifacts required to deploy ComfyUI on an **HP
 
 | Component           | Description                                                               |
 | ------------------- | ------------------------------------------------------------------------- |
-| `comfyui-0.1.1.tgz` | Helm chart used to deploy ComfyUI on HPE PCAI                             |
-| `Dockerfile`        | Custom Docker image build definition                                      |
-| `entrypoint.sh`     | Startup script that installs and configures custom nodes and dependencies |
+| `comfyui-0.1.0.tgz` | Helm chart used to deploy ComfyUI on HPE PCAI                             |
+| `image/Dockerfile`        | Custom Docker image build definition                                      |
+| `image/entrypoint.sh`     | Startup script that installs and configures custom nodes and dependencies |
 
 ---
 
@@ -35,7 +35,7 @@ This repository contains all the artifacts required to deploy ComfyUI on an **HP
 Use the following Helm chart for deployment:
 
 ```bash
-comfyui-0.1.1.tgz
+comfyui-0.1.0.tgz
 ```
 
 The chart deploys ComfyUI as a Kubernetes workload and can be customized through Helm values to suit your environment.
@@ -44,7 +44,7 @@ The chart deploys ComfyUI as a Kubernetes workload and can be customized through
 
 ## Custom Docker Image
 
-The repository includes a custom Docker image build process for ComfyUI.
+The repository includes a custom Docker image build process for ComfyUI. This image originally comes from this [ComfyUI Docker Stack GitHub repository](https://github.com/Kaouthia/ComfyUI-Docker/tree/main).
 
 The Docker image contains several modifications compared to the default ComfyUI installation:
 
@@ -53,13 +53,14 @@ The Docker image contains several modifications compared to the default ComfyUI 
 * Automated installation of selected custom nodes
 * Runtime configuration of ComfyUI-Manager
 * Startup validation and dependency management
-* The image `nchanduka/comfyui:latest` is present on open source Docker Hub, built using this Dockerfile and entrypoint.sh and ready to use. It has bene pre-populated into the values.yaml.
+* The image `tpomas/comfyui:0.0.1` is present on open source Docker Hub, built using this Dockerfile and entrypoint.sh and ready to use. It has bene pre-populated into the values.yaml.
+
+
+Files required to rebuild this image are made available under the `image` repository. They only consist in:
+* A Dockerfile
+* A custom entrypoint script
 
 ---
-
-## Custom Entrypoint
-
-The included `entrypoint.sh` performs additional initialization tasks during container startup.
 
 ### ComfyUI-Manager Installation
 
@@ -121,3 +122,4 @@ These modifications help avoid dependency conflicts and provide a predictable de
 ## References
 
 * ComfyUI: https://github.com/Comfy-Org/ComfyUI
+* ComfyUI Docker Stack repository: https://github.com/Kaouthia/ComfyUI-Docker
