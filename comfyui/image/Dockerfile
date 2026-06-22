@@ -52,7 +52,8 @@ RUN sed -i '/^torch$/d' requirements.txt \
 RUN pip install --no-cache-dir \
     torch==2.9.1 \
     torchvision==0.24.1 \
-    torchaudio==2.9.1
+    torchaudio==2.9.1 \
+	accelerate==1.14.0 # required for ComfyUI-MultiGPU
 
 RUN pip install --no-cache-dir -r requirements.txt
 
