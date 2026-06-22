@@ -1,0 +1,14 @@
+{{- if .Values.customNodesPVC.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "comfyui.fullname" . }}-custom-nodes-pvc
+  labels:
+    {{- include "comfyui.labels" . | nindent 4 }}
+spec:
+  accessModes:
+  - {{ .Values.customNodesPVC.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.customNodesPVC.size }}
+{{- end }}

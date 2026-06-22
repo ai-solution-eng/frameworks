@@ -1,0 +1,178 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "comfyui.fullname" . }}
+  labels:
+    {{- include "comfyui.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "comfyui.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "comfyui.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "comfyui.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: volume-permissions
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              {{- if .Values.modelsPVC.enabled }}
+              if [ -z "$(ls -A /mnt/models 2>/dev/null)" ]; then
+                echo "models PVC is empty, copying defaults..."
+                cp -a /app/ComfyUI/models/. /mnt/models/
+              fi
+              {{- end }}
+              {{- if .Values.outputPVC.enabled }}
+              if [ -z "$(ls -A /mnt/output 2>/dev/null)" ]; then
+                echo "output PVC is empty, copying defaults..."
+                cp -a /app/ComfyUI/output/. /mnt/output/
+              fi
+              {{- end }}
+              {{- if .Values.userPVC.enabled }}
+              if [ -d /app/ComfyUI/user ] && [ -z "$(ls -A /mnt/user 2>/dev/null)" ]; then
+                echo "user PVC is empty, copying defaults..."
+                cp -a /app/ComfyUI/user/. /mnt/user/
+              fi
+              {{- end }}
+              {{- if .Values.customNodesPVC.enabled }}
+              if [ -d /app/ComfyUI/custom_nodes ] && [ -z "$(ls -A /mnt/custom-nodes 2>/dev/null)" ]; then
+                echo "custom-nodes PVC is empty, copying defaults..."
+                cp -a /app/ComfyUI/custom_nodes/. /mnt/custom-nodes/
+              fi
+              {{- end }}
+
+              echo "Setting ownership..."
+              {{- if .Values.modelsPVC.enabled }}
+              chown -R 1000:1000 /mnt/models
+              {{- end }}
+              {{- if .Values.outputPVC.enabled }}
+              chown -R 1000:1000 /mnt/output
+              {{- end }}
+              {{- if .Values.userPVC.enabled }}
+              chown -R 1000:1000 /mnt/user
+              {{- end }}
+              {{- if .Values.customNodesPVC.enabled }}
+              chown -R 1000:1000 /mnt/custom-nodes
+              {{- end }}
+          volumeMounts:
+          {{- if .Values.modelsPVC.enabled }}
+          - mountPath: "/mnt/models"
+            name: models-volume
+          {{- end }}
+          {{- if .Values.outputPVC.enabled }}
+          - mountPath: "/mnt/output"
+            name: output-volume
+          {{- end }}
+          {{- if .Values.userPVC.enabled }}
+          - mountPath: "/mnt/user"
+            name: user-volume
+          {{- end }}
+          {{- if .Values.customNodesPVC.enabled }}
+          - mountPath: "/mnt/custom-nodes"
+            name: custom-nodes-volume
+          {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+          {{- if .Values.modelsPVC.enabled }}
+          - mountPath: "/app/ComfyUI/models"
+            name: models-volume
+          {{- end }}
+          {{- if .Values.outputPVC.enabled }}
+          - mountPath: "/app/ComfyUI/output"
+            name: output-volume
+          {{- end }}
+          {{- if .Values.userPVC.enabled }}
+          - mountPath: "/app/ComfyUI/user"
+            name: user-volume
+          {{- end }}
+          {{- if .Values.customNodesPVC.enabled }}
+          - mountPath: "/app/ComfyUI/custom_nodes"
+            name: custom-nodes-volume
+          {{- end }}
+      volumes:
+      {{- if .Values.modelsPVC.enabled }}
+      - name: models-volume
+        persistentVolumeClaim:
+          claimName: {{ include "comfyui.fullname" . }}-models-pvc
+      {{- end }}
+      {{- if .Values.outputPVC.enabled }}
+      - name: output-volume
+        persistentVolumeClaim:
+          claimName: {{ include "comfyui.fullname" . }}-output-pvc
+      {{- end }}
+      {{- if .Values.userPVC.enabled }}
+      - name: user-volume
+        persistentVolumeClaim:
+          claimName: {{ include "comfyui.fullname" . }}-user-pvc
+      {{- end }}
+      {{- if .Values.customNodesPVC.enabled }}
+      - name: custom-nodes-volume
+        persistentVolumeClaim:
+          claimName: {{ include "comfyui.fullname" . }}-custom-nodes-pvc
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
