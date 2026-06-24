@@ -1,0 +1,5 @@
+namespace.yaml
+*.tgz
+.DS_Store
+shared/.DS_Store
+values-se.yaml

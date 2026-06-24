@@ -1,0 +1,198 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+    hpe-ezua/app: {{ .Chart.Name }}
+    hpe-ezua/type: vendor-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+        opencode-role: router
+        hpe-ezua/app: {{ .Chart.Name }}
+        hpe-ezua/type: vendor-service
+    spec:
+      serviceAccountName: {{ .Release.Name }}-router
+{{- $hasInitContainers := or (and .Values.certificatesPolicy .Values.certificatesPolicy.enabled) (and .Values.sharedContent .Values.sharedContent.enabled) }}
+{{- if $hasInitContainers }}
+      initContainers:
+{{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}
+        - name: build-ca-bundle
+          image: {{ .Values.certificatesPolicy.initContainer.image | quote }}
+          command:
+{{ toYaml .Values.certificatesPolicy.initContainer.command | indent 12 }}
+          volumeMounts:
+{{- range .Values.certificatesPolicy.initVolumeMounts }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+              {{- if .subPath }}
+              subPath: {{ .subPath }}
+              {{- end }}
+              {{- if hasKey . "readOnly" }}
+              readOnly: {{ .readOnly }}
+              {{- end }}
+{{- end }}
+{{- end }}
+{{- if and .Values.sharedContent .Values.sharedContent.enabled }}
+        - name: populate-shared
+          image: alpine:3.20
+          command:
+            - /bin/sh
+            - -c
+            - |
+{{- range $path, $_ := $.Files.Glob "shared/**" }}
+              mkdir -p /workspace/shared{{ dir $path | trimPrefix "shared" }}
+              cp /shared-data/{{ trimPrefix "shared/" $path | replace "/" "." }} /workspace/shared{{ dir $path | trimPrefix "shared" }}/{{ base $path }}
+{{- end }}
+          volumeMounts:
+            - name: shared-content
+              mountPath: /shared-data
+              readOnly: true
+            - name: shared-workspace
+              mountPath: /workspace/shared
+{{- end }}
+{{- end }}
+      containers:
+        - name: {{ .Release.Name }}-router
+          image: {{ .Values.images.user }}
+          imagePullPolicy: Always
+          command:
+            - node
+            - /opt/router/server.mjs
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: OPENCODE_SERVER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-auth
+                  key: OPENCODE_SERVER_USERNAME
+            - name: OPENCODE_SERVER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-auth
+                  key: OPENCODE_SERVER_PASSWORD
+            - name: SHARED_WORKSPACE_CLAIM
+              value: {{ .Release.Name }}-shared-pvc
+            - name: STORAGE_CLASS_NAME
+              value: {{ .Values.storageClass }}
+            - name: PERSONAL_WORKSPACE_SIZE
+              value: {{ .Values.storage.workspaceSize }}
+            - name: PERSONAL_STATE_SIZE
+              value: {{ .Values.storage.stateSize }}
+            - name: USER_INSTANCE_IMAGE
+              value: {{ .Values.images.user }}
+            - name: USER_INIT_IMAGE
+              value: {{ .Values.images.init }}
+            - name: USER_INSTANCE_OPENCODE_VERSION
+              value: {{ .Values.opencode.version }}
+            - name: PREVIEW_DOMAIN_SUFFIX
+              value: {{ .Values.previewDomain }}
+{{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}
+{{- range .Values.certificatesPolicy.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+{{- end }}
+{{- end }}
+{{- if and .Values.proxy .Values.proxy.enabled }}
+{{- range .Values.proxy.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+{{- end }}
+{{- end }}
+{{- if and .Values.no_proxy .Values.no_proxy.enabled }}
+{{- range .Values.no_proxy.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+{{- end }}
+{{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 18
+          resources:
+            requests:
+              cpu: {{ .Values.router.resources.requests.cpu }}
+              memory: {{ .Values.router.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.router.resources.limits.cpu }}
+              memory: {{ .Values.router.resources.limits.memory }}
+          volumeMounts:
+            - name: router-config
+              mountPath: /opt/router/server.mjs
+              subPath: server.mjs
+{{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}
+{{- range .Values.certificatesPolicy.volumeMounts }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+              {{- if .subPath }}
+              subPath: {{ .subPath }}
+              {{- end }}
+              {{- if hasKey . "readOnly" }}
+              readOnly: {{ .readOnly }}
+              {{- end }}
+{{- end }}
+{{- end }}
+      volumes:
+        - name: router-config
+          configMap:
+            name: {{ .Release.Name }}-router-config
+            defaultMode: 0444
+{{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}
+{{- range .Values.certificatesPolicy.volumes }}
+        - name: {{ .name }}
+{{- if hasKey . "emptyDir" }}
+          emptyDir: {}
+{{- else if .configMap }}
+          configMap:
+            name: {{ .configMap.name }}
+            items:
+{{- range .configMap.items }}
+              - key: {{ .key }}
+                path: {{ .path }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and .Values.sharedContent .Values.sharedContent.enabled }}
+        - name: shared-content
+          configMap:
+            name: {{ .Release.Name }}-shared-content
+            defaultMode: 0444
+        - name: shared-workspace
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-shared-pvc
+{{- end }}

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-preview-svc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    hpe-ezua/type: vendor-service
+    hpe-ezua/app: {{ .Chart.Name }}
+spec:
+  type: ClusterIP
+  selector:
+    opencode-role: preview
+  ports:
+  - name: http-preview
+    protocol: TCP
+    port: 8082
+    targetPort: 8082

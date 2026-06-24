@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-personal-content
+  namespace: {{ .Release.Namespace }}
+  labels:
+    hpe-ezua/type: vendor-service
+    hpe-ezua/app: {{ .Chart.Name }}
+data:
+{{- range $path, $content := .Files.Glob "personal/**" }}
+  {{- if not (hasPrefix "." (base $path)) }}
+  {{- $key := trimPrefix "personal/" $path | replace "/" "." }}
+  {{ $key }}: |
+{{ $content | toString | indent 4 }}
+  {{- end }}
+{{- end }}
+{{- range $path, $content := .Files.Glob "create-server.sh" }}
+  create-server.sh: |
+{{ $content | toString | indent 4 }}
+{{- end }}

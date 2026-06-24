@@ -1,0 +1,560 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-preview-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    hpe-ezua/type: vendor-service
+    hpe-ezua/app: {{ .Chart.Name }}
+data:
+  nginx.conf: |
+    worker_processes 1;
+    events {
+      worker_connections 1024;
+    }
+    http {
+      map $http_upgrade $connection_upgrade {
+        default upgrade;
+        '' close;
+      }
+      server {
+        listen 8082;
+        server_name _;
+
+        set $target_port "";
+
+        if ($host ~* '^u-[a-f0-9]{12}-p-([0-9]{4,5})\.{{ include "opencode-web.escapeDomain" .Values.previewDomain }}$') {
+          set $target_port $1;
+        }
+        if ($target_port = "") {
+          return 404;
+        }
+        if ($target_port !~ '^[1-9][0-9]{3,4}$') {
+          return 403;
+        }
+        location / {
+          proxy_pass http://127.0.0.1:$target_port;
+          proxy_http_version 1.1;
+          proxy_set_header Host 127.0.0.1:$target_port;
+          proxy_set_header X-Forwarded-Host $host;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection $connection_upgrade;
+          proxy_buffering off;
+          proxy_read_timeout 660s;
+          proxy_send_timeout 660s;
+        }
+      }
+    }
+  port_watcher.mjs: |
+    import fs from 'node:fs/promises'
+    import path from 'node:path'
+
+    const domain = process.env.PREVIEW_DOMAIN_SUFFIX || '{{ .Values.previewDomain }}'
+    const userSlug = process.env.PREVIEW_USER_SLUG || 'shared'
+    const stateFile = process.env.PREVIEW_STATE_FILE || '/var/opencode/state/preview-ports.txt'
+    const minPort = Number(process.env.PREVIEW_MIN_PORT || '3000')
+    const maxPort = Number(process.env.PREVIEW_MAX_PORT || '9999')
+    const exclude = new Set(
+      (process.env.PREVIEW_EXCLUDE_PORTS || '4096,8082,7681')
+        .split(',')
+        .map((value) => Number(value.trim()))
+        .filter((value) => Number.isInteger(value)),
+    )
+
+    function url(port) {
+      return `https://u-${userSlug}-p-${port}.${domain}`
+    }
+
+    async function broadcast(message) {
+      const line = `\r\n${message}\r\n`
+      try {
+        const entries = await fs.readdir('/dev/pts')
+        await Promise.all(
+          entries
+            .filter((entry) => /^\d+$/.test(entry))
+            .map((entry) => fs.writeFile(`/dev/pts/${entry}`, line, { flag: 'a' }).catch(() => {})),
+        )
+      } catch {
+        // Ignore PTY broadcast failures.
+      }
+    }
+
+    async function listPorts(path) {
+      try {
+        const content = await fs.readFile(path, 'utf8')
+        return content
+          .split('\n')
+          .slice(1)
+          .flatMap((line) => {
+            const parts = line.trim().split(/\s+/)
+            if (parts.length < 4 || parts[3] !== '0A') return []
+            const address = parts[1] || ''
+            const portHex = address.split(':').pop()
+            if (!portHex) return []
+            const port = Number.parseInt(portHex, 16)
+            if (exclude.has(port) || port < minPort || port > maxPort) return []
+            return [port]
+          })
+      } catch {
+        return []
+      }
+    }
+
+    async function previewPorts() {
+      const ports = new Set()
+      for (const path of ['/proc/net/tcp', '/proc/net/tcp6']) {
+        for (const port of await listPorts(path)) {
+          ports.add(port)
+        }
+      }
+      return ports
+    }
+
+    async function writeState(ports) {
+      await fs.mkdir(path.dirname(stateFile), { recursive: true })
+      const content = [...ports].sort((left, right) => left - right).map((port) => `${port} ${url(port)}`).join('\n')
+      await fs.writeFile(stateFile, content ? `${content}\n` : '', 'utf8')
+    }
+
+    let seen = new Set()
+
+    async function tick() {
+      const current = await previewPorts()
+      const currentPorts = [...current].sort((left, right) => left - right)
+      const seenPorts = [...seen].sort((left, right) => left - right)
+
+      for (const port of currentPorts) {
+        if (!seen.has(port)) {
+          const message = `[preview] Preview available for port ${port}: ${url(port)}`
+          console.log(message)
+          await broadcast(message)
+        }
+      }
+
+      for (const port of seenPorts) {
+        if (!current.has(port)) {
+          const message = `[preview] Preview closed for port ${port}: ${url(port)}`
+          console.log(message)
+          await broadcast(message)
+        }
+      }
+
+      if (currentPorts.join(',') !== seenPorts.join(',')) {
+        await writeState(current)
+        seen = current
+      }
+    }
+
+    await tick()
+    setInterval(() => {
+      tick().catch((error) => console.error('[preview] watcher failed', error))
+    }, 3000)
+  preview-url: |
+    #!/bin/sh
+    DOMAIN="${PREVIEW_DOMAIN_SUFFIX:-'{{ .Values.previewDomain }}'}"
+    STATE_FILE="${PREVIEW_STATE_FILE:-/var/opencode/state/preview-ports.txt}"
+    USER_SLUG="${PREVIEW_USER_SLUG:-shared}"
+
+    if [ "$#" -gt 1 ]; then
+      echo "usage: preview-url [port]" >&2
+      exit 1
+    fi
+
+    if [ "$#" -eq 1 ]; then
+      case "$1" in
+        ''|*[!0-9]*)
+          echo "port must be numeric" >&2
+          exit 1
+          ;;
+      esac
+      echo "https://u-$USER_SLUG-p-$1.$DOMAIN"
+      exit 0
+    fi
+
+    if [ -s "$STATE_FILE" ]; then
+      cat "$STATE_FILE"
+      exit 0
+    fi
+
+    echo "No active preview ports detected."
+  opencode_supervisor.mjs: |
+    import { spawn } from 'node:child_process'
+    import fs from 'node:fs'
+    import net from 'node:net'
+    import path from 'node:path'
+
+    const primaryConfigPath = process.env.OPENCODE_CONFIG || process.env.OPENCODE_CONFIG_PATH || '/var/opencode/home/.config/opencode/opencode.json'
+    const configDir = path.dirname(primaryConfigPath)
+    const watchedConfigFiles = [
+      ...new Set(
+        (process.env.OPENCODE_WATCH_CONFIG_FILES || 'opencode.json,config.json,opencode.jsonc')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .concat(path.basename(primaryConfigPath)),
+      ),
+    ]
+    const watchedConfigDirs = [
+      ...new Set(
+        (process.env.OPENCODE_WATCH_CONFIG_DIRS || 'skills,agents')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ),
+    ]
+    const webPort = Number(process.env.OPENCODE_WEB_PORT || '4096')
+    const webHost = process.env.OPENCODE_WEB_HOST || '0.0.0.0'
+    const portCheckHost = process.env.OPENCODE_WEB_CHECK_HOST || '127.0.0.1'
+    const opencodeArgs = ['--print-logs', 'web', '--port', String(webPort), '--hostname', webHost]
+
+    let child = null
+    let restartTimer = null
+    let restartInProgress = false
+    let stopping = false
+    let lastConfigSignature = readConfigSignature()
+    let restartBackoffMs = 1000
+
+    function readConfigSignature() {
+      const signature = {}
+      for (const file of watchedConfigFiles) {
+        const filePath = path.join(configDir, file)
+        try {
+          const stat = fs.statSync(filePath)
+          signature[`file:${file}`] = `${stat.mtimeMs}:${stat.size}`
+        } catch {
+          signature[`file:${file}`] = 'missing'
+        }
+      }
+      for (const dir of watchedConfigDirs) {
+        signature[`dir:${dir}`] = readDirectorySignature(path.join(configDir, dir))
+      }
+      return signature
+    }
+
+    function readDirectorySignature(dirPath) {
+      const entries = []
+
+      function walk(currentPath, relativePath = '') {
+        let dirEntries = []
+        try {
+          dirEntries = fs.readdirSync(currentPath, { withFileTypes: true })
+        } catch {
+          entries.push(`${relativePath || '.'}:missing`)
+          return
+        }
+
+        for (const entry of dirEntries) {
+          const entryRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name
+          const entryPath = path.join(currentPath, entry.name)
+
+          if (entry.isDirectory()) {
+            entries.push(`${entryRelativePath}/:dir`)
+            walk(entryPath, entryRelativePath)
+            continue
+          }
+
+          if (!entry.isFile()) continue
+
+          try {
+            const stat = fs.statSync(entryPath)
+            entries.push(`${entryRelativePath}:${stat.mtimeMs}:${stat.size}`)
+          } catch {
+            entries.push(`${entryRelativePath}:missing`)
+          }
+        }
+      }
+
+      walk(dirPath)
+      return entries.sort().join('|') || 'empty'
+    }
+
+    function changedConfigFiles(nextSignature) {
+      const keys = new Set([...Object.keys(nextSignature), ...Object.keys(lastConfigSignature)])
+      return [...keys]
+        .filter((key) => nextSignature[key] !== lastConfigSignature[key])
+        .map((key) => key.replace(/^file:/, '').replace(/^dir:/, ''))
+    }
+
+    function isPrimaryConfigValid() {
+      try {
+        JSON.parse(fs.readFileSync(primaryConfigPath, 'utf8'))
+        return true
+      } catch (error) {
+        console.error(`[opencode] skipping restart: ${primaryConfigPath} is invalid JSON: ${error.message}`)
+        return false
+      }
+    }
+
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms))
+    }
+
+    function isPortOpen() {
+      return new Promise((resolve) => {
+        const socket = net.createConnection({ host: portCheckHost, port: webPort })
+        const finish = (open) => {
+          socket.removeAllListeners()
+          socket.destroy()
+          resolve(open)
+        }
+
+        socket.setTimeout(500)
+        socket.once('connect', () => finish(true))
+        socket.once('timeout', () => finish(false))
+        socket.once('error', () => finish(false))
+      })
+    }
+
+    function listeningSocketInodes(port) {
+      const inodes = new Set()
+      const portHex = port.toString(16).toUpperCase().padStart(4, '0')
+
+      for (const procFile of ['/proc/net/tcp', '/proc/net/tcp6']) {
+        try {
+          const lines = fs.readFileSync(procFile, 'utf8').split('\n').slice(1)
+          for (const line of lines) {
+            const parts = line.trim().split(/\s+/)
+            const localAddress = parts[1] || ''
+            const state = parts[3]
+            const inode = parts[9]
+            const localPortHex = localAddress.split(':').pop()?.toUpperCase()
+            if (state === '0A' && localPortHex === portHex && inode) {
+              inodes.add(inode)
+            }
+          }
+        } catch {}
+      }
+
+      return inodes
+    }
+
+    function processCommand(pid) {
+      try {
+        const command = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').trim()
+        if (command) return command
+      } catch {}
+
+      try {
+        return fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim()
+      } catch {
+        return ''
+      }
+    }
+
+    function portOwnerProcesses(port) {
+      const inodes = listeningSocketInodes(port)
+      if (inodes.size === 0) return []
+
+      const owners = []
+      let procEntries = []
+      try {
+        procEntries = fs.readdirSync('/proc', { withFileTypes: true })
+      } catch {
+        return owners
+      }
+
+      for (const entry of procEntries) {
+        if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue
+
+        const pid = Number(entry.name)
+        if (pid === process.pid) continue
+
+        const fdDir = `/proc/${pid}/fd`
+        try {
+          for (const fd of fs.readdirSync(fdDir)) {
+            const target = fs.readlinkSync(path.join(fdDir, fd))
+            const match = target.match(/^socket:\[(\d+)\]$/)
+            if (match && inodes.has(match[1])) {
+              owners.push({ pid, command: processCommand(pid) })
+              break
+            }
+          }
+        } catch {}
+      }
+
+      return owners
+    }
+
+    function canKillPortOwner(owner) {
+      const command = owner.command.toLowerCase()
+      if (!command) return false
+      if (command.includes('opencode_supervisor') || command.includes('port_watcher')) return false
+      if (command.includes('opencode')) return true
+      if ((command.includes('node') || command.includes('bun')) && command.includes(`--port ${webPort}`)) return true
+      return false
+    }
+
+    function signalPortOwners(signal) {
+      const owners = portOwnerProcesses(webPort)
+      const eligible = owners.filter(canKillPortOwner)
+
+      if (owners.length > 0) {
+        console.log(
+          `[opencode] port ${webPort} owners: ${owners
+            .map((owner) => `${owner.pid} ${owner.command || '<unknown>'}`)
+            .join('; ')}`,
+        )
+      }
+
+      for (const owner of eligible) {
+        try {
+          console.log(`[opencode] sending ${signal} to port ${webPort} owner pid=${owner.pid}`)
+          process.kill(owner.pid, signal)
+        } catch (error) {
+          console.error(`[opencode] failed to signal port ${webPort} owner pid=${owner.pid}`, error)
+        }
+      }
+
+      return eligible.length
+    }
+
+    async function cleanupPortOwner() {
+      const signaled = signalPortOwners('SIGTERM')
+      if (signaled === 0) return
+
+      await sleep(2000)
+      if (await isPortOpen()) {
+        signalPortOwners('SIGKILL')
+        await sleep(500)
+      }
+    }
+
+    async function waitForPortFree(timeoutMs = 30000, cleanupOwners = false) {
+      const start = Date.now()
+      let cleanupAttempted = false
+      let lastLogAt = 0
+
+      while (await isPortOpen()) {
+        const elapsed = Date.now() - start
+        if (cleanupOwners && !cleanupAttempted && elapsed >= timeoutMs) {
+          console.log(`[opencode] port ${webPort} is still busy after ${timeoutMs}ms; checking for orphaned web process`)
+          cleanupAttempted = true
+          await cleanupPortOwner()
+        } else if (elapsed >= timeoutMs && Date.now() - lastLogAt >= 10000) {
+          console.log(`[opencode] port ${webPort} is still busy after ${timeoutMs}ms; waiting`)
+          lastLogAt = Date.now()
+        }
+        await sleep(500)
+      }
+    }
+
+    function signalProcessGroup(proc, signal) {
+      try {
+        process.kill(-proc.pid, signal)
+      } catch {
+        try {
+          proc.kill(signal)
+        } catch {}
+      }
+    }
+
+    async function startOpencode() {
+      await waitForPortFree(30000, true)
+      if (stopping || child) return
+
+      console.log('[opencode] starting web process')
+      const proc = spawn('/usr/local/bin/opencode', opencodeArgs, {
+        detached: true,
+        stdio: 'inherit',
+        env: process.env,
+      })
+      child = proc
+
+      proc.on('exit', (code, signal) => {
+        if (child === proc) child = null
+        if (!stopping && !restartInProgress) {
+          const delay = restartBackoffMs
+          restartBackoffMs = Math.min(restartBackoffMs * 2, 15000)
+          console.log(`[opencode] web process exited code=${code} signal=${signal}; restarting in ${delay}ms`)
+          setTimeout(() => {
+            startOpencode().catch((error) => console.error('[opencode] restart failed', error))
+          }, delay)
+        }
+      })
+
+      setTimeout(() => {
+        if (child === proc) restartBackoffMs = 1000
+      }, 10000)
+    }
+
+    function stopOpencode() {
+      return new Promise((resolve) => {
+        if (!child) {
+          resolve()
+          return
+        }
+
+        const proc = child
+        let done = false
+        const finish = async () => {
+          if (done) return
+          done = true
+          clearTimeout(timeout)
+          if (child === proc) child = null
+          await waitForPortFree(30000, true)
+          resolve()
+        }
+
+        const timeout = setTimeout(() => {
+          signalProcessGroup(proc, 'SIGKILL')
+        }, 8000)
+
+        proc.once('exit', finish)
+
+        try {
+          signalProcessGroup(proc, 'SIGTERM')
+        } catch {
+          finish()
+        }
+      })
+    }
+
+    function scheduleRestart(reason) {
+      if (stopping) return
+      clearTimeout(restartTimer)
+      restartTimer = setTimeout(async () => {
+        if (restartInProgress) return
+        restartInProgress = true
+        console.log(`[opencode] ${reason}; restarting web process`)
+        await stopOpencode()
+        if (!stopping) await startOpencode()
+        restartInProgress = false
+      }, 750)
+    }
+
+    function maybeRestart() {
+      const nextSignature = readConfigSignature()
+      const changedFiles = changedConfigFiles(nextSignature)
+      if (changedFiles.length === 0) return
+      lastConfigSignature = nextSignature
+      if (!isPrimaryConfigValid()) return
+      scheduleRestart(`config changed: ${changedFiles.join(', ')}`)
+    }
+
+    try {
+      fs.watch(configDir, (_event, filename) => {
+        const changedFile = filename?.toString()
+        if (!changedFile || watchedConfigFiles.includes(changedFile)) {
+          setTimeout(() => maybeRestart(), 250)
+        }
+      })
+    } catch (error) {
+      console.error('[opencode] config watch setup failed', error)
+    }
+
+    setInterval(() => maybeRestart(), 3000)
+
+    async function shutdown(signal) {
+      stopping = true
+      clearTimeout(restartTimer)
+      console.log(`[opencode] received ${signal}; stopping web process`)
+      await stopOpencode()
+      process.exit(0)
+    }
+
+    process.on('SIGINT', () => shutdown('SIGINT'))
+    process.on('SIGTERM', () => shutdown('SIGTERM'))
+
+    startOpencode().catch((error) => console.error('[opencode] start failed', error))

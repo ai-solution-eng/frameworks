@@ -1,0 +1,821 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-router-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    hpe-ezua/type: vendor-service
+    hpe-ezua/app: {{ .Chart.Name }}
+data:
+  server.mjs: |
+    import crypto from 'node:crypto'
+    import fs from 'node:fs'
+    import http from 'node:http'
+    import https from 'node:https'
+    import net from 'node:net'
+
+    const namespace = process.env.POD_NAMESPACE || '{{ .Release.Namespace }}'
+    const sharedWorkspaceClaim = process.env.SHARED_WORKSPACE_CLAIM || '{{ .Release.Name }}-shared-pvc'
+    const storageClassName = process.env.STORAGE_CLASS_NAME || '{{ .Values.storageClass }}'
+    const previewDomainSuffix = process.env.PREVIEW_DOMAIN_SUFFIX || '{{ .Values.previewDomain }}'
+    const userInstanceImage = process.env.USER_INSTANCE_IMAGE || '{{ .Values.images.user }}'
+    const userInitImage = process.env.USER_INIT_IMAGE || '{{ .Values.images.init }}'
+    const userOpencodeVersion = process.env.USER_INSTANCE_OPENCODE_VERSION || '{{ .Values.opencode.version }}'
+    const workspaceSize = process.env.PERSONAL_WORKSPACE_SIZE || '{{ .Values.storage.workspaceSize }}'
+    const stateSize = process.env.PERSONAL_STATE_SIZE || '{{ .Values.storage.stateSize }}'
+    const userTemplateVersion = 'terminal-ttyd-v1'
+    const ttydVersion = '1.7.7'
+    const usernameHeader = 'x-auth-request-preferred-username'
+    const fallbackUserHeader = 'x-auth-request-user'
+    const kubeHost = process.env.KUBERNETES_SERVICE_HOST
+    const kubePort = process.env.KUBERNETES_SERVICE_PORT_HTTPS || '443'
+    const serviceAccountToken = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim()
+    const serviceAccountCa = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt')
+    const basicAuth = `Basic ${Buffer.from(`${process.env.OPENCODE_SERVER_USERNAME}:${process.env.OPENCODE_SERVER_PASSWORD}`).toString('base64')}`
+    const previewHostPattern = new RegExp(`^u-([a-f0-9]{12})-p-(\\d{4,5})\\.${escapeRegex(previewDomainSuffix)}$`, 'i')
+    const ttydHostPattern = new RegExp(`^t-([a-f0-9]{12})\\.${escapeRegex(previewDomainSuffix)}$`, 'i')
+    const activePtyUpgrades = new Map()
+    let tunnelSeq = 0
+
+    function escapeRegex(value) {
+      return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    }
+
+    function slugForUser(userId) {
+      return crypto.createHash('sha256').update(userId.toLowerCase()).digest('hex').slice(0, 12)
+    }
+
+    function namesForSlug(slug) {
+      const base = `opencode-user-${slug}`
+      return {
+        deployment: base,
+        service: `${base}-svc`,
+        workspaceClaim: `${base}-workspace-pvc`,
+        stateClaim: `${base}-state-pvc`,
+      }
+    }
+
+    function readHeader(headers, name) {
+      const value = headers[name]
+      if (Array.isArray(value)) {
+        return value[0]
+      }
+      return value
+    }
+
+    function userFromHeaders(headers) {
+      const primary = readHeader(headers, usernameHeader)
+      const fallback = readHeader(headers, fallbackUserHeader)
+      const userId = (primary || fallback || '').trim().toLowerCase()
+      return userId || null
+    }
+
+    function previewRequest(hostname) {
+      const match = hostname.match(previewHostPattern)
+      if (!match) {
+        return null
+      }
+      return {
+        slug: match[1].toLowerCase(),
+        port: Number(match[2]),
+      }
+    }
+
+    function ttydRequest(hostname) {
+      const match = hostname.match(ttydHostPattern)
+      if (!match) {
+        return null
+      }
+      return {
+        slug: match[1].toLowerCase(),
+      }
+    }
+
+    function json(response, statusCode, payload) {
+      response.writeHead(statusCode, { 'content-type': 'application/json' })
+      response.end(JSON.stringify(payload))
+    }
+
+    function text(response, statusCode, payload) {
+      response.writeHead(statusCode, { 'content-type': 'text/plain; charset=utf-8' })
+      response.end(payload)
+    }
+
+    function k8sRequest(method, path, body) {
+      return new Promise((resolve, reject) => {
+        const request = https.request(
+          {
+            host: kubeHost,
+            port: kubePort,
+            method,
+            path,
+            ca: serviceAccountCa,
+            headers: {
+              accept: 'application/json',
+              authorization: `Bearer ${serviceAccountToken}`,
+              ...(body ? { 'content-type': method === 'PATCH' ? 'application/merge-patch+json' : 'application/json' } : {}),
+            },
+          },
+          (response) => {
+            let data = ''
+            response.setEncoding('utf8')
+            response.on('data', (chunk) => {
+              data += chunk
+            })
+            response.on('end', () => {
+              const parsed = data ? JSON.parse(data) : null
+              if (response.statusCode >= 200 && response.statusCode < 300) {
+                resolve(parsed)
+                return
+              }
+              if (response.statusCode === 404) {
+                resolve(null)
+                return
+              }
+              const error = new Error(`Kubernetes API ${method} ${path} failed with ${response.statusCode}`)
+              error.statusCode = response.statusCode
+              error.payload = parsed
+              reject(error)
+            })
+          },
+        )
+        request.on('error', reject)
+        if (body) {
+          request.write(JSON.stringify(body))
+        }
+        request.end()
+      })
+    }
+
+    async function ensureLease(name) {
+      const path = `/apis/coordination.k8s.io/v1/namespaces/${namespace}/leases/${name}`
+      const existing = await k8sRequest('GET', path)
+      if (existing) {
+        return
+      }
+      const manifest = {
+        apiVersion: 'coordination.k8s.io/v1',
+        kind: 'Lease',
+        metadata: {
+          name,
+          namespace,
+          labels: {
+            app: '{{ .Chart.Name }}',
+            'opencode-user-managed': 'true',
+          },
+        },
+        spec: {
+          holderIdentity: '{{ .Release.Name }}-router',
+        },
+      }
+      try {
+        await k8sRequest('POST', `/apis/coordination.k8s.io/v1/namespaces/${namespace}/leases`, manifest)
+      } catch (error) {
+        if (error.statusCode !== 409) {
+          throw error
+        }
+      }
+    }
+
+    async function ensurePersistentVolumeClaim(name, size) {
+      const path = `/api/v1/namespaces/${namespace}/persistentvolumeclaims/${name}`
+      const existing = await k8sRequest('GET', path)
+      if (existing) {
+        return
+      }
+      const manifest = {
+        apiVersion: 'v1',
+        kind: 'PersistentVolumeClaim',
+        metadata: {
+          name,
+          namespace,
+          labels: {
+            app: '{{ .Chart.Name }}',
+            'opencode-user-managed': 'true',
+          },
+        },
+        spec: {
+          accessModes: ['ReadWriteOnce'],
+          storageClassName,
+          resources: {
+            requests: {
+              storage: size,
+            },
+          },
+        },
+      }
+      try {
+        await k8sRequest('POST', `/api/v1/namespaces/${namespace}/persistentvolumeclaims`, manifest)
+      } catch (error) {
+        if (error.statusCode !== 409) {
+          throw error
+        }
+      }
+    }
+
+    function servicePortsMatch(existingPorts, desiredPorts) {
+      const byName = new Map((existingPorts || []).map((port) => [port.name, port]))
+      return desiredPorts.every((desired) => {
+        const existing = byName.get(desired.name)
+        return existing
+          && existing.protocol === desired.protocol
+          && existing.port === desired.port
+          && existing.targetPort === desired.targetPort
+      })
+    }
+
+    function userServiceManifest(name, slug) {
+      return {
+        apiVersion: 'v1',
+        kind: 'Service',
+        metadata: {
+          name,
+          namespace,
+          labels: {
+            app: 'opencode-user',
+            'opencode-user-managed': 'true',
+            'opencode-user-slug': slug,
+          },
+        },
+        spec: {
+          type: 'ClusterIP',
+          selector: {
+            'opencode-user-slug': slug,
+          },
+          ports: [
+            {
+              name: 'http',
+              protocol: 'TCP',
+              port: 8080,
+              targetPort: 4096,
+            },
+            {
+              name: 'http-preview',
+              protocol: 'TCP',
+              port: 8082,
+              targetPort: 8082,
+            },
+            {
+              name: 'ttyd',
+              protocol: 'TCP',
+              port: 7681,
+              targetPort: 7681,
+            },
+          ],
+        },
+      }
+    }
+
+    async function ensureService(name, slug) {
+      const path = `/api/v1/namespaces/${namespace}/services/${name}`
+      const manifest = userServiceManifest(name, slug)
+      const existing = await k8sRequest('GET', path)
+      if (existing) {
+        if (!servicePortsMatch(existing.spec?.ports, manifest.spec.ports)) {
+          await k8sRequest('PATCH', path, {
+            metadata: { labels: manifest.metadata.labels },
+            spec: {
+              selector: manifest.spec.selector,
+              ports: manifest.spec.ports,
+            },
+          })
+        }
+        return
+      }
+      try {
+        await k8sRequest('POST', `/api/v1/namespaces/${namespace}/services`, manifest)
+      } catch (error) {
+        if (error.statusCode !== 409) {
+          throw error
+        }
+      }
+    }
+
+    async function ensureDeployment(name, workspaceClaim, stateClaim, slug) {
+      const path = `/apis/apps/v1/namespaces/${namespace}/deployments/${name}`
+      const existing = await k8sRequest('GET', path)
+      const initCommand = [
+        'mkdir -p /workspace/personal /workspace/shared /var/opencode/home/.config/opencode/agents /var/opencode/home/.config/opencode/skills /var/opencode/data /var/opencode/state /var/opencode/cache /var/opencode/bin',
+        'if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl ca-certificates && rm -rf /var/lib/apt/lists/*; fi',
+        'if [ ! -d /workspace/personal/.git ]; then git init /workspace/personal >/dev/null; fi',
+        'if [ ! -f /var/opencode/home/.config/opencode/opencode.json ]; then if [ -f /var/opencode/config/opencode/opencode.json ]; then cp /var/opencode/config/opencode/opencode.json /var/opencode/home/.config/opencode/opencode.json; else cp /opt/opencode-defaults/opencode.json /var/opencode/home/.config/opencode/opencode.json; fi; fi',
+        'legacy_agents=/tmp/opencode-legacy-AGENTS.md; printf "%s\n%s\n%s\n" "# HPE AI Essentials (AIE) Platform Assistant" "You are an expert AIE/PCAI platform engineer and advisor. You have access to live Kubernetes cluster tools, indexed product documentation, and web search." "Your mission: **Think deeply. Act decisively. Anticipate what the user needs before they ask.**" > "$legacy_agents"; if [ -f /var/opencode/home/.config/opencode/AGENTS.md ] && cmp -s "$legacy_agents" /var/opencode/home/.config/opencode/AGENTS.md; then rm /var/opencode/home/.config/opencode/AGENTS.md; fi; rm -f "$legacy_agents"',
+        {{- range .Values.opencodeSkills }}
+        'mkdir -p /var/opencode/home/.config/opencode/skills/{{ .name }} && if [ ! -f /var/opencode/home/.config/opencode/.seeded-skill-{{ .name }} ]; then if [ ! -f /var/opencode/home/.config/opencode/skills/{{ .name }}/SKILL.md ]; then cp /opt/opencode-defaults/skill-{{ .name }}.md /var/opencode/home/.config/opencode/skills/{{ .name }}/SKILL.md; fi; touch /var/opencode/home/.config/opencode/.seeded-skill-{{ .name }}; fi',
+        {{- end }}
+        {{- range .Values.opencodeAgents }}
+        'if [ ! -f /var/opencode/home/.config/opencode/.seeded-agent-{{ .name }} ]; then if [ ! -f /var/opencode/home/.config/opencode/agents/{{ .name }}.md ]; then cp /opt/opencode-defaults/agent-{{ .name }}.md /var/opencode/home/.config/opencode/agents/{{ .name }}.md; fi; touch /var/opencode/home/.config/opencode/.seeded-agent-{{ .name }}; fi',
+        {{- end }}
+{{- range $path, $_ := $.Files.Glob "personal/**" }}
+{{- if not (hasPrefix "." (base $path)) }}
+        'mkdir -p /workspace/personal{{ dir $path | trimPrefix "personal" }} && cp /personal-templates/{{ trimPrefix "personal/" $path | replace "/" "." }} /workspace/personal{{ dir $path | trimPrefix "personal" }}/{{ base $path }} || true',
+{{- end }}
+{{- end }}
+{{- range $path, $_ := $.Files.Glob "create-server.sh" }}
+        'cp /personal-templates/create-server.sh /var/opencode/bin/create-server.sh && chmod 0755 /var/opencode/bin/create-server.sh || true',
+{{- end }}
+        "printf 'export PATH=\"$HOME/.local/bin:/var/opencode/bin:/var/opencode/data/npm/bin:$PATH\"\\n' > /var/opencode/home/.bashrc",
+        "printf '[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\"\\n' > /var/opencode/home/.bash_profile",
+        "cp /var/opencode/home/.bash_profile /var/opencode/home/.profile",
+        "printf 'export PATH=\"$HOME/.local/bin:/var/opencode/bin:/var/opencode/data/npm/bin:$PATH\"\\n[ -f /etc/profile ] && . /etc/profile\\n[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc\\n[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\"\\n' > /var/opencode/bin/opencode-bashrc",
+        "printf '#!/bin/sh\\nexport BASH_ENV=/var/opencode/bin/opencode-bashrc\\nexec /usr/bin/bash \"$@\"\\n' > /var/opencode/bin/opencode-login-shell",
+        'chmod 0755 /var/opencode/bin/opencode-login-shell',
+        "if [ ! -f /var/opencode/bin/uv ]; then curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/var/opencode/bin sh && ln -sf /var/opencode/bin/uv /usr/local/bin/uv && ln -sf /var/opencode/bin/uvx /usr/local/bin/uvx; fi",
+        "if [ ! -f /var/opencode/data/npm/bin/opencode ] || [ \"$(cat /var/opencode/.opencode-version 2>/dev/null)\" != \"${OPENCODE_VERSION}\" ]; then npm install -g \"opencode-ai@${OPENCODE_VERSION}\" --prefix /var/opencode/data/npm && echo \"${OPENCODE_VERSION}\" > /var/opencode/.opencode-version && ln -sf /var/opencode/data/npm/bin/opencode /usr/local/bin/opencode; fi",
+        "if [ ! -x /var/opencode/bin/ttyd ]; then arch=\"$(uname -m)\"; case \"$arch\" in x86_64|amd64) ttyd_asset=ttyd.x86_64 ;; aarch64|arm64) ttyd_asset=ttyd.aarch64 ;; armv7l|armhf) ttyd_asset=ttyd.armhf ;; arm*) ttyd_asset=ttyd.arm ;; *) echo \"unsupported architecture for ttyd: $arch\" >&2; exit 1 ;; esac; curl -fsSL --retry 3 -o /var/opencode/bin/ttyd \"https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/${ttyd_asset}\" && chmod 0755 /var/opencode/bin/ttyd; fi",
+        "printf '#!/bin/bash\nset -e\nexport DEBIAN_FRONTEND=noninteractive\nexport PATH=\"/var/opencode/bin:/var/opencode/data/npm/bin:$PATH\"\nmissing=0\nfor cmd in bash curl git script tmux; do\n  command -v \"$cmd\" >/dev/null 2>&1 || missing=1\ndone\nif [ \"$missing\" = \"1\" ]; then\n  apt-get update -qq\n  apt-get install -y -qq --no-install-recommends {{ .Values.provisioning.aptPackages }}\n  rm -rf /var/lib/apt/lists/*\nfi\nln -sf /usr/bin/vi /usr/local/bin/vim 2>/dev/null || true\nln -sf /usr/bin/fdfind /usr/local/bin/fd 2>/dev/null || true\nln -sf /usr/bin/python3 /usr/local/bin/python 2>/dev/null || true\nln -sf /usr/bin/pip3 /usr/local/bin/pip 2>/dev/null || true\nif ! command -v xdg-open >/dev/null 2>&1; then\n  printf \"#!/bin/sh\\nexit 0\\n\" > /usr/local/bin/xdg-open\n  chmod 0755 /usr/local/bin/xdg-open\nfi\nln -sf /var/opencode/bin/uv /usr/local/bin/uv 2>/dev/null || true\nln -sf /var/opencode/bin/uvx /usr/local/bin/uvx 2>/dev/null || true\nln -sf /var/opencode/data/npm/bin/opencode /usr/local/bin/opencode 2>/dev/null || true\n/var/opencode/bin/ttyd -p 7681 -i 0.0.0.0 -W -T xterm-256color -w /workspace -b /terminal -t titleFixed=\"OpenCode Terminal\" -t fontSize=14 /usr/bin/bash -l &\nnode /opt/preview/port_watcher.mjs &\nexec node /opt/preview/opencode_supervisor.mjs\n' > /var/opencode/bin/opencode-startup.sh",
+        "chmod 0755 /var/opencode/bin/opencode-startup.sh",
+        'rm -rf /workspace/personal/shared',
+      ].join(' && ')
+
+      const appCommand = [
+        'cp /var/opencode/bin/create-server.sh /workspace/create-server.sh 2>/dev/null || true',
+        '/var/opencode/bin/opencode-startup.sh',
+      ].join(' && ')
+
+      const manifest = {
+        apiVersion: 'apps/v1',
+        kind: 'Deployment',
+        metadata: {
+          name,
+          namespace,
+          labels: {
+            app: 'opencode-user',
+            'opencode-user-managed': 'true',
+            'opencode-user-slug': slug,
+          },
+        },
+        spec: {
+          replicas: 1,
+          selector: {
+            matchLabels: {
+              'opencode-user-slug': slug,
+            },
+          },
+          template: {
+            metadata: {
+              labels: {
+                app: 'opencode-user',
+                'opencode-user-managed': 'true',
+                'opencode-user-slug': slug,
+                'opencode-role': 'preview',
+              },
+              annotations: {
+                'sidecar.istio.io/inject': 'false',
+                'opencode-web-helm/user-template-version': userTemplateVersion,
+              },
+            },
+            spec: {
+              securityContext: {
+                fsGroup: 1000,
+                fsGroupChangePolicy: 'OnRootMismatch',
+              },
+              initContainers: [
+                {
+                  name: 'init-opencode-storage',
+                  image: userInitImage,
+                  imagePullPolicy: 'Always',
+                  command: ['/bin/sh', '-lc', initCommand],
+                  env: [
+                    { name: 'OPENCODE_VERSION', value: userOpencodeVersion },
+                    { name: 'TTYD_VERSION', value: ttydVersion },
+                    {{- if and .Values.proxy .Values.proxy.enabled }}
+                    {{- range .Values.proxy.env }}
+                    { name: '{{ .name }}', value: '{{ .value }}' },
+                    {{- end }}
+                    {{- end }}
+                    {{- if and .Values.no_proxy .Values.no_proxy.enabled }}
+                    {{- range .Values.no_proxy.env }}
+                    { name: '{{ .name }}', value: '{{ .value }}' },
+                    {{- end }}
+                    {{- end }}
+                  ],
+                  volumeMounts: [
+                    { name: 'personal-workspace', mountPath: '/workspace/personal' },
+                    { name: 'shared-workspace', mountPath: '/workspace/shared' },
+                    { name: 'state', mountPath: '/var/opencode' },
+                    { name: 'project-config', mountPath: '/opt/opencode-defaults', readOnly: true },
+                    { name: 'personal-content', mountPath: '/personal-templates', readOnly: true },
+                  ],
+                },
+              ],
+              containers: [
+                {
+                  name: 'opencode-web',
+                  image: userInstanceImage,
+                  imagePullPolicy: 'Always',
+                  workingDir: '/workspace',
+                  command: ['/bin/sh', '-lc', appCommand],
+                  stdin: true,
+                  tty: true,
+                  securityContext: {
+                    capabilities: { add: ['SYS_PTRACE'] },
+                  },
+                  env: [
+                    { name: 'HOME', value: '/var/opencode/home' },
+                    { name: 'SHELL', value: '/usr/bin/bash' },
+                    { name: 'TERM', value: 'xterm-256color' },
+                    { name: 'XDG_DATA_HOME', value: '/var/opencode/data' },
+                    { name: 'XDG_CONFIG_HOME', value: '/var/opencode/home/.config' },
+                    { name: 'XDG_STATE_HOME', value: '/var/opencode/state' },
+                    { name: 'XDG_CACHE_HOME', value: '/var/opencode/cache' },
+                    { name: 'OPENCODE_CONFIG_PATH', value: '/var/opencode/home/.config/opencode/opencode.json' },
+                    { name: 'OPENCODE_WATCH_CONFIG_FILES', value: 'opencode.json,config.json,opencode.jsonc' },
+                    { name: 'OPENCODE_WATCH_CONFIG_DIRS', value: 'skills,agents' },
+                    {
+                      name: 'OPENCODE_SERVER_USERNAME',
+                      valueFrom: {
+                        secretKeyRef: {
+                          name: '{{ .Release.Name }}-auth',
+                          key: 'OPENCODE_SERVER_USERNAME',
+                        },
+                      },
+                    },
+                    {
+                      name: 'OPENCODE_SERVER_PASSWORD',
+                      valueFrom: {
+                        secretKeyRef: {
+                          name: '{{ .Release.Name }}-auth',
+                          key: 'OPENCODE_SERVER_PASSWORD',
+                        },
+                      },
+                    },
+                    { name: 'PREVIEW_DOMAIN_SUFFIX', value: previewDomainSuffix },
+                    { name: 'PREVIEW_STATE_FILE', value: '/var/opencode/state/preview-ports.txt' },
+                    { name: 'PREVIEW_MIN_PORT', value: '3000' },
+                    { name: 'PREVIEW_MAX_PORT', value: '9999' },
+                    { name: 'PREVIEW_EXCLUDE_PORTS', value: '4096,8082,7681' },
+                    { name: 'OPENCODE_VERSION', value: userOpencodeVersion },
+                    { name: 'TTYD_VERSION', value: ttydVersion },
+                    { name: 'PREVIEW_USER_SLUG', value: slug },
+                    { name: 'TTYD_DOMAIN', value: previewDomainSuffix },
+                    { name: 'TTYD_SLUG', value: slug },
+
+                    {{- if and .Values.proxy .Values.proxy.enabled }}
+                    {{- range .Values.proxy.env }}
+                    { name: '{{ .name }}', value: '{{ .value }}' },
+                    {{- end }}
+                    {{- end }}
+                    {{- if and .Values.no_proxy .Values.no_proxy.enabled }}
+                    {{- range .Values.no_proxy.env }}
+                    { name: '{{ .name }}', value: '{{ .value }}' },
+                    {{- end }}
+                    {{- end }}
+                  ],
+                  ports: [
+                    { name: 'http', containerPort: 4096, protocol: 'TCP' },
+                    { name: 'ttyd', containerPort: 7681, protocol: 'TCP' },
+                  ],
+                  readinessProbe: {
+                    tcpSocket: { port: 4096 },
+                    initialDelaySeconds: 10, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 6,
+                  },
+                  livenessProbe: {
+                    tcpSocket: { port: 4096 },
+                    initialDelaySeconds: 30, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3,
+                  },
+                  startupProbe: {
+                    tcpSocket: { port: 4096 },
+                    periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 18,
+                  },
+                  resources: {
+                    requests: { cpu: '250m', memory: '512Mi' },
+                    limits: { cpu: '2', memory: '2Gi' },
+                  },
+                  volumeMounts: [
+                    { name: 'personal-workspace', mountPath: '/workspace/personal' },
+                    { name: 'shared-workspace', mountPath: '/workspace/shared' },
+                    { name: 'state', mountPath: '/var/opencode' },
+                    { name: 'project-config', mountPath: '/opt/opencode-defaults', readOnly: true },
+                    { name: 'preview-config', mountPath: '/usr/local/bin/preview-url', subPath: 'preview-url' },
+                    { name: 'preview-config', mountPath: '/opt/preview/port_watcher.mjs', subPath: 'port_watcher.mjs' },
+                    { name: 'preview-config', mountPath: '/opt/preview/opencode_supervisor.mjs', subPath: 'opencode_supervisor.mjs' },
+                  ],
+                },
+                {
+                  name: 'opencode-preview-proxy',
+                  image: 'nginx:1.27-alpine',
+                  imagePullPolicy: 'IfNotPresent',
+                  ports: [
+                    { name: 'http-preview', containerPort: 8082, protocol: 'TCP' },
+                  ],
+                  volumeMounts: [
+                    { name: 'preview-config', mountPath: '/etc/nginx/nginx.conf', subPath: 'nginx.conf' },
+                  ],
+                },
+              ],
+              volumes: [
+                { name: 'personal-workspace', persistentVolumeClaim: { claimName: workspaceClaim } },
+                { name: 'shared-workspace', persistentVolumeClaim: { claimName: sharedWorkspaceClaim } },
+                { name: 'state', persistentVolumeClaim: { claimName: stateClaim } },
+                { name: 'project-config', configMap: { name: '{{ .Release.Name }}-project-config' } },
+                { name: 'personal-content', configMap: { name: '{{ .Release.Name }}-personal-content' } },
+                { name: 'preview-config', configMap: { name: '{{ .Release.Name }}-preview-config', defaultMode: 365 } },
+              ],
+            },
+          },
+        },
+      }
+      if (existing) {
+        const version = existing.spec?.template?.metadata?.annotations?.['opencode-web-helm/user-template-version']
+        if (version !== userTemplateVersion) {
+          await k8sRequest('PATCH', path, {
+            metadata: { labels: manifest.metadata.labels },
+            spec: { template: manifest.spec.template },
+          })
+        }
+        return
+      }
+      try {
+        await k8sRequest('POST', `/apis/apps/v1/namespaces/${namespace}/deployments`, manifest)
+      } catch (error) {
+        if (error.statusCode !== 409) {
+          throw error
+        }
+      }
+    }
+
+    async function waitForDeployment(name, timeoutMs = 300000) {
+      const start = Date.now()
+      while (Date.now() - start < timeoutMs) {
+        const deployment = await k8sRequest('GET', `/apis/apps/v1/namespaces/${namespace}/deployments/${name}`)
+        const desiredReplicas = deployment?.spec?.replicas || 1
+        if (
+          deployment?.status?.observedGeneration >= deployment?.metadata?.generation
+          && deployment?.status?.updatedReplicas >= desiredReplicas
+          && deployment?.status?.availableReplicas >= desiredReplicas
+        ) {
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+      }
+      throw new Error(`Timed out waiting for deployment ${name}`)
+    }
+
+    async function ensureUserEnvironment(userId) {
+      const slug = slugForUser(userId)
+      const names = namesForSlug(slug)
+      await ensureLease(`opencode-user-${slug}`)
+      await ensurePersistentVolumeClaim(names.workspaceClaim, workspaceSize)
+      await ensurePersistentVolumeClaim(names.stateClaim, stateSize)
+      await ensureService(names.service, slug)
+      await ensureDeployment(names.deployment, names.workspaceClaim, names.stateClaim, slug)
+      await waitForDeployment(names.deployment)
+      return { slug, names }
+    }
+
+    function targetForApp(names) {
+      return {
+        host: `${names.service}.${namespace}.svc.cluster.local`,
+        port: 8080,
+        injectBasicAuth: true,
+        preserveHost: true,
+      }
+    }
+
+    function targetForPreview(names) {
+      return {
+        host: `${names.service}.${namespace}.svc.cluster.local`,
+        port: 8082,
+        injectBasicAuth: false,
+        preserveHost: true,
+      }
+    }
+
+    function targetForTtyd(names) {
+      return {
+        host: `${names.service}.${namespace}.svc.cluster.local`,
+        port: 7681,
+        injectBasicAuth: false,
+        preserveHost: true,
+        ttyd: true,
+      }
+    }
+
+    function proxyHeaders(request, target) {
+      const headers = { ...request.headers }
+      const originalHost = request.headers.host
+      headers.host = target.preserveHost ? request.headers.host : `${target.host}:${target.port}`
+      if (originalHost) headers['x-forwarded-host'] = originalHost
+      if (!headers['x-forwarded-proto']) headers['x-forwarded-proto'] = 'https'
+      if (request.socket?.remoteAddress) {
+        const prior = headers['x-forwarded-for']
+        headers['x-forwarded-for'] = prior ? `${prior}, ${request.socket.remoteAddress}` : request.socket.remoteAddress
+      }
+      if (target.injectBasicAuth) {
+        headers.authorization = basicAuth
+      }
+      return headers
+    }
+
+    function ptyUpgradeKey(request, target) {
+      const pathname = new URL(request.url || '/', 'http://internal').pathname
+      const match = pathname.match(/^\/pty\/([^/]+)\/connect$/)
+      if (!match) return null
+      return `${target.host}:${target.port}:${match[1]}`
+    }
+
+    function proxyRequest(request, response, target) {
+      const upstream = http.request(
+        {
+          host: target.host,
+          port: target.port,
+          method: request.method,
+          path: request.url,
+          headers: proxyHeaders(request, target),
+        },
+        (upstreamResponse) => {
+          response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers)
+          upstreamResponse.pipe(response)
+        },
+      )
+      upstream.on('error', (error) => {
+        console.error('proxy request failed', error)
+        if (!response.headersSent) {
+          json(response, 502, { error: 'upstream request failed' })
+          return
+        }
+        response.destroy(error)
+      })
+      request.pipe(upstream)
+    }
+
+    function proxyUpgrade(request, socket, head, target) {
+      const ptyKey = ptyUpgradeKey(request, target)
+      const tunnelId = ++tunnelSeq
+      let upgraded = false
+      let closed = false
+      let upstreamSocket
+
+      console.log(`[tunnel ${tunnelId}] upgrade start url=${request.url} ptyKey=${ptyKey}`)
+
+      const cleanup = () => {
+        if (closed) return
+        closed = true
+        upstreamSocket?.unpipe(socket)
+        socket.unpipe(upstreamSocket)
+        if (ptyKey && activePtyUpgrades.get(ptyKey) === cleanup) {
+          activePtyUpgrades.delete(ptyKey)
+          console.log(`[tunnel ${tunnelId}] removed from activePtyUpgrades ptyKey=${ptyKey}`)
+        }
+        upstreamSocket?.destroy()
+        socket.destroy()
+        console.log(`[tunnel ${tunnelId}] cleanup done ptyKey=${ptyKey} upgraded=${upgraded}`)
+      }
+
+      const failUpgrade = (error) => {
+        if (closed) return
+        console.error('proxy upgrade failed', error)
+        if (!upgraded && !socket.destroyed) {
+          socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+        }
+        cleanup()
+      }
+
+      upstreamSocket = net.connect(target.port, target.host, () => {
+        const method = request.method || 'GET'
+        const reqLine = `${method} ${request.url} HTTP/1.1\r\n`
+        const headers = proxyHeaders(request, target)
+        headers.host = request.headers.host
+        const headerStr = Object.entries(headers)
+          .flatMap(([key, value]) => {
+            if (Array.isArray(value)) return value.map((entry) => `${key}: ${entry}\r\n`)
+            return [`${key}: ${value}\r\n`]
+          })
+          .join('')
+        upstreamSocket.write(reqLine + headerStr + '\r\n')
+        if (head.length > 0) upstreamSocket.write(head)
+      })
+
+      socket.on('close', cleanup)
+      socket.on('end', cleanup)
+      socket.on('error', cleanup)
+      upstreamSocket.on('close', cleanup)
+      upstreamSocket.on('end', cleanup)
+      upstreamSocket.on('error', (error) => {
+        if (upgraded) {
+          cleanup()
+          return
+        }
+        failUpgrade(error)
+      })
+
+      let buffer = Buffer.alloc(0)
+
+      upstreamSocket.on('data', (chunk) => {
+        buffer = Buffer.concat([buffer, chunk])
+        const headerEnd = buffer.indexOf('\r\n\r\n')
+        if (headerEnd === -1) return
+
+        upstreamSocket.removeAllListeners('data')
+
+        const headerSection = buffer.slice(0, headerEnd).toString('utf8')
+        const lines = headerSection.split('\r\n')
+        const statusMatch = lines[0].match(/^HTTP\/\d\.\d\s+(\d+)\s+(.+)$/)
+        if (!statusMatch) {
+          socket.destroy()
+          upstreamSocket.destroy()
+          return
+        }
+
+        const statusCode = parseInt(statusMatch[1], 10)
+        const statusMessage = statusMatch[2]
+
+        const responseHeaders = {}
+        for (let i = 1; i < lines.length; i++) {
+          const colonIdx = lines[i].indexOf(':')
+          if (colonIdx > 0) {
+            const key = lines[i].slice(0, colonIdx).trim()
+            const value = lines[i].slice(colonIdx + 1).trim()
+            responseHeaders[key] = value
+          }
+        }
+
+        if (statusCode !== 101) {
+          socket.write(buffer)
+          socket.destroy()
+          upstreamSocket.destroy()
+          return
+        }
+
+        upgraded = true
+        if (ptyKey) {
+          const previous = activePtyUpgrades.get(ptyKey)
+          if (previous && previous !== cleanup) {
+            console.log(`[tunnel ${tunnelId}] replacing previous tunnel for ptyKey=${ptyKey}`)
+            previous()
+          }
+          activePtyUpgrades.set(ptyKey, cleanup)
+          console.log(`[tunnel ${tunnelId}] registered in activePtyUpgrades ptyKey=${ptyKey}`)
+        }
+
+        const statusLine = `HTTP/1.1 ${statusCode} ${statusMessage}\r\n`
+        const headerLines = Object.entries(responseHeaders)
+          .map(([key, value]) => `${key}: ${value}\r\n`)
+          .join('')
+        socket.write(statusLine + headerLines + '\r\n')
+
+        const upstreamHead = buffer.slice(headerEnd + 4)
+        if (upstreamHead.length > 0) socket.write(upstreamHead)
+
+        upstreamSocket.pipe(socket, { end: false })
+        socket.pipe(upstreamSocket, { end: false })
+        console.log(`[tunnel ${tunnelId}] pipes established ptyKey=${ptyKey} upstream=${target.host}:${target.port}`)
+      })
+    }
+
+    async function resolveTarget(request) {
+      const hostHeader = (request.headers.host || '').split(':')[0].toLowerCase()
+      const userId = userFromHeaders(request.headers)
+      if (!userId) {
+        const error = new Error(`Missing ${usernameHeader} header`)
+        error.statusCode = 401
+        throw error
+      }
+      const environment = await ensureUserEnvironment(userId)
+      const pathname = new URL(request.url || '/', 'http://internal').pathname
+      if (pathname.startsWith('/terminal')) {
+        return targetForTtyd(environment.names)
+      }
+      const preview = previewRequest(hostHeader)
+      if (!preview) {
+        return targetForApp(environment.names)
+      }
+      if (preview.slug !== environment.slug) {
+        const error = new Error('Preview host does not match the authenticated user')
+        error.statusCode = 403
+        throw error
+      }
+      return targetForPreview(environment.names)
+    }
+
+    const server = http.createServer(async (request, response) => {
+      if (request.url === '/healthz') {
+        json(response, 200, { ok: true })
+        return
+      }
+      try {
+        const target = await resolveTarget(request)
+        proxyRequest(request, response, target)
+      } catch (error) {
+        console.error('request handling failed', error)
+        json(response, error.statusCode || 500, { error: error.message })
+      }
+    })
+
+    server.on('upgrade', async (request, socket, head) => {
+      const userId = userFromHeaders(request.headers)
+      try {
+        const target = await resolveTarget(request)
+        console.log(`upgrade url=${request.url} userId=${userId} target=${target.host}:${target.port}`)
+        proxyUpgrade(request, socket, head, target)
+      } catch (error) {
+        console.error(`upgrade handling failed url=${request.url} userId=${userId}`, error)
+        socket.write(`HTTP/1.1 ${error.statusCode || 500} Error\r\n\r\n`)
+        socket.destroy()
+      }
+    })
+
+    server.listen(8080, '0.0.0.0', () => {
+      console.log('opencode router listening on 0.0.0.0:8080')
+    })

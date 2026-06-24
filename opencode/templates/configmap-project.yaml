@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-project-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    hpe-ezua/type: vendor-service
+    hpe-ezua/app: {{ .Chart.Name }}
+data:
+  opencode.json: |
+{{ .Values.opencodeConfig | indent 4 }}
+{{- range .Values.opencodeSkills }}
+  skill-{{ .name }}.md: |
+{{ .content | indent 4 }}
+{{- end }}
+{{- range .Values.opencodeAgents }}
+  agent-{{ .name }}.md: |
+{{ .content | indent 4 }}
+{{- end }}

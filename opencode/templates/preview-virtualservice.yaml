@@ -1,0 +1,22 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: {{ .Release.Name }}-preview-vs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    hpe-ezua/type: vendor-service
+    hpe-ezua/app: {{ .Chart.Name }}
+spec:
+  hosts:
+  - "*.{{ .Values.previewDomain }}"
+  gateways:
+  - {{ .Values.ezua.virtualService.istioGateway }}
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: {{ .Release.Name }}-preview-svc.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 8082

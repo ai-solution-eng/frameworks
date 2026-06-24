@@ -1,0 +1,10 @@
+apiVersion: v2
+name: opencode-web-helm
+description: Multi-user opencode-web deployment with per-user PVC-backed workspaces
+type: application
+version: 0.3.6
+appVersion: "1.17.10"
+keywords:
+  - opencode
+  - AI
+  - coding-agent

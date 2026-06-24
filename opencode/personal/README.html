@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenCode Demo in HPE Private Cloud AI - Introduction</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.7;
+            color: #2d3748;
+            background: linear-gradient(135deg, #003D7A 0%, #0071CE 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #0071CE 0%, #00B0A7 100%);
+            color: white;
+            padding: 40px;
+        }
+
+        header .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+
+        header .header-logo {
+            height: 64px;
+            width: auto;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            color: white
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        section {
+            margin-bottom: 35px;
+        }
+
+        h2 {
+            color: #0071CE;
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #0071CE;
+        }
+
+        h3 {
+            color: #00B0A7;
+            font-size: 1.3rem;
+            margin: 25px 0 15px 0;
+        }
+
+        p {
+            margin-bottom: 15px;
+            color: #4a5568;
+        }
+
+        ul,
+        ol {
+            margin-left: 25px;
+            margin-bottom: 20px;
+            color: #4a5568;
+        }
+
+        li {
+            margin-bottom: 10px;
+        }
+
+        strong {
+            color: #2d3748;
+            font-weight: 600;
+        }
+
+        .code-block {
+            background: #1a202c;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+
+        .highlight {
+            background: #fef3c7;
+            padding: 15px;
+            border-left: 4px solid #f59e0b;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+
+        .model-tag {
+            display: inline-block;
+            background: linear-gradient(135deg, #0071CE, #00B0A7);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin: 3px;
+        }
+
+        .tool-tag {
+            display: inline-block;
+            background: #e2e8f0;
+            color: #4a5568;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            margin: 4px;
+            border: 2px solid #00B0A7;
+        }
+
+        .use-case {
+            background: #F0F7FF;
+            border: 2px solid #0071CE;
+            border-radius: 10px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+
+        .use-case h3 {
+            margin-top: 0;
+            color: #0071CE;
+        }
+
+        .step-list {
+            counter-reset: step;
+            list-style: none;
+            margin-left: 0;
+        }
+
+        .step-list li {
+            position: relative;
+            padding-left: 40px;
+            margin-bottom: 12px;
+        }
+
+        .step-list li::before {
+            counter-increment: step;
+            content: counter(step);
+            position: absolute;
+            left: 0;
+            top: 0;
+            background: #0071CE;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 28px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .copy-btn {
+            font-size: 0.75rem;
+            padding: 2px 10px;
+            background: #e2e8f0;
+            border: 1px solid #0071CE;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #0071CE;
+            vertical-align: middle;
+            margin-left: 10px;
+            transition: all 0.2s;
+            font-family: inherit;
+            font-weight: 500;
+        }
+
+        .copy-btn:hover {
+            background: #0071CE;
+            color: white;
+        }
+
+        .copy-btn.copied {
+            background: #00B0A7;
+            border-color: #00B0A7;
+            color: white;
+        }
+
+        footer {
+            background: #003D7A;
+            color: white;
+            text-align: center;
+            padding: 30px;
+            font-size: 0.95rem;
+        }
+
+        footer p {
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <img src="hpe-logo.jpg" alt="HPE Private Cloud AI" class="header-logo">
+                <div>
+                    <h1>Vibe Code with OpenCode in HPE Private Cloud AI</h1>
+                    <p>Interactive Open Source Coding Agent that operates directly inside your terminal</p>
+                </div>
+            </div>
+        </header>
+
+        <div class="content">
+            <section>
+                <h2>Introduction</h2>
+                <p>In this demo you will use <strong>OpenCode</strong>, an open source coding agent assistant.</p>
+                <p>You will interact with:</p>
+                <ul>
+                    <li>
+                        <strong>Large language models</strong> deployed and served via MLIS in HPE Private Cloud AI
+                    </li>
+                    <li>
+                        <strong>Your data securely stored in HPE Private Cloud AI</strong>
+                    </li>
+                    <li>
+                        <strong>Real-time data from the web</strong>
+                        <p> and create web applications, or take actions such as send emails or create reports.</p>
+                    </li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>Primers</h2>
+                <p>Opencode has two main agents:</p>
+                <ul>
+                    <li><strong>Agent Plan:</strong> Helps you plan your coding tasks.</li>
+                    <li><strong>Agent Build:</strong> Assists you in building and implementing your code.</li>
+                </ul>
+                <p>Press the <strong>TAB</strong> key on your keyboard to swap between agents.</p>
+                <p>Useful commands:</p>
+                <ul>
+                    <li><code>/models</code> - Try other models or change reasoning effort</li>
+                    <li><code>/mcp</code> - See what MCP servers are available</li>
+                    <li><code>/terminal</code> - Launch a terminal</li>
+                </ul>
+                <div class="highlight">
+                    <strong>Tip:</strong> If results don't meet your expectations, suggest improvements to the agent and
+                    take your app to the next level!
+                </div>
+            </section>
+
+            <section>
+                <h2>MCP Tools Available</h2>
+                <div>
+                    <span class="tool-tag">Alpaca</span>
+                    <span class="tool-tag">Composio</span>
+                    <span class="tool-tag">Duck Duck Go</span>
+                    <span class="tool-tag">EzPresto</span>
+                    <span class="tool-tag">Seaborn</span>
+                    <span class="tool-tag">Yahoo Finance</span>
+                </div>
+                <ul style="margin-top: 20px;">
+                    <li><strong>Alpaca</strong> - Connects AI chat apps, AI CLIs, or IDEs to Alpaca's Trading API to
+                        research markets, analyze data with AI, and place trades with real or paper money.</li>
+                    <li><strong>Composio</strong> - Connects your agent to leading SaaS apps. We use it to create a hook
+                        to Gmail.</li>
+                    <li><strong>Duck Duck Go</strong> - Provides web search capabilities through DuckDuckGo.</li>
+                    <li><strong>EzPresto</strong> - Gives your agent access to data sources stored in PCAI.</li>
+                    <li><strong>Seaborn</strong> - Creates insightful graphs and charts using the Seaborn package.</li>
+                    <li><strong>Yahoo Finance</strong> - Gives access to comprehensive financial data from Yahoo
+                        Finance.</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>Use Case Examples</h2>
+
+                <div class="use-case">
+
+                    <h3>Basic Web App (less than 3 minutes) <button class="copy-btn">[Copy steps]</button></h3>
+                    <ol class="step-list">
+                        <li>Make a web app which has a button at the center, shaped like a flower.</li>
+                        <li>When the user clicks on it, confetti will appear and a banner with text "Congrats You are
+                            truly AWESOME!!"</li>
+                        <li>Save it on a file "demo-confetti-name" where name should be my name.</li>
+                        <li>Add the file to directory "web-apps" which you must create if it doesn't exist.</li>
+                    </ol>
+
+
+                    <p>When ready, open the <strong>/terminal</strong> and start a preview server:</p>
+                    <div class="code-block">/workspace/create-server.sh /workspace/personal/README.html 8000
+                    </div>
+                    <p>Replace <code>your-file.html</code> and the port as needed. The file will be available at a
+                        preview URL matching that port.</p>
+                </div>
+
+                <div class="use-case">
+
+                    <h3>Intermediate Web App (less than 5 minutes) <button class="copy-btn">[Copy steps]</button></h3>
+                    <ol class="step-list">
+                        <li>Make a web app which has a button at the center.</li>
+                        <li>When the user clicks on it, a quarter of a dollar coin will appear and do a full flip in the
+                            sky"</li>
+                        <li>Save it on a file "coin-name.html" where name should be my name.</li>
+                        <li>Add the file to directory "web-apps" which you must create if it doesn't exist.</li>
+                    </ol>
+
+                    <p>When ready, open a terminal using the <strong>/terminal</strong> command and start a preview
+                        server:</p>
+                    <div class="code-block">/workspace/create-server.sh /workspace/personal/README.html 8000
+                    </div>
+                    <p>Replace <code>your-file.html</code> and the port as needed. The file will be available at a
+                        preview URL matching that port.</p>
+                </div>
+
+                <div class="use-case">
+                    <h3>Advanced Agentic Workflow (less than 10 minutes) <button class="copy-btn">[Copy steps]</button>
+                    </h3>
+                    <p><strong>Role:</strong> You are a well-respected financial advisor. Only use tools available to
+                        you to accomplish the following task:</p>
+                    <ol class="step-list">
+                        <li>Search the stock value of Alphabet, Amazon, Apple, HPE and Nvidia for the last business
+                            week.</li>
+                        <li>Identify the cheapest stock and place an order of exactly 1 stock unit.</li>
+                        <li>Create an HTML document that summarizes the trend of these stocks, and includes interactive
+                            HTML charts of their performance in the analyzed time period.</li>
+                        <li>Add your personal opinion or explanation of what may explain the fluctuations. Use the web
+                            to document yourself on the latest news.</li>
+                        <li>Save the report inside directory "reports" in a file "stock-market-report-name.html", where
+                            'name' is the user's name.</li>
+                        <li>Create a professional email with a summary of findings and attach the report. Ensure it has
+                            an engaging graphic, not just plain text. Save as draft.</li>
+                        <li>The user will tell you who to send the email to when it's ready.</li>
+                        <li>Make sure to get confirmation before sending.</li>
+                        <li>Ask for feedback on what you accomplished, and create in directory 'feedback' a
+                            "feedback-name.md" file where 'name' is the user's name.</li>
+                        <li>Confirm that the user agrees with the content of the feedback document.</li>
+                        <li>Greet and leave.</li>
+                    </ol>
+
+                    <p>When ready, open the <strong>/terminal</strong> and start a preview server:</p>
+                    <div class="code-block">/workspace/create-server.sh /workspace/reports/your-report.html
+                        8001</div>
+                    <p>Replace <code>your-report.html</code> and the port as needed. The file will be available at a
+                        preview URL matching that port.</p>
+                </div>
+
+                <div class="use-case">
+                    <h3>Build your own web-app</h3>
+                    <p>When ready, open the <strong>/terminal</strong> and start a preview server:</p>
+                    <div class="code-block">/workspace/create-server.sh /workspace/personal/README.html 8002
+                    </div>
+                    <p>Replace <code>/workspace/personal/README.html</code> and the port as needed. The file will be
+                        available at a
+                        preview URL matching that port.</p>
+                </div>
+
+            </section>
+        </div>
+
+        <footer>
+            <p>OpenCode Demo &copy; 2026 | Powered by HPE Private Cloud AI</p>
+        </footer>
+    </div>
+    <script>
+        document.querySelectorAll('.copy-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const useCase = btn.closest('.use-case');
+                if (!useCase) return;
+                const ol = useCase.querySelector('.step-list');
+                if (!ol) return;
+                const steps = Array.from(ol.querySelectorAll('li')).map(li => li.textContent.trim()).join('\n');
+                try {
+                    await navigator.clipboard.writeText(steps);
+                    btn.textContent = '[Copied!]';
+                    btn.classList.add('copied');
+                    setTimeout(() => {
+                        btn.textContent = '[Copy steps]';
+                        btn.classList.remove('copied');
+                    }, 1500);
+                } catch {
+                    btn.textContent = '[Failed]';
+                    setTimeout(() => btn.textContent = '[Copy steps]', 1500);
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

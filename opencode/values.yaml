@@ -1,0 +1,214 @@
+# ============================================================
+# EZUA settings
+# ============================================================
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  virtualService:
+    endpoint: "opencode-web-k8s.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+
+# ============================================================
+# General configuration
+# ============================================================
+domain: "opencode-web-helm.${DOMAIN_NAME}"
+previewDomain: "${DOMAIN_NAME}"
+
+storageClass: gl4f-filesystem
+storage:
+  sharedSize: 20Gi
+  workspaceSize: 5Gi
+  stateSize: 2Gi
+
+images:
+  user: node:22-bookworm-slim
+  init: node:22-bookworm-slim
+  ttyd: tsl0922/ttyd:latest
+
+opencode:
+  version: 1.17.10
+
+provisioning:
+  aptPackages: "bash ca-certificates curl dnsutils fd-find gh git jq less make nano ncurses-term openssh-client python3 python3-pip python3-venv procps ripgrep tini tmux tree unzip util-linux vim-tiny zip zstd xz-utils lsof"
+
+auth:
+  username: opencode
+  password: "7Vf9mQ2xKp8tL4nR6wY1cB3hDz5sUa0N"
+
+# ============================================================
+# Opencode config (model, provider, MCP servers)
+# ============================================================
+opencodeConfig: |
+    {
+      "$schema": "https://opencode.ai/config.json",
+      "permission": {
+        "*": "ask",
+        "bash": {
+          "*": "ask",
+          "ls *": "allow",
+          "grep *": "allow",
+          "glob *": "allow",
+          "rm *": "deny"
+        },
+        "edit": "ask",
+        "read": "allow",
+        "glob": "allow",
+        "question": "allow",
+        "webfetch": "ask",
+        "websearch": "ask",
+        "codesearch": "allow",
+        "external_directory": "allow",
+        "doom_loop": "deny"
+      }
+    }
+
+opencodeSkills:
+  - name: pcai-platform
+    content: |
+      ---
+      name: pcai-platform
+      description: Use for PCAI/AIE Kubernetes, routing, model-serving, and deployment troubleshooting.
+      compatibility: opencode
+      ---
+
+      ## Guidance
+
+      - Start with read-only inspection.
+      - Check pods, services, endpoints, VirtualServices, and logs before changing anything.
+      - Prefer the smallest safe fix.
+
+opencodeAgents:
+  - name: pcai-platform-assistant
+    content: |
+      ---
+      description: Expert HPE AIE/PCAI platform engineer and advisor.
+      mode: subagent
+      ---
+
+      # HPE AI Essentials (AIE) Platform Assistant
+
+      You are an expert AIE/PCAI platform engineer and advisor. You have access to live Kubernetes cluster tools, indexed product documentation, and web search.
+
+      Your mission: **Think deeply. Act decisively. Anticipate what the user needs before they ask.**
+
+  - name: pcai-debugger
+    content: |
+      ---
+      description: Diagnose PCAI/AIE Kubernetes, Istio routing, PVC, and opencode deployment issues.
+      mode: subagent
+      ---
+
+      Start with read-only inspection. Check pods, events, services, endpoints, VirtualServices, PVCs, and logs before recommending changes.
+
+      Prefer the smallest safe fix and call out any destructive operation before suggesting it.
+
+router:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+user:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+# ============================================================
+# Certificate policy (for clusters with private/internal CA)
+# ============================================================
+
+# This policy adds the ezaf-root-ca.crt to the base CA bundle in the init container, and then mounts the combined CA bundle into the user container.
+certificatesPolicy:
+  enabled: true # Set to false if the cluster already has the ezaf-root-ca.crt in its base CA bundle (e.g. HT evironments)
+
+  env:
+    - name: SSL_CERT_DIR
+      value: /etc/ssl/certs
+    - name: REQUESTS_CA_BUNDLE
+      value: /tmp/certs/ca-certificates.crt
+    - name: SSL_CERT_FILE
+      value: /tmp/certs/ca-certificates.crt
+    - name: AIOHTTP_CLIENT_SESSION_SSL
+      value: /tmp/certs/ca-certificates.crt
+    - name: CURL_CA_BUNDLE
+      value: /tmp/certs/ca-certificates.crt
+
+  initContainer:
+    image: alpine:3.20
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+          cp /etc/ssl/certs/ca-certificates.crt /work/ca-certificates.crt
+        elif [ -f /etc/ssl/certs/ca-bundle.crt ]; then
+          cp /etc/ssl/certs/ca-bundle.crt /work/ca-certificates.crt
+        else
+          echo "No base CA bundle found in init container"
+          exit 1
+        fi
+        cat /config/ezaf-root-ca.crt >> /work/ca-certificates.crt
+        echo "" >> /work/ca-certificates.crt
+
+  initVolumeMounts:
+    - name: combined-certs
+      mountPath: /work
+    - name: ezaf-root-ca
+      mountPath: /config/ezaf-root-ca.crt
+      subPath: ca-certificates.crt
+      readOnly: true
+
+  volumeMounts:
+    - name: combined-certs
+      mountPath: /tmp/certs
+      readOnly: false
+
+  volumes:
+    - name: combined-certs
+      emptyDir: {}
+    - name: ezaf-root-ca
+      configMap:
+        name: ezaf-root-ca
+        items:
+          - key: ezaf-root-ca.crt
+            path: ca-certificates.crt
+
+# ============================================================
+# Proxy configuration (for clusters behind corporate proxy)
+# ============================================================
+# Set proxy.enabled to true to enable proxy settings for the user container. The init container will also inherit these settings.
+proxy:
+  enabled: true # Set to false if the cluster is not behind a corporate proxy (e.g. HT evironments)
+  env:
+    - name: HTTP_PROXY
+      value: http://hpeproxy.its.hpecorp.net:8080
+    - name: http_proxy
+      value: http://hpeproxy.its.hpecorp.net:8080
+    - name: HTTPS_PROXY
+      value: http://hpeproxy.its.hpecorp.net:8080
+    - name: https_proxy
+      value: http://hpeproxy.its.hpecorp.net:8080
+# ============================================================ 
+no_proxy:
+  enabled: true
+  env:
+    - name: NO_PROXY
+      value: .cluster.local,.svc,.svc.cluster,.svc.cluster.local,10.0.0.0/8,10.96.0.1,127.0.0.1,172.0.0.0/8,172.28.1.161,172.28.1.162,172.28.1.61,172.28.1.62,172.28.1.63,172.28.1.81,192.0.0.0/8,kubeapi-d2e14158-5243-4688-93c2-610381d9a46a.external.hpe.local,localhost,pcai-se-ai-application.hst.rdlabs.hpecorp.net,pcai-se-nfs-vip-pool.hst.lab,ai-application.staging.discover.hpepcai.com,prod.lg-pcai.hou,hpecolo.net,.hpecolo.net
+    - name: no_proxy
+      value: .cluster.local,.svc,.svc.cluster,.svc.cluster.local,10.0.0.0/8,10.96.0.1,127.0.0.1,172.0.0.0/8,172.28.1.161,172.28.1.162,172.28.1.61,172.28.1.62,172.28.1.63,172.28.1.81,192.0.0.0/8,kubeapi-d2e14158-5243-4688-93c2-610381d9a46a.external.hpe.local,localhost,pcai-se-ai-application.hst.rdlabs.hpecorp.net,pcai-se-nfs-vip-pool.hst.lab,ai-application.staging.discover.hpepcai.com,prod.lg-pcai.hou,hpecolo.net,.hpecolo.net
+
+# ============================================================
+# Shared workspace content (populates the shared PVC)
+# ============================================================
+sharedContent:
+  enabled: true
