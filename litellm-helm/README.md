@@ -18,6 +18,36 @@ The core value of LiteLLM in a private cloud environment is its sophisticated ma
 *   **Token Rate Limiting:** Implement TPM (Tokens Per Minute) and RPM (Requests Per Minute) limits to ensure fair usage of the high-value GPU resources within PCAI.
 *   **Usage Tracking:** Automatically track token consumption by "Team ID" or "User ID," enabling internal chargeback models for GPU and API usage.
 
+## PCAI with Self-signed Certificate
+
+When adding Open WebUI as an additional Framework in a AI Essentials environment that uses self-signed certificates additional steps are required in order to interact with other frameworks within AIE seamlessly, for example models deployed via MLIS.
+
+## Edit trust bundle resource
+
+This step is required only once per cluster! If you have imported additional frameworks before this might have been done already.
+
+Ensure the useDefaultCAs: true flag is added to the spec: section of your bundle. This collects all standard public CAs and cluster custom CAs into a single configmap.
+
+Run the following command in order to edit the trust bundle
+```
+kubectl edit bundle ezaf-root-ca
+```
+Add the following section:
+
+```
+spec:
+  sources:
+  - useDefaultCAs: true
+  - secret:
+      key: ca.crt
+      name: ingress-cert
+  target:
+    configMap:
+      key: ezaf-root-ca.crt
+```
+
+Note: By default, useDefaultCAs is often not set. Once you edit the bundle, the ezaf-root-ca configmap is automatically updated in every namespace.
+
 # Pre-requisites to use this
 
 Before deploying this framework, ensure you have the following ready:
