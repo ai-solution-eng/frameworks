@@ -1,0 +1,28 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ printf "%s-%s" .Release.Name .Chart.Name }}-virtual-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "litellm.labels" . | nindent 4 }}
+spec:
+  # EzUA Gateway Configuration
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway | required ".Values.ezua.virtualService.istioGateway is required!" }}
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint | required ".Values.ezua.virtualService.endpoint is required!" }}
+  http:
+    - match:
+        - uri:
+            exact: /
+      redirect:
+        uri: /ui/
+        redirectCode: 302
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: {{ include "litellm.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.service.port }}
