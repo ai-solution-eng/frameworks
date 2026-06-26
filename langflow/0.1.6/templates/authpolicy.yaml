@@ -1,0 +1,21 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ .Release.Name }}-auth-policy
+  namespace: {{ .Values.ezua.authorizationPolicy.namespace }}
+spec:
+  action: CUSTOM
+  provider:
+    name: {{ .Values.ezua.authorizationPolicy.providerName }}
+  rules:
+    - to:
+        - operation:
+            hosts:
+            - {{ .Values.ezua.virtualService.endpoint }}
+            notPaths:
+            - /api/v1/*
+  selector:
+    {{- with .Values.ezua.authorizationPolicy.matchLabels }}
+    matchLabels:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}

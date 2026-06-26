@@ -1,0 +1,203 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "langflow.fullname" . }}
+  labels:
+    app: {{ template "langflow.name" . }}
+    chart: {{ template "langflow.chart" . }}
+    release: {{ .Release.Name }}
+    langflow-scope: "backend"
+spec:
+  serviceName: "{{ include "langflow.fullname" . }}-service"
+  replicas: {{ .Values.langflow.backend.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "langflow.name" . }}
+      chart: {{ template "langflow.chart" . }}
+      release: {{ .Release.Name }}
+      langflow-scope: "backend"
+  template:
+    metadata:
+      {{- with .Values.langflow.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app: {{ template "langflow.name" . }}
+        chart: {{ template "langflow.chart" . }}
+        release: {{ .Release.Name }}
+        langflow-scope: "backend"
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "langflow.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      volumes:
+        {{- if .Values.secretProvider.enabled }}
+        - name: secrets-store-inline
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: "{{- .Values.secretProvider.name }}"
+        {{- end }}
+        {{- with .Values.langflow.backend.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        # Private CA certificate should be copied from istio-system namespace to release namespace
+        {{- if .Values.ezua.selfSignedCert }}
+        - name: ingress-cert
+          secret:
+            secretName: platform-ingress-cert
+        - name: ca-certs
+          emptyDir: {}
+        {{- end }}
+
+      {{- if .Values.ezua.selfSignedCert }}
+      initContainers:
+        - name: copy-ca-certs
+          image: alpine:latest
+          volumeMounts:
+            - name: ca-certs
+              mountPath: /certs
+            - name: ingress-cert
+              mountPath: /usr/local/share/ca-certificates/ca.crt
+              subPath: ca.crt
+              readOnly: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - cat /etc/ssl/certs/ca-certificates.crt /usr/local/share/ca-certificates/ca.crt >> /certs/ca-certificates.crt
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.langflow.backend.image.repository }}:{{ .Values.langflow.backend.image.tag  | default .Values.langflow.global.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.langflow.backend.image.imagePullPolicy | default .Values.langflow.global.image.imagePullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - >
+              set -e &&
+              if [ -n "$LF_CHART_EXTERNALDB_DRIVER" ]; then
+                echo "LF_CHART_EXTERNALDB_DRIVER is set, using external database at $LF_CHART_EXTERNALDB_HOST" &&
+                export LANGFLOW_DATABASE_URL="$LF_CHART_EXTERNALDB_DRIVER://$LF_CHART_EXTERNALDB_USER:$LF_CHART_EXTERNALDB_PASSWORD@$LF_CHART_EXTERNALDB_HOST:$LF_CHART_EXTERNALDB_PORT/$LF_CHART_EXTERNALDB_DATABASE"
+              else
+                echo "LF_CHART_EXTERNALDB_DRIVER is not set, using SQLLite database"
+              fi &&
+              langflow run --host 0.0.0.0 --port {{ .Values.langflow.backend.service.port }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.langflow.backend.service.port }}
+              protocol: TCP
+          {{- if or .Values.secretProvider.enabled .Values.langflow.backend.sqlite.enabled .Values.langflow.backend.volumeMounts }}
+          volumeMounts:
+            {{- if .Values.secretProvider.enabled }}
+            - name: secrets-store-inline
+              mountPath: "/mnt/secrets"
+              readOnly: true
+            {{- end }}
+            {{- if .Values.langflow.backend.sqlite.enabled }}
+            - name: data
+              mountPath: /data
+            {{- end }}
+            {{- with .Values.langflow.backend.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.ezua.selfSignedCert }}
+            - name: ca-certs
+              mountPath: /etc/ssl/certs
+              readOnly: true
+            {{- end }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.langflow.backend.probe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.langflow.backend.probe.periodSeconds }}
+            timeoutSeconds: {{ .Values.langflow.backend.probe.timeoutSeconds }}
+            failureThreshold: {{ .Values.langflow.backend.probe.failureThreshold }}   
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.langflow.backend.probe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.langflow.backend.probe.periodSeconds }}
+            timeoutSeconds: {{ .Values.langflow.backend.probe.timeoutSeconds }}
+            failureThreshold: {{ .Values.langflow.backend.probe.failureThreshold }}   
+          env:
+            - name: LANGFLOW_BACKEND_ONLY
+              value: "{{ .Values.langflow.backend.backendOnly }}"
+            - name: LANGFLOW_NUM_WORKERS
+              value: "{{ .Values.langflow.backend.numWorkers }}"
+            {{- if .Values.langflow.backend.sqlite.enabled }}
+            - name: LANGFLOW_DATABASE_URL
+              value: "sqlite:////data/langflow.db"
+            {{- end }}
+            {{- with .Values.langflow.backend.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.langflow.backend.externalDatabase.enabled }}
+            - name: LF_CHART_EXTERNALDB_DRIVER
+            {{- toYaml .Values.langflow.backend.externalDatabase.driver | nindent 14 }}
+            - name: LF_CHART_EXTERNALDB_HOST
+            {{- toYaml .Values.langflow.backend.externalDatabase.host | nindent 14 }}
+            - name: LF_CHART_EXTERNALDB_PORT
+            {{- toYaml .Values.langflow.backend.externalDatabase.port | nindent 14 }}
+            - name: LF_CHART_EXTERNALDB_DATABASE
+            {{- toYaml .Values.langflow.backend.externalDatabase.database | nindent 14 }}
+            - name: LF_CHART_EXTERNALDB_USER
+            {{- toYaml .Values.langflow.backend.externalDatabase.user | nindent 14 }}
+            - name: LF_CHART_EXTERNALDB_PASSWORD
+            {{- toYaml .Values.langflow.backend.externalDatabase.password | nindent 14 }}
+            {{- end }}
+            {{- if and (hasKey .Values.langflow.backend "autoLogin") (eq .Values.langflow.backend.autoLogin false) }}
+            - name: LANGFLOW_AUTO_LOGIN
+              value: "{{ .Values.langflow.backend.autoLogin | default "False" }}"
+            - name: LANGFLOW_SUPERUSER
+              value: "{{ .Values.langflow.backend.superuser | default "admin" }}"
+            - name: LANGFLOW_SUPERUSER_PASSWORD
+              value: "{{ .Values.langflow.backend.superuserPassword | default (randAlphaNum 32) }}"
+            - name: LANGFLOW_SECRET_KEY
+              value: "{{ .Values.langflow.backend.secretKey | default (randAlphaNum 32) }}"
+            - name: LANGFLOW_NEW_USER_IS_ACTIVE
+              value: "{{ .Values.langflow.backend.newUserIsActive | default "False" }}"
+            {{- end }}
+          resources:
+            {{- toYaml .Values.langflow.backend.resources | nindent 12 }}
+
+      {{- with .Values.langflow.backend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.langflow.backend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.langflow.backend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.langflow.backend.sqlite.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: {{ .Values.langflow.backend.sqlite.volume.size }}
+      {{- if .Values.langflow.backend.sqlite.volume.existingStorageClassName }}
+      {{- if ne .Values.langflow.backend.sqlite.volume.existingStorageClassName "default"}}
+      storageClassName: {{ .Values.langflow.backend.sqlite.volume.existingStorageClassName }}
+      {{- else }}
+      {{- end }}
+      {{- else }}
+      storageClassName: "{{ template "langflow.fullname" . }}-sqlite"
+      {{- end }}
+      
+  {{- end }}
+
