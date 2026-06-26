@@ -1,0 +1,14 @@
+apiVersion: v2
+appVersion: 1.7.3
+dependencies:
+- condition: postgresql.enabled
+  name: postgresql
+  repository: https://charts.bitnami.com/bitnami
+  version: 15.x
+description: Helm chart for Langflow IDE
+maintainers:
+- email: contact@langflow.org
+  name: Langflow
+name: langflow-ide
+type: application
+version: 0.1.6
