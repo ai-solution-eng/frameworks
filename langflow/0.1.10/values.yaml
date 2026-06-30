@@ -76,7 +76,7 @@ langflow:
     image:
       repository: langflowai/langflow
       imagePullPolicy: Always 
-      tag: latest 
+      tag: "1.10.0" 
     command:
       - python
       - -m
@@ -238,7 +238,7 @@ langflow:
     image:
       repository: langflowai/langflow-frontend
       imagePullPolicy: Always 
-      tag: latest
+      tag: "1.10.0"
 
     resources:
       requests:
