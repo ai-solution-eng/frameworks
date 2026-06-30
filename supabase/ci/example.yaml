@@ -1,0 +1,41 @@
+secret:
+  jwt:
+    anonKey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
+    serviceKey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q
+    secret: your-super-secret-jwt-token-with-at-least-32-characters-long
+  smtp:
+    username: your-mail@example.com
+    password: example123456
+  dashboard:
+    username: supabase
+    password: this_password_is_insecure_and_should_be_updated
+    openAiApiKey: api-key
+  db:
+    password: example123456
+    database: postgres
+  analytics:
+    publicAccessToken: your-super-secret-and-long-logflare-key-public
+    privateAccessToken: your-super-secret-and-long-logflare-key-private
+  realtime:
+    secretKeyBase: UpNVntn3cDxHJpq99YMc1T1AQgQpc8kfYTuRgBiYa15BLrx8etQoXz3gZv1/u2oq
+  meta:
+    cryptoKey: "your-super-secret-and-long-crypto-key"
+
+persistence:
+  db:
+    enabled: false
+
+  functions:
+    enabled: false
+
+  imgproxy:
+    enabled: false
+
+  minio:
+    enabled: false
+
+  snippets:
+    enabled: false
+
+  storage:
+    enabled: false
