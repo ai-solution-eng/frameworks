@@ -2,7 +2,7 @@
 
 ## Disclaimer
 
-This repository contains helm charts adapted to be deployed on HPE Private Ccloud AI offering. They are NOT MEANT for production but for demo purposes and are provided without any warranty. For them, the MIT license apply, which is reported below:
+This repository contains helm charts adapted to be deployed on HPE Private Cloud AI offering. They are NOT MEANT for production but for demo purposes and are provided without any warranty. For them, the MIT license apply, which is reported below:
 ```
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -36,3 +36,10 @@ Here are some references to follow:
 
 - https://support.hpe.com/hpesc/public/docDisplay?docId=a00aie16hen_us&docLocale=en_US&page=ManageClusters/importing-applications.html
 - https://github.com/HPEEzmeral/byoa-tutorials/blob/main/tutorial/README.md (this is older but still relevant)
+
+
+## Finding custom tools and applications
+
+This repository contains helm charts of **existing open source tools and applications adapted to be deployed on HPE Private Cloud AI**.
+
+**Helm charts of custom tools and applications specifically developped for PCAI do not belong in this repository**. Instead, they can be found in the [PCAI Tools repository](https://github.com/ai-solution-eng/tools), where contributions are also welcomed.
