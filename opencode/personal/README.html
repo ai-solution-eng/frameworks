@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenCode Demo in HPE Private Cloud AI - Introduction</title>
+    <title>Vibe Code with OpenCode in HPE Private Cloud AI</title>
     <style>
         * {
             margin: 0;
@@ -42,11 +42,6 @@
             justify-content: center;
             gap: 24px;
             flex-wrap: wrap;
-        }
-
-        header .header-logo {
-            height: 64px;
-            width: auto;
         }
 
         header h1 {
@@ -123,16 +118,6 @@
             margin: 20px 0;
         }
 
-        .model-tag {
-            display: inline-block;
-            background: linear-gradient(135deg, #0071CE, #00B0A7);
-            color: white;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            margin: 3px;
-        }
-
         .tool-tag {
             display: inline-block;
             background: #e2e8f0;
@@ -142,6 +127,17 @@
             font-size: 0.9rem;
             margin: 4px;
             border: 2px solid #00B0A7;
+        }
+
+        .tool-tag-inc {
+            display: inline-block;
+            background: #e2e8f0;
+            color: #4a5568;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            margin: 4px;
+            border: 2px solid #f59e0b;
         }
 
         .use-case {
@@ -212,6 +208,33 @@
             color: white;
         }
 
+        .mcp-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+
+        .mcp-table th,
+        .mcp-table td {
+            padding: 10px 14px;
+            text-align: left;
+            border: 1px solid #e2e8f0;
+        }
+
+        .mcp-table th {
+            background: #0071CE;
+            color: white;
+            font-weight: 600;
+        }
+
+        .mcp-table td {
+            color: #4a5568;
+        }
+
+        .mcp-table tr:nth-child(even) {
+            background: #f7fafc;
+        }
+
         footer {
             background: #003D7A;
             color: white;
@@ -230,7 +253,6 @@
     <div class="container">
         <header>
             <div class="header-content">
-                <img src="hpe-logo.jpg" alt="HPE Private Cloud AI" class="header-logo">
                 <div>
                     <h1>Vibe Code with OpenCode in HPE Private Cloud AI</h1>
                     <p>Interactive Open Source Coding Agent that operates directly inside your terminal</p>
@@ -244,16 +266,10 @@
                 <p>In this demo you will use <strong>OpenCode</strong>, an open source coding agent assistant.</p>
                 <p>You will interact with:</p>
                 <ul>
-                    <li>
-                        <strong>Large language models</strong> deployed and served via MLIS in HPE Private Cloud AI
-                    </li>
-                    <li>
-                        <strong>Your data securely stored in HPE Private Cloud AI</strong>
-                    </li>
-                    <li>
-                        <strong>Real-time data from the web</strong>
-                        <p> and create web applications, or take actions such as send emails or create reports.</p>
-                    </li>
+                    <li><strong>Large language models</strong> deployed and served via MLIS in HPE Private Cloud AI</li>
+                    <li><strong>Your data securely stored in HPE Private Cloud AI</strong></li>
+                    <li><strong>Real-time data from the web</strong> and create web applications, or take actions such
+                        as send emails or create reports.</li>
                 </ul>
             </section>
 
@@ -278,66 +294,102 @@
             </section>
 
             <section>
-                <h2>MCP Tools Available</h2>
-                <div>
-                    <span class="tool-tag">Alpaca</span>
-                    <span class="tool-tag">Composio</span>
-                    <span class="tool-tag">Duck Duck Go</span>
-                    <span class="tool-tag">EzPresto</span>
-                    <span class="tool-tag">Seaborn</span>
-                    <span class="tool-tag">Yahoo Finance</span>
-                </div>
-                <ul style="margin-top: 20px;">
-                    <li><strong>Alpaca</strong> - Connects AI chat apps, AI CLIs, or IDEs to Alpaca's Trading API to
-                        research markets, analyze data with AI, and place trades with real or paper money.</li>
-                    <li><strong>Composio</strong> - Connects your agent to leading SaaS apps. We use it to create a hook
-                        to Gmail.</li>
-                    <li><strong>Duck Duck Go</strong> - Provides web search capabilities through DuckDuckGo.</li>
-                    <li><strong>EzPresto</strong> - Gives your agent access to data sources stored in PCAI.</li>
-                    <li><strong>Seaborn</strong> - Creates insightful graphs and charts using the Seaborn package.</li>
-                    <li><strong>Yahoo Finance</strong> - Gives access to comprehensive financial data from Yahoo
-                        Finance.</li>
-                </ul>
+                <h2>MCP Tools Already Available</h2>
+                <table class="mcp-table">
+                    <thead>
+                        <tr>
+                            <th>Tool</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Duck Duck Go</strong></td>
+                            <td>Provides web search capabilities through DuckDuckGo.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>EzPresto</strong></td>
+                            <td>Gives your agent access to data sources stored in PCAI.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Seaborn</strong></td>
+                            <td>Creates insightful graphs and charts using the Seaborn package.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>K8S ops</strong></td>
+                            <td>Provides tools to safely analyze your k8s deployments.</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h2>MCP tools that could be added for an advance demo</h2>
+                <table class="mcp-table">
+                    <thead>
+                        <tr>
+                            <th>Tool</th>
+                            <th>Description</th>
+                            <th>Setup</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Yahoo Finance</strong></td>
+                            <td>Gives access to comprehensive financial data from Yahoo Finance.</td>
+                            <td><a href="https://pypi.org/project/mcp-yahoo-finance/" target="_blank">Guide</a></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Alpaca</strong></td>
+                            <td>Connects AI chat apps, AI CLIs, or IDEs to Alpaca's Trading API to research markets,
+                                analyze data with AI, and place trades with real or paper money.</td>
+                            <td><a href="https://docs.alpaca.markets/us/docs/alpaca-mcp-server"
+                                    target="_blank">Guide</a></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Composio</strong></td>
+                            <td>Connects your agent to leading SaaS apps. We use it to create a hook to Gmail.</td>
+                            <td><a href="https://composio.dev/toolkits/composio/framework/opencode"
+                                    target="_blank">Guide</a></td>
+                        </tr>
+                    </tbody>
+                </table>
             </section>
 
             <section>
                 <h2>Use Case Examples</h2>
 
                 <div class="use-case">
-
                     <h3>Basic Web App (less than 3 minutes) <button class="copy-btn">[Copy steps]</button></h3>
                     <ol class="step-list">
                         <li>Make a web app which has a button at the center, shaped like a flower.</li>
                         <li>When the user clicks on it, confetti will appear and a banner with text "Congrats You are
                             truly AWESOME!!"</li>
-                        <li>Save it on a file "demo-confetti-name" where name should be my name.</li>
-                        <li>Add the file to directory "web-apps" which you must create if it doesn't exist.</li>
+                        <li>Save it on a file <code>demo-confetti-name.html</code> where <code>name</code> should be my
+                            name.</li>
+                        <li>Add the file to directory <code>web-apps</code> which you must create ONLY if it doesn't
+                            exist within folder <code>/workspace/personal/</code>.</li>
                     </ol>
-
-
-                    <p>When ready, open the <strong>/terminal</strong> and start a preview server:</p>
-                    <div class="code-block">/workspace/create-server.sh /workspace/personal/README.html 8000
-                    </div>
-                    <p>Replace <code>your-file.html</code> and the port as needed. The file will be available at a
-                        preview URL matching that port.</p>
+                    <p>When ready, open a terminal using the <strong>/terminal</strong> command and start a preview
+                        server:</p>
+                    <div class="code-block">/workspace/create-server.sh /workspace/personal/web-apps 8000</div>
+                    <p>Replace <code>/workspace/personal/web-apps</code> and the port as needed. The file will be
+                        available at a preview URL matching that port.</p>
                 </div>
 
                 <div class="use-case">
-
                     <h3>Intermediate Web App (less than 5 minutes) <button class="copy-btn">[Copy steps]</button></h3>
                     <ol class="step-list">
                         <li>Make a web app which has a button at the center.</li>
                         <li>When the user clicks on it, a quarter of a dollar coin will appear and do a full flip in the
-                            sky"</li>
-                        <li>Save it on a file "coin-name.html" where name should be my name.</li>
-                        <li>Add the file to directory "web-apps" which you must create if it doesn't exist.</li>
+                            sky.</li>
+                        <li>Save it on a file <code>coin-name.html</code> where <code>name</code> should be my name.
+                        </li>
+                        <li>Add the file to directory <code>web-apps</code> which you must create ONLY if it doesn't
+                            exist within folder <code>/workspace/personal/</code>.</li>
                     </ol>
-
                     <p>When ready, open a terminal using the <strong>/terminal</strong> command and start a preview
                         server:</p>
-                    <div class="code-block">/workspace/create-server.sh /workspace/personal/README.html 8000
-                    </div>
-                    <p>Replace <code>your-file.html</code> and the port as needed. The file will be available at a
+                    <div class="code-block">/workspace/create-server.sh /workspace/personalweb-apps 8000</div>
+                    <p>Replace <code>/workspace/personal</code> and the port as needed. The file will be available at a
                         preview URL matching that port.</p>
                 </div>
 
@@ -354,40 +406,42 @@
                             HTML charts of their performance in the analyzed time period.</li>
                         <li>Add your personal opinion or explanation of what may explain the fluctuations. Use the web
                             to document yourself on the latest news.</li>
-                        <li>Save the report inside directory "reports" in a file "stock-market-report-name.html", where
-                            'name' is the user's name.</li>
+                        <li>Save the report inside directory <code>reports</code> within folder
+                            <code>/workspace/personal/</code> in a file <code>stock-market-report-name.html</code>,
+                            where <code>name</code> is the user's name.
+                        </li>
                         <li>Create a professional email with a summary of findings and attach the report. Ensure it has
                             an engaging graphic, not just plain text. Save as draft.</li>
                         <li>The user will tell you who to send the email to when it's ready.</li>
                         <li>Make sure to get confirmation before sending.</li>
-                        <li>Ask for feedback on what you accomplished, and create in directory 'feedback' a
-                            "feedback-name.md" file where 'name' is the user's name.</li>
-                        <li>Confirm that the user agrees with the content of the feedback document.</li>
+                        <li>Ask for feedback on what you accomplished, and create in directory <code>feedback</code>
+                            within folder <code>/workspace/personal/</code> a <code>feedback-name.md</code> file where
+                            <code>name</code> should be my name.
+                        </li>
+                        <li>Confirm that I agree with the content in the feedback document.</li>
                         <li>Greet and leave.</li>
                     </ol>
-
-                    <p>When ready, open the <strong>/terminal</strong> and start a preview server:</p>
-                    <div class="code-block">/workspace/create-server.sh /workspace/reports/your-report.html
-                        8001</div>
-                    <p>Replace <code>your-report.html</code> and the port as needed. The file will be available at a
+                    <p>When ready, open a terminal using the <strong>/terminal</strong> command and start a preview
+                        server, e.g.:</p>
+                    <div class="code-block">/workspace/create-server.sh /workspace/personal/ 8001</div>
+                    <p>Replace <code>/workspace/personal/</code> and the port as needed. The file will be available at a
                         preview URL matching that port.</p>
                 </div>
 
                 <div class="use-case">
                     <h3>Build your own web-app</h3>
-                    <p>When ready, open the <strong>/terminal</strong> and start a preview server:</p>
-                    <div class="code-block">/workspace/create-server.sh /workspace/personal/README.html 8002
-                    </div>
+                    <p>When ready, open a terminal using the <strong>/terminal</strong> command and start a preview
+                        server:</p>
+                    <div class="code-block">/workspace/create-server.sh /workspace/personal/README.html 8002</div>
                     <p>Replace <code>/workspace/personal/README.html</code> and the port as needed. The file will be
-                        available at a
-                        preview URL matching that port.</p>
+                        available at a preview URL matching that port.</p>
                 </div>
 
             </section>
         </div>
 
         <footer>
-            <p>OpenCode Demo &copy; 2026 | Powered by HPE Private Cloud AI</p>
+            <p>OpenCode Web Demo &copy; 2026 | Powered by HPE Private Cloud AI</p>
         </footer>
     </div>
     <script>

@@ -28,7 +28,7 @@ images:
   ttyd: tsl0922/ttyd:latest
 
 opencode:
-  version: 1.17.10
+  version: 1.17.15
 
 provisioning:
   aptPackages: "bash ca-certificates curl dnsutils fd-find gh git jq less make nano ncurses-term openssh-client python3 python3-pip python3-venv procps ripgrep tini tmux tree unzip util-linux vim-tiny zip zstd xz-utils lsof"
@@ -128,7 +128,7 @@ user:
 
 # This policy adds the ezaf-root-ca.crt to the base CA bundle in the init container, and then mounts the combined CA bundle into the user container.
 certificatesPolicy:
-  enabled: true # Set to false if the cluster already has the ezaf-root-ca.crt in its base CA bundle (e.g. HT evironments)
+  enabled: false # Set to false if the cluster already has the ezaf-root-ca.crt in its base CA bundle (e.g. HT evironments)
 
   env:
     - name: SSL_CERT_DIR
@@ -188,7 +188,7 @@ certificatesPolicy:
 # ============================================================
 # Set proxy.enabled to true to enable proxy settings for the user container. The init container will also inherit these settings.
 proxy:
-  enabled: true # Set to false if the cluster is not behind a corporate proxy (e.g. HT evironments)
+  enabled: false # Set to false if the cluster is not behind a corporate proxy (e.g. HT evironments)
   env:
     - name: HTTP_PROXY
       value: http://hpeproxy.its.hpecorp.net:8080
@@ -200,7 +200,7 @@ proxy:
       value: http://hpeproxy.its.hpecorp.net:8080
 # ============================================================ 
 no_proxy:
-  enabled: true
+  enabled: false # Set to false if the cluster is not behind a corporate proxy (e.g. HT evironments)
   env:
     - name: NO_PROXY
       value: .cluster.local,.svc,.svc.cluster,.svc.cluster.local,10.0.0.0/8,10.96.0.1,127.0.0.1,172.0.0.0/8,172.28.1.161,172.28.1.162,172.28.1.61,172.28.1.62,172.28.1.63,172.28.1.81,192.0.0.0/8,kubeapi-d2e14158-5243-4688-93c2-610381d9a46a.external.hpe.local,localhost,pcai-se-ai-application.hst.rdlabs.hpecorp.net,pcai-se-nfs-vip-pool.hst.lab,ai-application.staging.discover.hpepcai.com,prod.lg-pcai.hou,hpecolo.net,.hpecolo.net

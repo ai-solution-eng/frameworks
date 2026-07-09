@@ -8,7 +8,9 @@ metadata:
     hpe-ezua/app: {{ .Chart.Name }}
 data:
 {{- range $path, $content := .Files.Glob "personal/**" }}
-  {{- if not (hasPrefix "." (base $path)) }}
+  {{- $ext := lower (ext $path) }}
+  {{- $binaryExts := list ".png" ".jpg" ".jpeg" ".gif" ".ico" ".svg" ".webp" ".bmp" ".tiff" ".woff" ".woff2" ".eot" ".ttf" ".otf" ".pdf" ".zip" ".gz" ".tar" ".tgz" }}
+  {{- if and (not (hasPrefix "." (base $path))) (not (has $ext $binaryExts)) }}
   {{- $key := trimPrefix "personal/" $path | replace "/" "." }}
   {{ $key }}: |
 {{ $content | toString | indent 4 }}
