@@ -1,0 +1,147 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "open-webui.fullname" . }}-postgresql
+  namespace: {{ include "open-webui.namespace" . }}
+  labels:
+    {{- include "postgresql.labels" . | nindent 4 }}
+    {{- with .Values.postgresql.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.postgresql.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.postgresql.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.postgresql.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "open-webui.fullname" . }}-postgresql
+  namespace: {{ include "open-webui.namespace" . }}
+  labels:
+    {{- include "postgresql.labels" . | nindent 4 }}
+    {{- with .Values.postgresql.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.postgresql.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "postgresql.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "postgresql.labels" . | nindent 8 }}
+        {{- with .Values.postgresql.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.postgresql.annotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.postgresql.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgresql.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgresql.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: postgresql
+        image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+        imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+        ports:
+        - name: postgresql
+          containerPort: 5432
+        env:
+        - name: POSTGRES_DB
+          value: {{ .Values.postgresql.database | quote }}
+        - name: POSTGRES_USER
+          value: {{ .Values.postgresql.user | quote }}
+        - name: POSTGRES_PASSWORD
+        {{- if .Values.postgresql.existingSecret }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.postgresql.existingSecret }}
+              key: postgres-password
+        {{- else }}
+          value: {{ .Values.postgresql.password | quote }}
+        {{- end }}
+        {{- with .Values.postgresql.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+          subPath: pgdata
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - exec pg_isready -U {{ .Values.postgresql.user | quote }} -d {{ .Values.postgresql.database | quote }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - exec pg_isready -U {{ .Values.postgresql.user | quote }} -d {{ .Values.postgresql.database | quote }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: data
+      {{- if .Values.postgresql.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "open-webui.fullname" . }}-postgresql
+      {{- else }}
+        emptyDir: {}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "open-webui.fullname" . }}-postgresql
+  namespace: {{ include "open-webui.namespace" . }}
+  labels:
+    {{- include "postgresql.labels" . | nindent 4 }}
+    {{- with .Values.postgresql.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.postgresql.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    {{- include "postgresql.selectorLabels" . | nindent 4 }}
+  type: ClusterIP
+  ports:
+  - protocol: TCP
+    name: postgresql
+    port: 5432
+    targetPort: postgresql
+{{- end }}

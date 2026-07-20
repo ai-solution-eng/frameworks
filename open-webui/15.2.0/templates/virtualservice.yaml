@@ -1,0 +1,23 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "open-webui.fullname" . }}
+  namespace: {{ include "open-webui.namespace" . }}
+  labels:
+    {{- include "open-webui.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway }}
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint }}
+  http:
+    - match:
+        - uri:
+            prefix: /
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: {{ include "open-webui.fullname" . }}.{{ include "open-webui.namespace" . }}.svc.cluster.local
+            port:
+              number: {{ .Values.service.port }}
