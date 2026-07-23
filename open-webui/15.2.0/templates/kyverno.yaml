@@ -1,0 +1,25 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ printf "add-vendor-app-labels-%s-%s" .Release.Name .Chart.Name }}
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  background: false
+  rules:
+  - name: add-vendor-app-labels
+    match:
+      any:
+      - resources:
+          namespaces:
+          - {{ .Release.Namespace }}
+          kinds:
+          - Pod
+    mutate:
+      patchStrategicMerge:
+        metadata:
+            labels:
+              "hpe-ezua/type": vendor-service
+              "hpe-ezua/app": {{ .Chart.Name }}
