@@ -123,6 +123,16 @@ user:
       memory: 2Gi
 
 # ============================================================
+# Pre-delete cleanup hook (removes dynamically-created per-user
+# resources on helm uninstall so the namespace and shared PVC
+# don't hang in Terminating)
+# ============================================================
+cleanup:
+  image: node:22-bookworm-slim
+  podTimeout: 180  # seconds to wait for user pods to terminate
+  pvcTimeout: 120  # seconds to wait for user PVCs to be deleted
+
+# ============================================================
 # Certificate policy (for clusters with private/internal CA)
 # ============================================================
 
