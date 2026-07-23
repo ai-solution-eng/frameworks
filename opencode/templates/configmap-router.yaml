@@ -23,7 +23,7 @@ data:
     const userOpencodeVersion = process.env.USER_INSTANCE_OPENCODE_VERSION || '{{ .Values.opencode.version }}'
     const workspaceSize = process.env.PERSONAL_WORKSPACE_SIZE || '{{ .Values.storage.workspaceSize }}'
     const stateSize = process.env.PERSONAL_STATE_SIZE || '{{ .Values.storage.stateSize }}'
-    const userTemplateVersion = 'terminal-ttyd-v2'
+    const userTemplateVersion = `terminal-ttyd-v2-opencode-${userOpencodeVersion}`
     const ttydVersion = '1.7.7'
     const usernameHeader = 'x-auth-request-preferred-username'
     const fallbackUserHeader = 'x-auth-request-user'

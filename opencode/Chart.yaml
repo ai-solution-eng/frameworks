@@ -2,8 +2,8 @@ apiVersion: v2
 name: opencode-web-helm
 description: Multi-user opencode-web deployment with per-user PVC-backed workspaces
 type: application
-version: 1.18.3
-appVersion: "1.18.3"
+appVersion: "1.18"
+version: "1.18.3"
 keywords:
   - opencode
   - AI
