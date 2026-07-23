@@ -28,7 +28,7 @@ images:
   ttyd: tsl0922/ttyd:latest
 
 opencode:
-  version: 1.17.15
+  version: 1.18.3
 
 provisioning:
   aptPackages: "bash ca-certificates curl dnsutils fd-find gh git jq less make nano ncurses-term openssh-client python3 python3-pip python3-venv procps ripgrep tini tmux tree unzip util-linux vim-tiny zip zstd xz-utils lsof"
