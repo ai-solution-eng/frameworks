@@ -137,6 +137,12 @@ spec:
           {{- if .Values.persistence.subPath }}
           subPath: {{ .Values.persistence.subPath }}
           {{- end }}
+        {{- if .Values.ezafRootCa.enabled }}
+        - name: {{ .Values.ezafRootCa.volumeName | quote }}
+          mountPath: {{ .Values.ezafRootCa.mountPath | quote }}
+          readOnly: true
+          subPath: {{ .Values.ezafRootCa.subPath | quote }}
+        {{- end }}
         {{- with .Values.volumeMounts.container }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -489,6 +495,14 @@ spec:
         - name: "TERMINAL_SERVER_CONNECTIONS"
           value: '[{"id":"terminals","name":"Terminals","enabled":true,"url":"{{ include "terminals.serviceEndpoint" . }}","key":"$(TERMINALS_API_KEY)","auth_type":"bearer","config":{"access_grants":[{"principal_type":"user","principal_id":"*","permission":"read"}]}}]'
         {{- end }}
+        {{- if .Values.ezafRootCa.enabled }}
+        - name: "REQUESTS_CA_BUNDLE"
+          value: {{ .Values.ezafRootCa.mountPath | quote }}
+        - name: "SSL_CERT_FILE"
+          value: {{ .Values.ezafRootCa.mountPath | quote }}
+        - name: "AIOHTTP_CLIENT_SESSION_SSL"
+          value: {{ .Values.ezafRootCa.mountPath | quote }}
+        {{- end }}
         {{- if .Values.extraEnvVars }}
           {{- include "open-webui.env" (dict "envVars" .Values.extraEnvVars "root" .) | nindent 8 }}
         {{- end }}
@@ -532,6 +546,15 @@ spec:
       - name: data
         persistentVolumeClaim:
           claimName: {{ include "open-webui.fullname" . }}
+      {{- end }}
+      {{- if .Values.ezafRootCa.enabled }}
+      - name: {{ .Values.ezafRootCa.volumeName | quote }}
+        configMap:
+          defaultMode: {{ .Values.ezafRootCa.defaultMode }}
+          items:
+          - key: {{ .Values.ezafRootCa.configMapKey | quote }}
+            path: {{ .Values.ezafRootCa.subPath | quote }}
+          name: {{ .Values.ezafRootCa.configMapName | quote }}
       {{- end }}
       {{- with .Values.volumes }}
       {{- toYaml . | nindent 6 }}

@@ -642,12 +642,6 @@ extraEnvVars:
     value: "0p3n-w3bu!"
   - name: HF_HUB_OFFLINE
     value: "1"
-  - name: REQUESTS_CA_BUNDLE
-    value: /etc/ssl/certs/ca-certificates.crt
-  - name: SSL_CERT_FILE
-    value: /etc/ssl/certs/ca-certificates.crt
-  - name: AIOHTTP_CLIENT_SESSION_SSL
-    value: /etc/ssl/certs/ca-certificates.crt
   # - name: OPENAI_API_KEY
   #   valueFrom:
   #     secretKeyRef:
@@ -689,17 +683,30 @@ extraEnvFrom: []
 # ref: <https://kubernetes.io/docs/concepts/containers/runtime-class/>
 runtimeClassName: ""
 
+# -- Optional cluster-provided root CA ConfigMap mount for Open WebUI.
+ezafRootCa:
+  # -- Enable mounting the root CA ConfigMap and setting certificate env vars.
+  enabled: false
+  # -- Volume name for the root CA mount.
+  volumeName: ezaf-root-ca
+  # -- ConfigMap containing the root CA certificate.
+  configMapName: ezaf-root-ca
+  # -- Key in the ConfigMap that contains the root CA certificate.
+  configMapKey: ezaf-root-ca.crt
+  # -- File name used inside the mounted ConfigMap.
+  subPath: ca-certificates.crt
+  # -- Path where the certificate file is mounted in the Open WebUI container.
+  mountPath: /etc/ssl/certs/ca-certificates.crt
+  # -- Default mode for ConfigMap files.
+  defaultMode: 420
+
 # -- Configure container volume mounts
 # ref: <https://kubernetes.io/docs/tasks/configure-pod-container/configure-volume-storage/>
 volumeMounts:
   initContainer: []
   # - name: ""
   #   mountPath: ""
-  container:
-    - mountPath: /etc/ssl/certs/ca-certificates.crt
-      name: ezaf-root-ca
-      readOnly: true
-      subPath: ca-certificates.crt
+  container: []
   # - name: ""
   #   mountPath: ""
 
@@ -715,14 +722,7 @@ extraInitContainers: []
 
 # -- Configure pod volumes
 # ref: <https://kubernetes.io/docs/tasks/configure-pod-container/configure-volume-storage/>
-volumes:
-  - configMap:
-      defaultMode: 420
-      items:
-      - key: ezaf-root-ca.crt
-        path: ca-certificates.crt
-      name: ezaf-root-ca
-    name: ezaf-root-ca
+volumes: []
 # - name: ""
 #   configMap:
 #     name: ""
