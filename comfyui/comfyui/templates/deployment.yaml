@@ -19,6 +19,9 @@ spec:
       {{- end }}
       labels:
         {{- include "comfyui.labels" . | nindent 8 }}
+        hpe-ezua/app: {{ .Chart.Name }}
+        hpe-ezua/component: {{ .Chart.Name }}
+        hpe-ezua/type: vendor-service
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
