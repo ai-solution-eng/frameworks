@@ -12,7 +12,7 @@ resources:
     nvidia.com/gpu: 1
 ```
 
-## For the version 0.1.1
+## For the version 0.1.3
 AIE 1.12 introduce a few changes in kverno permissions, impacting in the resources managment, specifically when requesting GPU resources, usually we can find this error:
 
 ```text

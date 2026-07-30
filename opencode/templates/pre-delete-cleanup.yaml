@@ -1,0 +1,226 @@
+{{- /*
+  Pre-delete hook: cleans up dynamically-created per-user resources
+  (deployments, pods, PVCs, services, leases) that the router provisions
+  at runtime via the Kubernetes API.  Without this hook `helm uninstall`
+  only removes Helm-tracked resources, leaving user pods — which still
+  mount the shared PVC — stranded.  The shared PVC hangs in Terminating
+  (kubernetes.io/pvc-protection finalizer) and the namespace never
+  completes deletion.
+
+  Execution order (hook weights):
+    -4  ServiceAccount
+    -3  Role
+    -2  RoleBinding
+    -1  Job  (the actual cleanup)
+*/ -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-cleanup
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    hpe-ezua/type: vendor-service
+    hpe-ezua/app: {{ .Chart.Name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-cleanup
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "-3"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    hpe-ezua/type: vendor-service
+    hpe-ezua/app: {{ .Chart.Name }}
+rules:
+- apiGroups: [""]
+  resources: ["pods", "persistentvolumeclaims", "services"]
+  verbs: ["get", "list", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "delete"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-cleanup
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "-2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    hpe-ezua/type: vendor-service
+    hpe-ezua/app: {{ .Chart.Name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-cleanup
+subjects:
+- kind: ServiceAccount
+  name: {{ .Release.Name }}-cleanup
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-cleanup
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    hpe-ezua/type: vendor-service
+    hpe-ezua/app: {{ .Chart.Name }}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 60
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        hpe-ezua/type: vendor-service
+        hpe-ezua/app: {{ .Chart.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-cleanup
+      restartPolicy: Never
+      containers:
+      - name: cleanup
+        image: {{ .Values.cleanup.image | default "node:22-bookworm-slim" }}
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_TIMEOUT
+          value: "{{ .Values.cleanup.podTimeout | default 180 }}"
+        - name: PVC_TIMEOUT
+          value: "{{ .Values.cleanup.pvcTimeout | default 120 }}"
+        command: ['/bin/sh', '-c']
+        args:
+        - |
+          cat > /tmp/cleanup.mjs << 'SCRIPT'
+          import https from 'node:https'
+          import fs from 'node:fs'
+
+          const namespace = process.env.POD_NAMESPACE
+          const podTimeout = parseInt(process.env.POD_TIMEOUT || '180', 10) * 1000
+          const pvcTimeout = parseInt(process.env.PVC_TIMEOUT || '120', 10) * 1000
+          const kubeHost = process.env.KUBERNETES_SERVICE_HOST
+          const kubePort = process.env.KUBERNETES_SERVICE_PORT_HTTPS || '443'
+          const token = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim()
+          const ca = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt')
+
+          function req(method, path, body) {
+            return new Promise((resolve, reject) => {
+              const headers = { accept: 'application/json', authorization: 'Bearer ' + token }
+              if (body) headers['content-type'] = 'application/json'
+              const r = https.request({ host: kubeHost, port: kubePort, method, path, ca, headers }, (res) => {
+                let data = ''
+                res.setEncoding('utf8')
+                res.on('data', (c) => { data += c })
+                res.on('end', () => {
+                  let parsed = null
+                  try { parsed = data ? JSON.parse(data) : null } catch (e) { parsed = null }
+                  if (res.statusCode >= 200 && res.statusCode < 300 || res.statusCode === 404) {
+                    resolve(res.statusCode === 404 ? null : parsed)
+                    return
+                  }
+                  const err = new Error('API ' + method + ' ' + path + ' -> ' + res.statusCode)
+                  err.statusCode = res.statusCode
+                  reject(err)
+                })
+              })
+              r.on('error', reject)
+              if (body) r.write(JSON.stringify(body))
+              r.end()
+            })
+          }
+
+          async function listByLabel(path, label) {
+            const result = await req('GET', path + '?labelSelector=' + encodeURIComponent(label))
+            return (result && result.items) || []
+          }
+
+          async function deleteByName(path, name) {
+            try {
+              await req('DELETE', path + '/' + name + '?propagationPolicy=Background')
+              console.log('    deleted ' + name)
+              return true
+            } catch (e) {
+              console.log('    WARN: ' + name + ': ' + e.message)
+              return false
+            }
+          }
+
+          async function deleteByLabel(path, label, desc) {
+            const items = await listByLabel(path, label)
+            console.log('  ' + items.length + ' ' + desc + ' to delete')
+            for (const item of items) {
+              await deleteByName(path, item.metadata.name)
+            }
+            return items.length
+          }
+
+          async function countByLabel(path, label) {
+            const items = await listByLabel(path, label)
+            return items.length
+          }
+
+          async function waitForGone(path, label, desc, timeoutMs) {
+            const start = Date.now()
+            while (Date.now() - start < timeoutMs) {
+              const count = await countByLabel(path, label)
+              if (count === 0) {
+                console.log('  ' + desc + ': gone')
+                return
+              }
+              console.log('  ' + desc + ': ' + count + ' remaining ...')
+              await new Promise((r) => setTimeout(r, 3000))
+            }
+            console.log('  WARN: ' + desc + ' still present after timeout, proceeding')
+          }
+
+          async function main() {
+            const um = 'opencode-user-managed=true'
+            const pods = 'app=opencode-user'
+            const ns = namespace
+
+            console.log('=== Helm pre-delete cleanup ===')
+            console.log('namespace: ' + ns)
+
+            console.log('Phase 1: delete user deployments (cascade pods)')
+            await deleteByLabel('/apis/apps/v1/namespaces/' + ns + '/deployments', um, 'deployments')
+
+            console.log('Phase 2: wait for user pods to terminate (releases PVC mounts)')
+            await waitForGone('/api/v1/namespaces/' + ns + '/pods', pods, 'pods', podTimeout)
+
+            console.log('Phase 3: delete user PVCs, services, leases')
+            await deleteByLabel('/api/v1/namespaces/' + ns + '/persistentvolumeclaims', um, 'PVCs')
+            await deleteByLabel('/api/v1/namespaces/' + ns + '/services', um, 'services')
+            await deleteByLabel('/apis/coordination.k8s.io/v1/namespaces/' + ns + '/leases', um, 'leases')
+
+            console.log('Phase 4: wait for PVCs to be fully deleted')
+            await waitForGone('/api/v1/namespaces/' + ns + '/persistentvolumeclaims', um, 'PVCs', pvcTimeout)
+
+            console.log('=== Cleanup done ===')
+          }
+
+          main().then(() => process.exit(0)).catch((e) => {
+            console.error('FATAL (non-blocking): ' + e.message)
+            process.exit(0)
+          })
+          SCRIPT
+          exec node /tmp/cleanup.mjs
