@@ -22,4 +22,4 @@ spec:
         metadata:
             labels:
               "hpe-ezua/type": vendor-service
-              "hpe-ezua/app": {{ .Chart.Name }}
+              "hpe-ezua/app": {{ .Release.Name }}

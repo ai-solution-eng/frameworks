@@ -1,6 +1,6 @@
 apiVersion: v2
 name: open-webui-postgres
-version: 15.2.4
+version: 15.2.5
 appVersion: 0.10.2
 home: https://www.openwebui.com/
 icon: >-
