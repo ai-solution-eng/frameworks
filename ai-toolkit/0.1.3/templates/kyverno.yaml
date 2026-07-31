@@ -13,6 +13,8 @@ spec:
     match:
       any:
       - resources:
+          # list all namespaces defined by the chart here
+          # if there are no namespace resource defined leave only .Release.Namespace
           namespaces:
           - {{ .Release.Namespace }}
           kinds:
@@ -22,4 +24,4 @@ spec:
         metadata:
             labels:
               "hpe-ezua/type": vendor-service
-              "hpe-ezua/app": {{ .Release.Name }}
+              "hpe-ezua/app": {{ .Chart.Name }}
