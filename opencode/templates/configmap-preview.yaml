@@ -558,3 +558,1776 @@ data:
     process.on('SIGTERM', () => shutdown('SIGTERM'))
 
     startOpencode().catch((error) => console.error('[opencode] start failed', error))
+
+  data_manager.mjs: |
+    import http from 'node:http'
+    import fs from 'node:fs'
+    import fsp from 'node:fs/promises'
+    import path from 'node:path'
+    import { spawn } from 'node:child_process'
+    
+    const PORT = parseInt(process.env.DATA_MANAGER_PORT || '7682', 10)
+    const HOST = '0.0.0.0'
+    const BASE = '/data_manager'
+    const MAX_TEXT_SIZE = 5 * 1024 * 1024
+    const MAX_UPLOAD_SIZE = parseInt(process.env.DATA_MANAGER_MAX_UPLOAD_MB || '1024', 10) * 1024 * 1024
+    
+    const ROOTS = [
+      { key: 'personal', label: 'Personal', path: '/workspace/personal', navigable: true, shared: false },
+      { key: 'shared', label: 'Shared', path: '/workspace/shared', navigable: true, shared: true },
+      { key: 'state', label: 'State', path: '/var/opencode', navigable: false, shared: false },
+    ]
+    
+    const NAVIGABLE_ROOTS = ROOTS.filter((r) => r.navigable)
+    const NAVIGABLE_PATHS = NAVIGABLE_ROOTS.map((r) => r.path)
+    
+    let storageCache = null
+    let storageCacheTime = 0
+    const STORAGE_CACHE_MS = 2000
+    
+    function json(res, code, data) {
+      res.writeHead(code, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(data))
+    }
+    
+    function sendError(res, code, msg) {
+      json(res, code, { error: msg })
+    }
+    
+    async function resolveSafe(inputPath) {
+      if (!inputPath || typeof inputPath !== 'string') return null
+      const resolved = path.resolve(inputPath)
+      const underRoot = NAVIGABLE_PATHS.some(
+        (rp) => resolved === rp || resolved.startsWith(rp + path.sep),
+      )
+      if (!underRoot) return null
+      try {
+        const real = await fsp.realpath(resolved)
+        const realSafe = NAVIGABLE_PATHS.some(
+          (rp) => real === rp || real.startsWith(rp + path.sep),
+        )
+        return realSafe ? real : null
+      } catch {
+        try {
+          const parentReal = await fsp.realpath(path.dirname(resolved))
+          const parentSafe = NAVIGABLE_PATHS.some(
+            (rp) => parentReal === rp || parentReal.startsWith(rp + path.sep),
+          )
+          return parentSafe ? resolved : null
+        } catch {
+          return null
+        }
+      }
+    }
+    
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 B'
+      const units = ['B', 'KB', 'MB', 'GB', 'TB']
+      const i = Math.floor(Math.log(bytes) / Math.log(1024))
+      return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i]
+    }
+    
+    function parseMultipart(body, boundary) {
+      const parts = []
+      const boundaryBuf = Buffer.from('--' + boundary)
+      let pos = body.indexOf(boundaryBuf)
+      if (pos === -1) return parts
+      pos += boundaryBuf.length
+    
+      while (pos < body.length) {
+        if (body[pos] === 0x2d && body[pos + 1] === 0x2d) break
+        if (body[pos] === 0x0d && body[pos + 1] === 0x0a) pos += 2
+    
+        const headerEnd = body.indexOf(Buffer.from('\r\n\r\n'), pos)
+        if (headerEnd === -1) break
+    
+        const headerStr = body.slice(pos, headerEnd).toString('utf8')
+        pos = headerEnd + 4
+    
+        const nextBoundary = body.indexOf(Buffer.from('\r\n--' + boundary), pos)
+        if (nextBoundary === -1) break
+    
+        const partData = body.slice(pos, nextBoundary)
+    
+        const headers = {}
+        for (const line of headerStr.split('\r\n')) {
+          const idx = line.indexOf(':')
+          if (idx > 0) {
+            headers[line.slice(0, idx).trim().toLowerCase()] = line.slice(idx + 1).trim()
+          }
+        }
+    
+        const cd = headers['content-disposition'] || ''
+        const nameMatch = cd.match(/name="([^"]+)"/)
+        const filenameMatch = cd.match(/filename="([^"]*)"/)
+    
+        parts.push({
+          name: nameMatch ? nameMatch[1] : null,
+          filename: filenameMatch ? filenameMatch[1] : null,
+          contentType: headers['content-type'] || 'application/octet-stream',
+          data: partData,
+        })
+    
+        pos = nextBoundary + 2 + boundaryBuf.length
+      }
+    
+      return parts
+    }
+    
+    async function handleRoots(req, res) {
+      json(res, 200, NAVIGABLE_ROOTS.map((r) => ({
+        key: r.key,
+        label: r.label,
+        path: r.path,
+        shared: r.shared,
+      })))
+    }
+    
+    async function handleList(req, res, url) {
+      const dirPath = url.searchParams.get('path') || NAVIGABLE_PATHS[0]
+      const safePath = await resolveSafe(dirPath)
+      if (!safePath) {
+        sendError(res, 403, 'Forbidden path')
+        return
+      }
+      try {
+        const stat = await fsp.stat(safePath)
+        if (!stat.isDirectory()) {
+          sendError(res, 400, 'Not a directory')
+          return
+        }
+        const entries = await fsp.readdir(safePath, { withFileTypes: true })
+        const items = await Promise.all(
+          entries
+            .filter((e) => !e.name.startsWith('.'))
+            .map(async (e) => {
+              try {
+                const full = path.join(safePath, e.name)
+                const s = await fsp.stat(full)
+                return {
+                  name: e.name,
+                  type: e.isDirectory() ? 'dir' : 'file',
+                  size: s.size,
+                  mtime: s.mtime.toISOString(),
+                  mode: s.mode,
+                  ext: e.isFile() ? path.extname(e.name).slice(1).toLowerCase() : '',
+                }
+              } catch {
+                return { name: e.name, type: e.isDirectory() ? 'dir' : 'file', size: 0, mtime: null, mode: 0, ext: '' }
+              }
+            }),
+        )
+        items.sort((a, b) => {
+          if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+        json(res, 200, { path: safePath, entries: items })
+      } catch (err) {
+        sendError(res, 500, err.message)
+      }
+    }
+    
+    async function handleDownload(req, res, url) {
+      const filePath = url.searchParams.get('path')
+      const customName = url.searchParams.get('name')
+      const safePath = await resolveSafe(filePath)
+      if (!safePath) {
+        sendError(res, 403, 'Forbidden path')
+        return
+      }
+      try {
+        const stat = await fsp.stat(safePath)
+        if (!stat.isFile()) {
+          sendError(res, 400, 'Not a file')
+          return
+        }
+        const filename = customName || path.basename(safePath)
+        res.writeHead(200, {
+          'content-type': 'application/octet-stream',
+          'content-length': stat.size,
+          'content-disposition': 'attachment; filename="' + filename.replace(/"/g, '\\"') + '"',
+        })
+        fs.createReadStream(safePath).pipe(res)
+      } catch (err) {
+        sendError(res, 500, err.message)
+      }
+    }
+    
+    async function handleArchive(req, res, body) {
+      const selectedPaths = body.paths
+      const format = body.format || 'tar.gz'
+      const archiveName = (body.name || 'archive').replace(/[^a-zA-Z0-9._-]/g, '_')
+    
+      if (!Array.isArray(selectedPaths) || selectedPaths.length === 0) {
+        sendError(res, 400, 'No paths specified')
+        return
+      }
+    
+      const safePaths = []
+      for (const p of selectedPaths) {
+        const safe = await resolveSafe(p)
+        if (!safe) {
+          sendError(res, 403, 'Forbidden path: ' + p)
+          return
+        }
+        safePaths.push(safe)
+      }
+    
+      const root = NAVIGABLE_ROOTS.find((r) =>
+        safePaths.every((p) => p === r.path || p.startsWith(r.path + path.sep)),
+      )
+      if (!root) {
+        sendError(res, 400, 'Cannot archive files from different roots')
+        return
+      }
+    
+      const relPaths = safePaths.map((p) => path.relative(root.path, p))
+      const ext = format === 'tar.gz' ? '.tar.gz' : '.zip'
+      const contentType = format === 'tar.gz' ? 'application/gzip' : 'application/zip'
+    
+      res.writeHead(200, {
+        'content-type': contentType,
+        'content-disposition': 'attachment; filename="' + archiveName + ext + '"',
+      })
+    
+      const cmd = format === 'tar.gz'
+        ? spawn('tar', ['czf', '-', ...relPaths], { cwd: root.path })
+        : spawn('zip', ['-rq', '-', ...relPaths], { cwd: root.path })
+    
+      cmd.stdout.pipe(res)
+      cmd.stderr.on('data', (d) => console.error('[data_manager] archive stderr:', d.toString()))
+      cmd.on('error', (err) => {
+        console.error('[data_manager] archive error:', err)
+        if (!res.writableEnded) res.end()
+      })
+      cmd.on('close', () => {
+        if (!res.writableEnded) res.end()
+      })
+    }
+    
+    async function handleUpload(req, res, url) {
+      const targetPath = url.searchParams.get('path')
+      const safePath = await resolveSafe(targetPath)
+      if (!safePath) {
+        sendError(res, 403, 'Forbidden path')
+        return
+      }
+    
+      const contentType = req.headers['content-type'] || ''
+      const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/)
+      if (!boundaryMatch) {
+        sendError(res, 400, 'Missing multipart boundary')
+        return
+      }
+    
+      const boundary = boundaryMatch[1] || boundaryMatch[2]
+      const contentLength = parseInt(req.headers['content-length'] || '0', 10)
+      if (contentLength > MAX_UPLOAD_SIZE) {
+        sendError(res, 413, 'Upload too large')
+        return
+      }
+    
+      const chunks = []
+      let totalSize = 0
+      for await (const chunk of req) {
+        totalSize += chunk.length
+        if (totalSize > MAX_UPLOAD_SIZE) {
+          sendError(res, 413, 'Upload too large')
+          return
+        }
+        chunks.push(chunk)
+      }
+      const body = Buffer.concat(chunks)
+      const parts = parseMultipart(body, boundary)
+      const uploaded = []
+    
+      for (const part of parts) {
+        if (!part.filename) continue
+        const filePath = path.join(safePath, part.filename)
+        const safeFilePath = await resolveSafe(filePath)
+        if (!safeFilePath) {
+          uploaded.push({ name: part.filename, error: 'Forbidden path' })
+          continue
+        }
+        await fsp.mkdir(path.dirname(safeFilePath), { recursive: true })
+        await fsp.writeFile(safeFilePath, part.data)
+        uploaded.push({ name: part.filename, size: part.data.length })
+      }
+    
+      json(res, 200, { uploaded })
+    }
+    
+    async function handleRead(req, res, url) {
+      const filePath = url.searchParams.get('path')
+      const safePath = await resolveSafe(filePath)
+      if (!safePath) {
+        sendError(res, 403, 'Forbidden')
+        return
+      }
+      try {
+        const stat = await fsp.stat(safePath)
+        if (!stat.isFile()) {
+          sendError(res, 400, 'Not a file')
+          return
+        }
+        if (stat.size > MAX_TEXT_SIZE) {
+          json(res, 200, { tooLarge: true, size: stat.size })
+          return
+        }
+        const fd = await fsp.open(safePath, 'r')
+        const probeSize = Math.min(8192, stat.size)
+        const probe = Buffer.alloc(probeSize)
+        await fd.read(probe, 0, probeSize, 0)
+        await fd.close()
+        if (probe.includes(0)) {
+          json(res, 200, { binary: true, size: stat.size })
+          return
+        }
+        const content = await fsp.readFile(safePath, 'utf8')
+        json(res, 200, { content, size: stat.size })
+      } catch (err) {
+        sendError(res, 500, err.message)
+      }
+    }
+    
+    async function handleWrite(req, res, url, body) {
+      const filePath = url.searchParams.get('path')
+      const safePath = await resolveSafe(filePath)
+      if (!safePath) {
+        sendError(res, 403, 'Forbidden')
+        return
+      }
+      try {
+        await fsp.mkdir(path.dirname(safePath), { recursive: true })
+        const tmpPath = safePath + '.tmp-' + Date.now()
+        await fsp.writeFile(tmpPath, body.content || '', 'utf8')
+        await fsp.rename(tmpPath, safePath)
+        json(res, 200, { ok: true, path: safePath })
+      } catch (err) {
+        sendError(res, 500, err.message)
+      }
+    }
+    
+    async function handleMkdir(req, res, body) {
+      const dirPath = body.path
+      const safePath = await resolveSafe(dirPath)
+      if (!safePath) {
+        sendError(res, 403, 'Forbidden')
+        return
+      }
+      try {
+        await fsp.mkdir(safePath, { recursive: true })
+        json(res, 200, { ok: true, path: safePath })
+      } catch (err) {
+        sendError(res, 500, err.message)
+      }
+    }
+    
+    async function handleDelete(req, res, body) {
+      const paths = body.paths
+      if (!Array.isArray(paths) || paths.length === 0) {
+        sendError(res, 400, 'No paths specified')
+        return
+      }
+      const deleted = []
+      for (const p of paths) {
+        const safe = await resolveSafe(p)
+        if (!safe) {
+          deleted.push({ path: p, error: 'Forbidden' })
+          continue
+        }
+        try {
+          await fsp.rm(safe, { recursive: true })
+          deleted.push({ path: p, ok: true })
+        } catch (err) {
+          deleted.push({ path: p, error: err.message })
+        }
+      }
+      json(res, 200, { deleted })
+    }
+    
+    async function handleRename(req, res, body) {
+      const from = body.from
+      const to = body.to
+      const safeFrom = await resolveSafe(from)
+      const safeTo = await resolveSafe(to)
+      if (!safeFrom || !safeTo) {
+        sendError(res, 403, 'Forbidden')
+        return
+      }
+      try {
+        await fsp.mkdir(path.dirname(safeTo), { recursive: true })
+        await fsp.rename(safeFrom, safeTo)
+        json(res, 200, { ok: true, from: safeFrom, to: safeTo })
+      } catch (err) {
+        sendError(res, 500, err.message)
+      }
+    }
+    
+    async function handleStorage(req, res) {
+      const now = Date.now()
+      if (storageCache && now - storageCacheTime < STORAGE_CACHE_MS) {
+        json(res, 200, storageCache)
+        return
+      }
+      const results = []
+      for (const root of ROOTS) {
+        try {
+          const stats = await fsp.statfs(root.path)
+          const total = stats.blocks * stats.bsize
+          const free = stats.bfree * stats.bsize
+          const available = stats.bavail * stats.bsize
+          const used = total - free
+          const percent = total > 0 ? Math.round((used / total) * 100) : 0
+          const inodesTotal = stats.files
+          const inodesFree = stats.ffree
+          const inodesUsed = inodesTotal - inodesFree
+          const inodesPercent = inodesTotal > 0 ? Math.round((inodesUsed / inodesTotal) * 100) : 0
+          results.push({
+            key: root.key,
+            label: root.label,
+            path: root.path,
+            navigable: root.navigable,
+            shared: root.shared,
+            total,
+            used,
+            available,
+            free,
+            percent,
+            inodesTotal,
+            inodesUsed,
+            inodesFree,
+            inodesPercent,
+          })
+        } catch (err) {
+          results.push({
+            key: root.key,
+            label: root.label,
+            path: root.path,
+            navigable: root.navigable,
+            shared: root.shared,
+            error: err.message,
+          })
+        }
+      }
+      storageCache = results
+      storageCacheTime = now
+      json(res, 200, results)
+    }
+    
+    function loadSpaHtml() {
+      try {
+        return fs.readFileSync('/opt/preview/data_manager.html', 'utf8')
+      } catch {
+        return '<!DOCTYPE html><html><body><h1>Data Manager</h1><p>SPA file not found. Ensure data_manager.html is mounted.</p></body></html>'
+      }
+    }
+    
+    let spaHtml = null
+    
+    async function handleRequest(req, res) {
+      const url = new URL(req.url, 'http://internal')
+      const pathname = url.pathname
+    
+      if (!pathname.startsWith(BASE)) {
+        sendError(res, 404, 'Not found')
+        return
+      }
+    
+      const subPath = pathname.slice(BASE.length)
+    
+      if (subPath === '' || subPath === '/' || subPath === '/index.html') {
+        if (!spaHtml) spaHtml = loadSpaHtml()
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+        res.end(spaHtml)
+        return
+      }
+    
+      if (subPath === '/api/healthz') {
+        json(res, 200, { ok: true })
+        return
+      }
+    
+      if (subPath === '/api/roots' && req.method === 'GET') {
+        return handleRoots(req, res)
+      }
+    
+      if (subPath === '/api/list' && req.method === 'GET') {
+        return handleList(req, res, url)
+      }
+    
+      if (subPath === '/api/download' && req.method === 'GET') {
+        return handleDownload(req, res, url)
+      }
+    
+      if (subPath === '/api/archive' && req.method === 'POST') {
+        const chunks = []
+        for await (const chunk of req) chunks.push(chunk)
+        const body = JSON.parse(Buffer.concat(chunks).toString())
+        return handleArchive(req, res, body)
+      }
+    
+      if (subPath === '/api/upload' && req.method === 'POST') {
+        return handleUpload(req, res, url)
+      }
+    
+      if (subPath === '/api/read' && req.method === 'GET') {
+        return handleRead(req, res, url)
+      }
+    
+      if (subPath === '/api/write' && req.method === 'PUT') {
+        const chunks = []
+        for await (const chunk of req) chunks.push(chunk)
+        const body = JSON.parse(Buffer.concat(chunks).toString())
+        return handleWrite(req, res, url, body)
+      }
+    
+      if (subPath === '/api/mkdir' && req.method === 'POST') {
+        const chunks = []
+        for await (const chunk of req) chunks.push(chunk)
+        const body = JSON.parse(Buffer.concat(chunks).toString())
+        return handleMkdir(req, res, body)
+      }
+    
+      if (subPath === '/api/delete' && req.method === 'POST') {
+        const chunks = []
+        for await (const chunk of req) chunks.push(chunk)
+        const body = JSON.parse(Buffer.concat(chunks).toString())
+        return handleDelete(req, res, body)
+      }
+    
+      if (subPath === '/api/rename' && req.method === 'POST') {
+        const chunks = []
+        for await (const chunk of req) chunks.push(chunk)
+        const body = JSON.parse(Buffer.concat(chunks).toString())
+        return handleRename(req, res, body)
+      }
+    
+      if (subPath === '/api/storage' && req.method === 'GET') {
+        return handleStorage(req, res)
+      }
+    
+      sendError(res, 404, 'Not found: ' + subPath)
+    }
+    
+    const server = http.createServer(handleRequest)
+    server.listen(PORT, HOST, () => {
+      console.log('[data_manager] listening on ' + HOST + ':' + PORT)
+    })
+    
+  data_manager.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Manager</title>
+    <style>
+    :root {
+      --bg: #0d1117;
+      --bg-panel: #161b22;
+      --bg-hover: #1c2128;
+      --bg-active: #2d333b;
+      --text: #e6edf3;
+      --text-muted: #7d8590;
+      --accent: #2f81f7;
+      --accent-hover: #388bfd;
+      --border: #30363d;
+      --danger: #f85149;
+      --success: #3fb950;
+      --warning: #d29922;
+      --radius: 6px;
+      --bar-green: #3fb950;
+      --bar-yellow: #d29922;
+      --bar-red: #f85149;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 16px; font-weight: 600; white-space: nowrap; }
+    header .spacer { flex: 1; }
+    .btn {
+      background: var(--bg-panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: var(--bg-hover); border-color: var(--accent); }
+    .btn:active { background: var(--bg-active); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-danger { color: var(--danger); border-color: var(--danger); }
+    .btn-danger:hover { background: rgba(248,81,73,0.15); }
+    
+    /* Storage Panel */
+    #storage-panel {
+      display: flex;
+      gap: 16px;
+      padding: 10px 16px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+    .storage-item {
+      flex: 1;
+      min-width: 200px;
+      padding: 8px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .storage-item .si-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .storage-item .si-badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: var(--bg-active);
+      color: var(--text-muted);
+    }
+    .storage-bar {
+      height: 8px;
+      background: var(--bg-active);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 4px;
+    }
+    .storage-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.3s;
+    }
+    .storage-bar-fill.green { background: var(--bar-green); }
+    .storage-bar-fill.yellow { background: var(--bar-yellow); }
+    .storage-bar-fill.red { background: var(--bar-red); }
+    .storage-item .si-detail {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .storage-item .si-inodes {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    
+    /* Toolbar */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    #root-selector {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 5px 8px;
+      font-size: 13px;
+    }
+    #breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex: 1;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .crumb {
+      cursor: pointer;
+      color: var(--accent);
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+    .crumb:hover { background: var(--bg-hover); }
+    .crumb-sep { color: var(--text-muted); }
+    
+    /* Main file table */
+    #main {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+    }
+    #drop-overlay {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(47,129,247,0.1);
+      border: 3px dashed var(--accent);
+      z-index: 10;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--accent);
+      pointer-events: none;
+    }
+    #drop-overlay.active { display: flex; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    thead {
+      position: sticky;
+      top: 0;
+      background: var(--bg-panel);
+      z-index: 5;
+    }
+    th {
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    td {
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    tbody tr { cursor: pointer; }
+    tbody tr:hover { background: var(--bg-hover); }
+    tbody tr.selected { background: var(--bg-active); }
+    .file-icon { width: 18px; display: inline-block; text-align: center; }
+    .file-name { font-weight: 500; }
+    .file-size, .file-mtime, .file-mode { color: var(--text-muted); font-size: 12px; }
+    th input[type="checkbox"], td input[type="checkbox"] { cursor: pointer; }
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: var(--text-muted);
+    }
+    
+    /* Selection bar */
+    #selection-bar {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #selection-bar.active { display: flex; }
+    #selection-count { flex: 1; font-size: 13px; color: var(--text-muted); }
+    
+    /* Toasts */
+    #toasts {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 1000;
+    }
+    .toast {
+      padding: 10px 16px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      animation: slideIn 0.3s ease;
+      border: 1px solid var(--border);
+      background: var(--bg-panel);
+      color: var(--text);
+      max-width: 400px;
+    }
+    .toast.success { border-color: var(--success); }
+    .toast.error { border-color: var(--danger); }
+    .toast.info { border-color: var(--accent); }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+    
+    /* Dialogs */
+    dialog {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg-panel);
+      color: var(--text);
+      padding: 0;
+      max-width: 90vw;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    dialog::backdrop { background: rgba(0,0,0,0.6); }
+    dialog .dlg-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    dialog .dlg-body { padding: 16px; }
+    dialog .dlg-footer {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .dlg-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+    .dlg-field label { font-size: 12px; color: var(--text-muted); }
+    .dlg-field input, .dlg-field select {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+    
+    /* Editor dialog */
+    #edit-dialog { width: 80vw; max-width: 1000px; height: 80vh; max-height: 700px; }
+    #edit-dialog .dlg-body { padding: 0; flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+    #editor-container { flex: 1; overflow: hidden; min-height: 300px; }
+    #editor-textarea {
+      width: 100%;
+      height: 100%;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      border: none;
+      padding: 10px;
+      font-family: 'SF Mono', Monaco, Menlo, 'Courier New', monospace;
+      font-size: 13px;
+      resize: none;
+      outline: none;
+    }
+    #edit-dialog form { display: flex; flex-direction: column; height: 100%; }
+    .hidden { display: none !important; }
+    </style>
+    </head>
+    <body>
+    
+    <header>
+      <h1>Data Manager</h1>
+      <button class="btn" id="btn-toggle-storage">Storage</button>
+      <div class="spacer"></div>
+      <a class="btn" href="/terminal" target="_blank">Terminal</a>
+    </header>
+    
+    <div id="storage-panel" class="hidden"></div>
+    
+    <div id="toolbar">
+      <select id="root-selector"></select>
+      <nav id="breadcrumb"></nav>
+      <button class="btn" id="btn-upload">Upload</button>
+      <button class="btn" id="btn-new-folder">New Folder</button>
+      <button class="btn" id="btn-new-file">New File</button>
+      <button class="btn" id="btn-refresh">Refresh</button>
+    </div>
+    
+    <div id="main">
+      <div id="drop-overlay">Drop files here to upload</div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:32px;"><input type="checkbox" id="select-all"></th>
+            <th>Name</th>
+            <th style="width:100px;">Size</th>
+            <th style="width:160px;">Modified</th>
+            <th style="width:80px;">Perms</th>
+          </tr>
+        </thead>
+        <tbody id="file-list"></tbody>
+      </table>
+      <div id="empty-state" class="empty-state hidden">No files</div>
+    </div>
+    
+    <div id="selection-bar">
+      <span id="selection-count">0 selected</span>
+      <button class="btn" id="btn-download-sel">Download</button>
+      <button class="btn btn-danger" id="btn-delete-sel">Delete</button>
+    </div>
+    
+    <div id="toasts"></div>
+    
+    <!-- Edit Dialog -->
+    <dialog id="edit-dialog">
+      <form method="dialog">
+        <div class="dlg-header">
+          <span id="edit-title">Edit File</span>
+          <span id="edit-meta" style="font-size:11px;color:var(--text-muted);"></span>
+        </div>
+        <div class="dlg-body">
+          <div id="editor-container"></div>
+        </div>
+        <div class="dlg-footer">
+          <button class="btn" id="btn-editor-download" type="button">Download</button>
+          <button class="btn" id="btn-editor-rename" type="button">Rename</button>
+          <button class="btn btn-danger" id="btn-editor-delete" type="button">Delete</button>
+          <button class="btn btn-primary" id="btn-editor-save" type="button">Save</button>
+          <button class="btn" id="btn-editor-close" type="button">Close</button>
+        </div>
+      </form>
+    </dialog>
+    
+    <!-- Download Dialog -->
+    <dialog id="download-dialog">
+      <div class="dlg-header">Download</div>
+      <div class="dlg-body">
+        <div class="dlg-field">
+          <label>Filename (without extension)</label>
+          <input type="text" id="dl-name" value="archive">
+        </div>
+        <div class="dlg-field" id="dl-format-field">
+          <label>Format</label>
+          <select id="dl-format">
+            <option value="zip">ZIP</option>
+            <option value="tar.gz">TAR.GZ</option>
+          </select>
+        </div>
+      </div>
+      <div class="dlg-footer">
+        <button class="btn" id="dl-cancel">Cancel</button>
+        <button class="btn btn-primary" id="dl-confirm">Download</button>
+      </div>
+    </dialog>
+    
+    <!-- Rename Dialog -->
+    <dialog id="rename-dialog">
+      <div class="dlg-header">Rename / Move</div>
+      <div class="dlg-body">
+        <div class="dlg-field">
+          <label>New name</label>
+          <input type="text" id="rename-input">
+        </div>
+      </div>
+      <div class="dlg-footer">
+        <button class="btn" id="rename-cancel">Cancel</button>
+        <button class="btn btn-primary" id="rename-confirm">Rename</button>
+      </div>
+    </dialog>
+    
+    <!-- New Folder Dialog -->
+    <dialog id="mkdir-dialog">
+      <div class="dlg-header">New Folder</div>
+      <div class="dlg-body">
+        <div class="dlg-field">
+          <label>Folder name</label>
+          <input type="text" id="mkdir-input">
+        </div>
+      </div>
+      <div class="dlg-footer">
+        <button class="btn" id="mkdir-cancel">Cancel</button>
+        <button class="btn btn-primary" id="mkdir-confirm">Create</button>
+      </div>
+    </dialog>
+    
+    <!-- New File Dialog -->
+    <dialog id="newfile-dialog">
+      <div class="dlg-header">New File</div>
+      <div class="dlg-body">
+        <div class="dlg-field">
+          <label>File name</label>
+          <input type="text" id="newfile-input">
+        </div>
+      </div>
+      <div class="dlg-footer">
+        <button class="btn" id="newfile-cancel">Cancel</button>
+        <button class="btn btn-primary" id="newfile-confirm">Create</button>
+      </div>
+    </dialog>
+    
+    <!-- Confirm Delete Dialog -->
+    <dialog id="confirm-dialog">
+      <div class="dlg-header" id="confirm-title">Confirm Delete</div>
+      <div class="dlg-body">
+        <p id="confirm-message" style="font-size:13px;line-height:1.5;"></p>
+      </div>
+      <div class="dlg-footer">
+        <button class="btn" id="confirm-cancel">Cancel</button>
+        <button class="btn btn-danger" id="confirm-yes">Delete</button>
+      </div>
+    </dialog>
+    
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+    <script>
+    const API = '/data_manager/api';
+    let currentPath = '';
+    let currentRoot = null;
+    let roots = [];
+    let selectedPaths = new Set();
+    let monacoEditor = null;
+    let monacoReady = false;
+    let editorCurrentPath = null;
+    
+    function fmt(bytes) {
+      if (bytes === 0) return '0 B';
+      const u = ['B','KB','MB','GB','TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(1024));
+      return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + u[i];
+    }
+    
+    function fmtDate(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    }
+    
+    function fmtMode(mode) {
+      return '0' + (mode & 0o777).toString(8);
+    }
+    
+    function toast(msg, type) {
+      const el = document.createElement('div');
+      el.className = 'toast ' + (type || 'info');
+      el.textContent = msg;
+      document.getElementById('toasts').appendChild(el);
+      setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 4000);
+    }
+    
+    async function api(path, opts) {
+      const res = await fetch(API + path, opts);
+      const text = await res.text();
+      let data;
+      try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text }; }
+      if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+      return data;
+    }
+    
+    function iconFor(type, ext) {
+      if (type === 'dir') return '\u{1F4C1}';
+      const imgExts = ['png','jpg','jpeg','gif','webp','svg','bmp'];
+      if (imgExts.includes(ext)) return '\u{1F5BC}';
+      return '\u{1F4C4}';
+    }
+    
+    function langForExt(ext) {
+      const map = {
+        js:'javascript',mjs:'javascript',ts:'typescript',json:'json',html:'html',
+        css:'css',md:'markdown',py:'python',sh:'shell',bash:'shell',
+        yml:'yaml',yaml:'yaml',xml:'xml',sql:'sql',go:'go',rs:'rust',
+        java:'java',c:'c',cpp:'cpp',h:'c',rb:'ruby',php:'php',
+        txt:'plaintext',log:'plaintext',env:'ini',conf:'ini',toml:'ini',
+      };
+      return map[ext] || 'plaintext';
+    }
+    
+    // ─── Root Selector ──────────────────────────────────
+    async function loadRoots() {
+      roots = await api('/roots');
+      const sel = document.getElementById('root-selector');
+      sel.innerHTML = '';
+      roots.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r.path;
+        opt.textContent = r.label + (r.shared ? ' (shared)' : '');
+        sel.appendChild(opt);
+      });
+      if (roots.length > 0) {
+        currentRoot = roots[0];
+        currentPath = roots[0].path;
+        await loadDir(currentPath);
+      }
+    }
+    
+    sel = document.getElementById('root-selector');
+    sel.addEventListener('change', async () => {
+      const path = sel.value;
+      currentRoot = roots.find(r => r.path === path);
+      currentPath = path;
+      selectedPaths.clear();
+      await loadDir(path);
+    });
+    
+    // ─── Breadcrumb ─────────────────────────────────────
+    function renderBreadcrumb() {
+      const bc = document.getElementById('breadcrumb');
+      bc.innerHTML = '';
+      if (!currentRoot) return;
+      const rel = currentPath.startsWith(currentRoot.path)
+        ? currentPath.slice(currentRoot.path.length).replace(/^\/+/, '')
+        : '';
+      const parts = rel ? rel.split('/') : [];
+    
+      const rootCrumb = document.createElement('span');
+      rootCrumb.className = 'crumb';
+      rootCrumb.textContent = currentRoot.label;
+      rootCrumb.onclick = () => navigateTo(currentRoot.path);
+      bc.appendChild(rootCrumb);
+    
+      let accum = currentRoot.path;
+      parts.forEach(part => {
+        accum += '/' + part;
+        const sep = document.createElement('span');
+        sep.className = 'crumb-sep';
+        sep.textContent = '/';
+        bc.appendChild(sep);
+        const crumb = document.createElement('span');
+        crumb.className = 'crumb';
+        crumb.textContent = part;
+        crumb.onclick = () => navigateTo(accum);
+        bc.appendChild(crumb);
+      });
+    }
+    
+    // ─── File Listing ───────────────────────────────────
+    async function loadDir(dirPath) {
+      currentPath = dirPath;
+      const data = await api('/list?path=' + encodeURIComponent(dirPath));
+      renderBreadcrumb();
+      renderTable(data.entries);
+      selectedPaths.clear();
+      updateSelectionBar();
+    }
+    
+    function renderTable(entries) {
+      const tbody = document.getElementById('file-list');
+      const empty = document.getElementById('empty-state');
+      tbody.innerHTML = '';
+      if (entries.length === 0) {
+        empty.classList.remove('hidden');
+        return;
+      }
+      empty.classList.add('hidden');
+    
+      // Parent dir row (if not at root)
+      if (currentRoot && currentPath !== currentRoot.path) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td></td><td colspan="4" style="color:var(--text-muted);">\u2191 ..</td>';
+        tr.onclick = () => {
+          const parent = currentPath.split('/').slice(0, -1).join('/') || '/';
+          navigateTo(parent);
+        };
+        tbody.appendChild(tr);
+      }
+    
+      entries.forEach(entry => {
+        const fullPath = joinPath(currentPath, entry.name);
+        const tr = document.createElement('tr');
+        tr.dataset.path = fullPath;
+        if (selectedPaths.has(fullPath)) tr.classList.add('selected');
+    
+        const cb = document.createElement('td');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = selectedPaths.has(fullPath);
+        checkbox.onchange = (e) => {
+          e.stopPropagation();
+          if (checkbox.checked) selectedPaths.add(fullPath);
+          else selectedPaths.delete(fullPath);
+          tr.classList.toggle('selected', checkbox.checked);
+          updateSelectionBar();
+        };
+        cb.appendChild(checkbox);
+        tr.appendChild(cb);
+    
+        const nameTd = document.createElement('td');
+        nameTd.innerHTML = '<span class="file-icon">' + iconFor(entry.type, entry.ext) + '</span> <span class="file-name">' + escHtml(entry.name) + '</span>';
+        tr.appendChild(nameTd);
+    
+        const sizeTd = document.createElement('td');
+        sizeTd.className = 'file-size';
+        sizeTd.textContent = entry.type === 'dir' ? '-' : fmt(entry.size);
+        tr.appendChild(sizeTd);
+    
+        const modTd = document.createElement('td');
+        modTd.className = 'file-mtime';
+        modTd.textContent = fmtDate(entry.mtime);
+        tr.appendChild(modTd);
+    
+        const modeTd = document.createElement('td');
+        modeTd.className = 'file-mode';
+        modeTd.textContent = fmtMode(entry.mode);
+        tr.appendChild(modeTd);
+    
+        tr.ondblclick = () => {
+          if (entry.type === 'dir') navigateTo(fullPath);
+          else openEditor(fullPath, entry);
+        };
+    
+        // Right-click for context menu (rename/delete)
+        tr.oncontextmenu = (e) => {
+          e.preventDefault();
+          if (!selectedPaths.has(fullPath)) {
+            selectedPaths.clear();
+            selectedPaths.add(fullPath);
+            renderTable(entries);
+            updateSelectionBar();
+          }
+          showRenameDialog(fullPath);
+        };
+    
+        tbody.appendChild(tr);
+      });
+    }
+    
+    function joinPath(base, name) {
+      if (base.endsWith('/')) return base + name;
+      return base + '/' + name;
+    }
+    
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    
+    async function navigateTo(path) {
+      selectedPaths.clear();
+      await loadDir(path);
+    }
+    
+    // ─── Select All ─────────────────────────────────────
+    document.getElementById('select-all').onchange = function() {
+      const checked = this.checked;
+      selectedPaths.clear();
+      document.querySelectorAll('#file-list tr[data-path]').forEach(tr => {
+        const cb = tr.querySelector('input[type="checkbox"]');
+        if (cb) {
+          cb.checked = checked;
+          if (checked) selectedPaths.add(tr.dataset.path);
+          tr.classList.toggle('selected', checked);
+        }
+      });
+      updateSelectionBar();
+    };
+    
+    // ─── Selection Bar ──────────────────────────────────
+    function updateSelectionBar() {
+      const bar = document.getElementById('selection-bar');
+      const count = document.getElementById('selection-count');
+      if (selectedPaths.size > 0) {
+        bar.classList.add('active');
+        count.textContent = selectedPaths.size + ' selected';
+      } else {
+        bar.classList.remove('active');
+      }
+    }
+    
+    // ─── Storage Panel ──────────────────────────────────
+    async function loadStorage() {
+      try {
+        const data = await api('/storage');
+        renderStorage(data);
+      } catch (e) {
+        console.error('Storage load failed:', e);
+      }
+    }
+    
+    function renderStorage(data) {
+      const panel = document.getElementById('storage-panel');
+      panel.innerHTML = '';
+      data.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'storage-item';
+    
+        const label = document.createElement('div');
+        label.className = 'si-label';
+        label.textContent = item.label;
+        if (item.shared) {
+          const badge = document.createElement('span');
+          badge.className = 'si-badge';
+          badge.textContent = 'shared';
+          label.appendChild(badge);
+        }
+        if (!item.navigable) {
+          const badge = document.createElement('span');
+          badge.className = 'si-badge';
+          badge.textContent = 'info only';
+          label.appendChild(badge);
+        }
+        div.appendChild(label);
+    
+        if (item.error) {
+          const err = document.createElement('div');
+          err.className = 'si-detail';
+          err.style.color = 'var(--danger)';
+          err.textContent = 'Error: ' + item.error;
+          div.appendChild(err);
+          panel.appendChild(div);
+          return;
+        }
+    
+        const bar = document.createElement('div');
+        bar.className = 'storage-bar';
+        const fill = document.createElement('div');
+        fill.className = 'storage-bar-fill ' + barColor(item.percent);
+        fill.style.width = Math.min(item.percent, 100) + '%';
+        bar.appendChild(fill);
+        div.appendChild(bar);
+    
+        const detail = document.createElement('div');
+        detail.className = 'si-detail';
+        detail.textContent = fmt(item.used) + ' / ' + fmt(item.total) + ' (' + item.percent + '%)';
+        div.appendChild(detail);
+    
+        const inodes = document.createElement('div');
+        inodes.className = 'si-inodes';
+        inodes.textContent = item.inodesUsed.toLocaleString() + ' / ' + item.inodesTotal.toLocaleString() + ' inodes (' + item.inodesPercent + '%)';
+        div.appendChild(inodes);
+    
+        panel.appendChild(div);
+      });
+    }
+    
+    function barColor(pct) {
+      if (pct >= 90) return 'red';
+      if (pct >= 70) return 'yellow';
+      return 'green';
+    }
+    
+    document.getElementById('btn-toggle-storage').onclick = function() {
+      const panel = document.getElementById('storage-panel');
+      panel.classList.toggle('hidden');
+      if (!panel.classList.contains('hidden')) loadStorage();
+    };
+    
+    // ─── Upload ─────────────────────────────────────────
+    document.getElementById('btn-upload').onclick = function() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.onchange = async () => {
+        await uploadFiles(Array.from(input.files));
+      };
+      input.click();
+    };
+    
+    async function uploadFiles(files) {
+      if (files.length === 0) return;
+      const formData = new FormData();
+      files.forEach(f => formData.append('files', f, f.name));
+      toast('Uploading ' + files.length + ' file(s)...', 'info');
+      try {
+        const res = await fetch(API + '/upload?path=' + encodeURIComponent(currentPath), {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        const ok = (data.uploaded || []).filter(f => !f.error).length;
+        const fail = (data.uploaded || []).filter(f => f.error).length;
+        if (fail > 0) toast(ok + ' uploaded, ' + fail + ' failed', 'warning');
+        else toast(ok + ' file(s) uploaded', 'success');
+        await loadDir(currentPath);
+        loadStorage();
+      } catch (e) {
+        toast('Upload failed: ' + e.message, 'error');
+      }
+    }
+    
+    // Drag & Drop
+    let dragCounter = 0;
+    const mainEl = document.getElementById('main');
+    const dropOverlay = document.getElementById('drop-overlay');
+    
+    mainEl.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      dragCounter++;
+      dropOverlay.classList.add('active');
+    });
+    mainEl.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dragCounter = 0;
+        dropOverlay.classList.remove('active');
+      }
+    });
+    mainEl.addEventListener('dragover', (e) => { e.preventDefault(); });
+    mainEl.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dragCounter = 0;
+      dropOverlay.classList.remove('active');
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) await uploadFiles(files);
+    });
+    
+    // ─── Download ───────────────────────────────────────
+    document.getElementById('btn-download-sel').onclick = function() {
+      const paths = Array.from(selectedPaths);
+      if (paths.length === 0) return;
+    
+      if (paths.length === 1) {
+        // Check if it's a single file
+        const tr = document.querySelector('tr[data-path="' + CSS.escape(paths[0]) + '"]');
+        // Simpler: just try download, backend checks if file
+        // But we need to know if it's a file or dir
+        // For single file: direct download with rename option
+        // For single dir or multiple: archive
+        checkSingleFile(paths[0]);
+      } else {
+        showDownloadDialog(paths, true);
+      }
+    };
+    
+    async function checkSingleFile(filePath) {
+      // If it's a directory, we need to archive it
+      // Try direct download first — backend returns 400 if not a file
+      const name = filePath.split('/').pop();
+      document.getElementById('dl-name').value = name;
+      document.getElementById('dl-format-field').classList.add('hidden');
+      document.getElementById('download-dialog').dataset.singleFile = filePath;
+      document.getElementById('download-dialog').dataset.multi = '';
+      document.getElementById('download-dialog').showModal();
+    }
+    
+    function showDownloadDialog(paths, isMulti) {
+      document.getElementById('dl-name').value = 'archive';
+      document.getElementById('dl-format-field').classList.remove('hidden');
+      document.getElementById('download-dialog').dataset.multi = JSON.stringify(paths);
+      document.getElementById('download-dialog').dataset.singleFile = '';
+      document.getElementById('download-dialog').showModal();
+    }
+    
+    document.getElementById('dl-confirm').onclick = async function() {
+      const dlg = document.getElementById('download-dialog');
+      const name = document.getElementById('dl-name').value || 'download';
+      const format = document.getElementById('dl-format').value;
+      const singleFile = dlg.dataset.singleFile;
+      const multi = dlg.dataset.multi;
+    
+      dlg.close();
+    
+      if (singleFile) {
+        // Try direct download — if it's a dir, fall back to archive
+        try {
+          const res = await fetch(API + '/download?path=' + encodeURIComponent(singleFile) + '&name=' + encodeURIComponent(name), { method: 'GET' });
+          if (res.status === 400) {
+            // It's a directory — archive it
+            await downloadArchive([singleFile], name, format);
+          } else if (!res.ok) {
+            throw new Error('Download failed');
+          } else {
+            const blob = await res.blob();
+            triggerDownload(blob, name);
+            toast('Downloaded ' + name, 'success');
+          }
+        } catch (e) {
+          toast('Download failed: ' + e.message, 'error');
+        }
+      } else if (multi) {
+        const paths = JSON.parse(multi);
+        await downloadArchive(paths, name, format);
+      }
+    };
+    
+    async function downloadArchive(paths, name, format) {
+      toast('Creating archive...', 'info');
+      try {
+        const res = await fetch(API + '/archive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paths, format, name }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Archive failed');
+        }
+        const blob = await res.blob();
+        const ext = format === 'tar.gz' ? '.tar.gz' : '.zip';
+        triggerDownload(blob, name + ext);
+        toast('Archive downloaded', 'success');
+      } catch (e) {
+        toast('Archive failed: ' + e.message, 'error');
+      }
+    }
+    
+    function triggerDownload(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+    
+    document.getElementById('dl-cancel').onclick = () => document.getElementById('download-dialog').close();
+    
+    // ─── Delete ─────────────────────────────────────────
+    document.getElementById('btn-delete-sel').onclick = function() {
+      const paths = Array.from(selectedPaths);
+      if (paths.length === 0) return;
+      const msg = paths.length === 1
+        ? 'Delete "' + paths[0].split('/').pop() + '"? This cannot be undone.'
+        : 'Delete ' + paths.length + ' items? This cannot be undone.';
+      document.getElementById('confirm-message').textContent = msg;
+      document.getElementById('confirm-dialog').dataset.paths = JSON.stringify(paths);
+      document.getElementById('confirm-dialog').showModal();
+    };
+    
+    document.getElementById('confirm-yes').onclick = async function() {
+      const dlg = document.getElementById('confirm-dialog');
+      const paths = JSON.parse(dlg.dataset.paths);
+      dlg.close();
+      toast('Deleting...', 'info');
+      try {
+        await api('/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paths }),
+        });
+        toast('Deleted ' + paths.length + ' item(s)', 'success');
+        selectedPaths.clear();
+        await loadDir(currentPath);
+        loadStorage();
+      } catch (e) {
+        toast('Delete failed: ' + e.message, 'error');
+      }
+    };
+    
+    document.getElementById('confirm-cancel').onclick = () => document.getElementById('confirm-dialog').close();
+    
+    // ─── New Folder ─────────────────────────────────────
+    document.getElementById('btn-new-folder').onclick = function() {
+      document.getElementById('mkdir-input').value = '';
+      document.getElementById('mkdir-dialog').showModal();
+      setTimeout(() => document.getElementById('mkdir-input').focus(), 50);
+    };
+    
+    document.getElementById('mkdir-confirm').onclick = async function() {
+      const name = document.getElementById('mkdir-input').value.trim();
+      if (!name) return;
+      document.getElementById('mkdir-dialog').close();
+      try {
+        await api('/mkdir', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: joinPath(currentPath, name) }),
+        });
+        toast('Folder created', 'success');
+        await loadDir(currentPath);
+        loadStorage();
+      } catch (e) {
+        toast('Failed: ' + e.message, 'error');
+      }
+    };
+    
+    document.getElementById('mkdir-cancel').onclick = () => document.getElementById('mkdir-dialog').close();
+    
+    // ─── New File ───────────────────────────────────────
+    document.getElementById('btn-new-file').onclick = function() {
+      document.getElementById('newfile-input').value = '';
+      document.getElementById('newfile-dialog').showModal();
+      setTimeout(() => document.getElementById('newfile-input').focus(), 50);
+    };
+    
+    document.getElementById('newfile-confirm').onclick = async function() {
+      const name = document.getElementById('newfile-input').value.trim();
+      if (!name) return;
+      document.getElementById('newfile-dialog').close();
+      const fullPath = joinPath(currentPath, name);
+      try {
+        await api('/write?path=' + encodeURIComponent(fullPath), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: '' }),
+        });
+        toast('File created', 'success');
+        await loadDir(currentPath);
+        openEditor(fullPath, { name, ext: name.split('.').pop().toLowerCase(), type: 'file' });
+        loadStorage();
+      } catch (e) {
+        toast('Failed: ' + e.message, 'error');
+      }
+    };
+    
+    document.getElementById('newfile-cancel').onclick = () => document.getElementById('newfile-dialog').close();
+    
+    // ─── Rename ─────────────────────────────────────────
+    function showRenameDialog(filePath) {
+      const name = filePath.split('/').pop();
+      document.getElementById('rename-input').value = name;
+      document.getElementById('rename-dialog').dataset.path = filePath;
+      document.getElementById('rename-dialog').showModal();
+      setTimeout(() => {
+        const inp = document.getElementById('rename-input');
+        inp.focus();
+        inp.select();
+      }, 50);
+    }
+    
+    document.getElementById('rename-confirm').onclick = async function() {
+      const dlg = document.getElementById('rename-dialog');
+      const oldPath = dlg.dataset.path;
+      const newName = document.getElementById('rename-input').value.trim();
+      if (!newName) return;
+      dlg.close();
+      const dir = oldPath.split('/').slice(0, -1).join('/');
+      const newPath = joinPath(dir, newName);
+      try {
+        await api('/rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: oldPath, to: newPath }),
+        });
+        toast('Renamed', 'success');
+        if (editorCurrentPath === oldPath) editorCurrentPath = newPath;
+        await loadDir(currentPath);
+        loadStorage();
+      } catch (e) {
+        toast('Rename failed: ' + e.message, 'error');
+      }
+    };
+    
+    document.getElementById('rename-cancel').onclick = () => document.getElementById('rename-dialog').close();
+    
+    // ─── Refresh ────────────────────────────────────────
+    document.getElementById('btn-refresh').onclick = function() {
+      loadDir(currentPath);
+      loadStorage();
+    };
+    
+    // ─── Monaco Editor ──────────────────────────────────
+    function initMonaco() {
+      if (typeof require === 'undefined') return;
+      require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' } });
+      require(['vs/editor/editor.main'], function() {
+        monacoReady = true;
+      });
+    }
+    initMonaco();
+    
+    async function openEditor(filePath, entry) {
+      editorCurrentPath = filePath;
+      document.getElementById('edit-title').textContent = entry.name;
+      document.getElementById('edit-dialog').showModal();
+    
+      const container = document.getElementById('editor-container');
+      container.innerHTML = '';
+    
+      try {
+        const data = await api('/read?path=' + encodeURIComponent(filePath));
+    
+        if (data.tooLarge) {
+          container.innerHTML = '<div style="padding:20px;color:var(--text-muted);">File is too large to edit (' + fmt(data.size) + '). Use download instead.</div>';
+          document.getElementById('edit-meta').textContent = fmt(data.size);
+          document.getElementById('btn-editor-save').disabled = true;
+          return;
+        }
+    
+        if (data.binary) {
+          container.innerHTML = '<div style="padding:20px;color:var(--text-muted);">Binary file (' + fmt(data.size) + '). Use download instead.</div>';
+          document.getElementById('edit-meta').textContent = fmt(data.size);
+          document.getElementById('btn-editor-save').disabled = true;
+          return;
+        }
+    
+        document.getElementById('btn-editor-save').disabled = false;
+        document.getElementById('edit-meta').textContent = fmt(data.size) + ' \u00b7 ' + (entry.ext || 'plaintext');
+    
+        const lang = langForExt(entry.ext);
+    
+        if (monacoReady) {
+          if (monacoEditor) monacoEditor.dispose();
+          monacoEditor = monaco.editor.create(container, {
+            value: data.content,
+            language: lang,
+            theme: 'vs-dark',
+            automaticLayout: true,
+            fontSize: 13,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            wordWrap: 'on',
+            tabSize: 2,
+          });
+        } else {
+          const ta = document.createElement('textarea');
+          ta.id = 'editor-textarea';
+          ta.value = data.content;
+          container.appendChild(ta);
+        }
+      } catch (e) {
+        container.innerHTML = '<div style="padding:20px;color:var(--danger);">Error: ' + escHtml(e.message) + '</div>';
+      }
+    }
+    
+    document.getElementById('btn-editor-save').onclick = async function() {
+      if (!editorCurrentPath) return;
+      let content;
+      if (monacoEditor) {
+        content = monacoEditor.getValue();
+      } else {
+        const ta = document.getElementById('editor-textarea');
+        if (ta) content = ta.value;
+      }
+      if (content === undefined) return;
+      try {
+        await api('/write?path=' + encodeURIComponent(editorCurrentPath), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        });
+        toast('Saved', 'success');
+        await loadDir(currentPath);
+        loadStorage();
+      } catch (e) {
+        toast('Save failed: ' + e.message, 'error');
+      }
+    };
+    
+    document.getElementById('btn-editor-download').onclick = function() {
+      if (!editorCurrentPath) return;
+      const name = editorCurrentPath.split('/').pop();
+      window.location.href = API + '/download?path=' + encodeURIComponent(editorCurrentPath) + '&name=' + encodeURIComponent(name);
+    };
+    
+    document.getElementById('btn-editor-rename').onclick = function() {
+      if (!editorCurrentPath) return;
+      document.getElementById('edit-dialog').close();
+      showRenameDialog(editorCurrentPath);
+    };
+    
+    document.getElementById('btn-editor-delete').onclick = async function() {
+      if (!editorCurrentPath) return;
+      const name = editorCurrentPath.split('/').pop();
+      document.getElementById('confirm-message').textContent = 'Delete "' + name + '"? This cannot be undone.';
+      document.getElementById('confirm-dialog').dataset.paths = JSON.stringify([editorCurrentPath]);
+      document.getElementById('edit-dialog').close();
+      document.getElementById('confirm-dialog').showModal();
+    };
+    
+    document.getElementById('btn-editor-close').onclick = function() {
+      if (monacoEditor) { monacoEditor.dispose(); monacoEditor = null; }
+      editorCurrentPath = null;
+      document.getElementById('edit-dialog').close();
+    };
+    
+    // ─── Init ───────────────────────────────────────────
+    (async function init() {
+      await loadRoots();
+      loadStorage();
+      setInterval(loadStorage, 30000);
+    })();
+    </script>
+    </body>
+    </html>
+    

@@ -72,6 +72,27 @@ This terminal is always available and provides a full bash session with the same
 
 ---
 
+## Data Manager
+
+A web-based file manager is served at:
+
+```
+https://opencode-web-k8s.{DOMAIN_NAME}/data_manager
+```
+
+It provides a full UI for navigating, uploading, downloading, and editing files across the **Personal** and **Shared** PVCs:
+
+- **Browse** — Folder tree with breadcrumb navigation across Personal and Shared workspaces.
+- **Upload** — Drag-and-drop or click-to-select file upload into any folder.
+- **Download** — Single files download directly (with optional rename); multiple files or folders are archived as ZIP or TAR.GZ with a custom filename.
+- **Edit** — Double-click any text file to open it in the Monaco editor (VS Code's editor engine) with syntax highlighting and save support. Binary or large files show metadata with a download option.
+- **CRUD** — Create folders, create files, rename/move, and delete (recursive for directories).
+- **Storage Status** — A collapsible panel shows real-time PVC usage (bytes + inodes) for Personal, Shared, and State volumes, with color-coded usage bars.
+
+The data manager runs as a zero-dependency Node.js process (`data_manager.mjs`) inside the user pod on port 7682, alongside ttyd and the opencode supervisor. All file operations are path-traversal-protected (clamped to `/workspace/personal` and `/workspace/shared`).
+
+---
+
 ## Preview URLs & Port Watcher
 
 A background watcher (`port_watcher.mjs`) polls `/proc/net/tcp` every 3 seconds. When any process listens on a port in the 3000–9999 range (excluding reserved ports), the watcher:
