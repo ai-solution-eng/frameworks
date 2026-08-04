@@ -15,9 +15,18 @@ All configuration lives in `values.yaml`:
 | `opencodeConfig` | The `opencode.json` config (models, providers, MCP servers, permissions) |
 | `opencodeSkills` | Skill markdown files seeded into `~/.config/opencode/skills/` |
 | `opencodeAgents` | Agent markdown files seeded into `~/.config/opencode/agents/` |
-| `opencode.version` | The opencode npm version to install (e.g. `1.17.9`) |
+| `opencode.version` | The opencode npm version to install (e.g. `1.18.11`) |
+| `openchamber.version` | The OpenChamber npm version to install (used when `ui.mode: openchamber`) |
+| `ui.mode` | `opencode` (default, built-in web UI) or `openchamber` (OpenChamber frontend) |
 
-These are bundled into a ConfigMap and copied into each user's `~/.config/opencode/` on first start. Users can **edit any of these files directly** inside their environment — a watcher (`opencode_supervisor.mjs`) monitors `opencode.json`, `config.json`, `opencode.jsonc` and the `skills/` / `agents/` directories for changes and automatically restarts the opencode web process. Just **refresh the browser** to see changes take effect.
+To switch the version of either opencode or OpenChamber, change the number in `values.yaml` and repackage. The chart `version` (in `Chart.yaml`) is bumped manually per release; `appVersion` tracks the opencode major.minor family.
+
+### UI modes
+
+- **`ui.mode: opencode`** (default) — the built-in `opencode web` UI is served on the app port, exactly as before.
+- **`ui.mode: openchamber`** — a headless `opencode serve` runs on `ui.serverPort` (loopback, `127.0.0.1`) and [OpenChamber](https://openchamber.dev) is served on `ui.chamberPort` (default `3000`), connecting to it via `OPENCODE_HOST` / `OPENCODE_SKIP_START`. OpenChamber is npm-installed into the user state volume (no separate runtime needed; it runs on the same Node 22 image). The existing terminal / data-manager / preview portals are unchanged. Because the opencode server is loopback-only in this mode, its HTTP basic auth is disabled and access is gated by the inbound `oauth2-proxy` and OpenChamber's `--ui-password` (driven from `auth.password`).
+
+These are bundled into a ConfigMap and copied into each user's `~/.config/opencode/` on first start. Users can **edit any of these files directly** inside their environment — a watcher (`opencode_supervisor.mjs`) monitors `opencode.json`, `config.json`, `opencode.jsonc` and the `skills/` / `agents/` directories for changes and automatically restarts the opencode process. Just **refresh the browser** to see changes take effect.
 
 ---
 

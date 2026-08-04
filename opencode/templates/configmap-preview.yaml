@@ -204,12 +204,19 @@ data:
           .filter(Boolean),
       ),
     ]
-    const webPort = Number(process.env.OPENCODE_WEB_PORT || '4096')
+    const uiMode = process.env.OPENCODE_UI_MODE || 'opencode'
+    const isChamber = uiMode === 'openchamber'
+    const webPort = Number(process.env.OPENCODE_WEB_PORT || process.env.OPENCODE_SERVER_PORT || '4096')
     const webHost = process.env.OPENCODE_WEB_HOST || '0.0.0.0'
     const portCheckHost = process.env.OPENCODE_WEB_CHECK_HOST || '127.0.0.1'
-    const opencodeArgs = ['--print-logs', 'web', '--port', String(webPort), '--hostname', webHost]
+    const chamberPort = Number(process.env.OPENCHAMBER_PORT || '3000')
+    const opencodeArgs = isChamber
+      ? ['--print-logs', 'serve', '--port', String(webPort), '--hostname', '127.0.0.1']
+      : ['--print-logs', 'web', '--port', String(webPort), '--hostname', webHost]
 
     let child = null
+    let chamberChild = null
+    let chamberBackoffMs = 1000
     let restartTimer = null
     let restartInProgress = false
     let stopping = false
@@ -450,6 +457,91 @@ data:
       }
     }
 
+    function opencodeServerEnv() {
+      if (!isChamber) return process.env
+      const env = { ...process.env }
+      delete env.OPENCODE_SERVER_PASSWORD
+      delete env.OPENCODE_SERVER_USERNAME
+      return env
+    }
+
+    function startChamber() {
+      console.log('[opencode] starting openchamber process')
+      const args = ['serve', '--port', String(chamberPort), '--host', '0.0.0.0', '--foreground']
+      if (process.env.OPENCODE_SERVER_PASSWORD) {
+        args.push('--ui-password', process.env.OPENCODE_SERVER_PASSWORD)
+      }
+      const chamberEnv = {
+        ...process.env,
+        OPENCODE_HOST: `http://127.0.0.1:${webPort}`,
+        OPENCODE_SKIP_START: 'true',
+      }
+      const proc = spawn('/usr/local/bin/openchamber', args, {
+        detached: true,
+        stdio: 'inherit',
+        env: chamberEnv,
+      })
+      chamberChild = proc
+
+      proc.on('error', (error) => {
+        console.error(`[opencode] failed to spawn openchamber: ${error.message}`)
+        if (chamberChild === proc) chamberChild = null
+        if (!stopping && !restartInProgress) {
+          const delay = chamberBackoffMs
+          chamberBackoffMs = Math.min(chamberBackoffMs * 2, 15000)
+          setTimeout(() => {
+            if (chamberChild === null) startChamber()
+          }, delay)
+        }
+      })
+
+      proc.on('exit', (code, signal) => {
+        if (chamberChild === proc) chamberChild = null
+        if (!stopping && !restartInProgress) {
+          const delay = chamberBackoffMs
+          chamberBackoffMs = Math.min(chamberBackoffMs * 2, 15000)
+          console.log(`[opencode] openchamber exited code=${code} signal=${signal}; restarting in ${delay}ms`)
+          setTimeout(() => {
+            if (chamberChild === null) startChamber()
+          }, delay)
+        }
+      })
+
+      setTimeout(() => {
+        if (chamberChild === proc) chamberBackoffMs = 1000
+      }, 10000)
+    }
+
+    function stopChamber() {
+      return new Promise((resolve) => {
+        if (!chamberChild) {
+          resolve()
+          return
+        }
+
+        const proc = chamberChild
+        let done = false
+        const finish = () => {
+          if (done) return
+          done = true
+          if (chamberChild === proc) chamberChild = null
+          resolve()
+        }
+
+        const timeout = setTimeout(() => {
+          signalProcessGroup(proc, 'SIGKILL')
+        }, 5000)
+
+        proc.once('exit', finish)
+
+        try {
+          signalProcessGroup(proc, 'SIGTERM')
+        } catch {
+          finish()
+        }
+      })
+    }
+
     async function startOpencode() {
       await waitForPortFree(30000, true)
       if (stopping || child) return
@@ -458,7 +550,7 @@ data:
       const proc = spawn('/usr/local/bin/opencode', opencodeArgs, {
         detached: true,
         stdio: 'inherit',
-        env: process.env,
+        env: opencodeServerEnv(),
       })
       child = proc
 
@@ -551,13 +643,16 @@ data:
       clearTimeout(restartTimer)
       console.log(`[opencode] received ${signal}; stopping web process`)
       await stopOpencode()
+      await stopChamber()
       process.exit(0)
     }
 
     process.on('SIGINT', () => shutdown('SIGINT'))
     process.on('SIGTERM', () => shutdown('SIGTERM'))
 
-    startOpencode().catch((error) => console.error('[opencode] start failed', error))
+    startOpencode().then(() => {
+      if (isChamber) startChamber()
+    }).catch((error) => console.error('[opencode] start failed', error))
 
   data_manager.mjs: |
     import http from 'node:http'

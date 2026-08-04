@@ -96,6 +96,10 @@ spec:
               value: {{ .Values.images.init }}
             - name: USER_INSTANCE_OPENCODE_VERSION
               value: {{ .Values.opencode.version }}
+            - name: USER_INSTANCE_OPENCHAMBER_VERSION
+              value: {{ .Values.openchamber.version | quote }}
+            - name: USER_INSTANCE_OPENCODE_UI_MODE
+              value: {{ .Values.ui.mode | quote }}
             - name: PREVIEW_DOMAIN_SUFFIX
               value: {{ .Values.previewDomain }}
 {{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}

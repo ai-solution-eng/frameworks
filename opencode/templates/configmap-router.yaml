@@ -21,6 +21,11 @@ data:
     const userInstanceImage = process.env.USER_INSTANCE_IMAGE || '{{ .Values.images.user }}'
     const userInitImage = process.env.USER_INIT_IMAGE || '{{ .Values.images.init }}'
     const userOpencodeVersion = process.env.USER_INSTANCE_OPENCODE_VERSION || '{{ .Values.opencode.version }}'
+    const userOpenChamberVersion = process.env.USER_INSTANCE_OPENCHAMBER_VERSION || '{{ .Values.openchamber.version }}'
+    const userUiMode = process.env.USER_INSTANCE_OPENCODE_UI_MODE || '{{ .Values.ui.mode }}'
+    const userIsChamber = userUiMode === 'openchamber'
+    const userChamberPort = Number(process.env.USER_INSTANCE_OPENCHAMBER_PORT || '{{ .Values.ui.chamberPort }}')
+    const userServerPort = Number(process.env.USER_INSTANCE_OPENCODE_SERVER_PORT || '{{ .Values.ui.serverPort }}')
     const workspaceSize = process.env.PERSONAL_WORKSPACE_SIZE || '{{ .Values.storage.workspaceSize }}'
     const stateSize = process.env.PERSONAL_STATE_SIZE || '{{ .Values.storage.stateSize }}'
     const userTemplateVersion = `terminal-tab-v3-opencode-${userOpencodeVersion}`
@@ -247,7 +252,7 @@ data:
               name: 'http',
               protocol: 'TCP',
               port: 8080,
-              targetPort: 4096,
+              targetPort: userIsChamber ? userChamberPort : userServerPort,
             },
             {
               name: 'http-preview',
@@ -306,7 +311,7 @@ data:
     async function ensureDeployment(name, workspaceClaim, stateClaim, slug) {
       const path = `/apis/apps/v1/namespaces/${namespace}/deployments/${name}`
       const existing = await k8sRequest('GET', path)
-      const initCommand = [
+      const initCommandParts = [
         'mkdir -p /workspace/personal /workspace/shared /var/opencode/home/.config/opencode/agents /var/opencode/home/.config/opencode/skills /var/opencode/data /var/opencode/state /var/opencode/cache /var/opencode/bin',
         'if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl ca-certificates && rm -rf /var/lib/apt/lists/*; fi',
         'if [ ! -d /workspace/personal/.git ]; then git init /workspace/personal >/dev/null; fi',
@@ -335,10 +340,16 @@ data:
         "if [ ! -f /var/opencode/bin/uv ]; then curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/var/opencode/bin sh && ln -sf /var/opencode/bin/uv /usr/local/bin/uv && ln -sf /var/opencode/bin/uvx /usr/local/bin/uvx; fi",
         "if [ ! -f /var/opencode/data/npm/bin/opencode ] || [ \"$(cat /var/opencode/.opencode-version 2>/dev/null)\" != \"${OPENCODE_VERSION}\" ]; then npm install -g \"opencode-ai@${OPENCODE_VERSION}\" --prefix /var/opencode/data/npm && echo \"${OPENCODE_VERSION}\" > /var/opencode/.opencode-version && ln -sf /var/opencode/data/npm/bin/opencode /usr/local/bin/opencode; fi",
         "if [ ! -x /var/opencode/bin/ttyd ]; then arch=\"$(uname -m)\"; case \"$arch\" in x86_64|amd64) ttyd_asset=ttyd.x86_64 ;; aarch64|arm64) ttyd_asset=ttyd.aarch64 ;; armv7l|armhf) ttyd_asset=ttyd.armhf ;; arm*) ttyd_asset=ttyd.arm ;; *) echo \"unsupported architecture for ttyd: $arch\" >&2; exit 1 ;; esac; curl -fsSL --retry 3 -o /var/opencode/bin/ttyd \"https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/${ttyd_asset}\" && chmod 0755 /var/opencode/bin/ttyd; fi",
-        "printf '#!/bin/bash\nset -e\nexport DEBIAN_FRONTEND=noninteractive\nexport PATH=\"/var/opencode/bin:/var/opencode/data/npm/bin:$PATH\"\nmissing=0\nfor cmd in bash curl git script tmux; do\n  command -v \"$cmd\" >/dev/null 2>&1 || missing=1\ndone\nif [ \"$missing\" = \"1\" ]; then\n  apt-get update -qq\n  apt-get install -y -qq --no-install-recommends {{ .Values.provisioning.aptPackages }}\n  rm -rf /var/lib/apt/lists/*\nfi\nrm -f /usr/lib/python*/EXTERNALLY-MANAGED\nln -sf /usr/bin/vi /usr/local/bin/vim 2>/dev/null || true\nln -sf /usr/bin/fdfind /usr/local/bin/fd 2>/dev/null || true\nln -sf /usr/bin/python3 /usr/local/bin/python 2>/dev/null || true\nln -sf /usr/bin/pip3 /usr/local/bin/pip 2>/dev/null || true\nif ! command -v xdg-open >/dev/null 2>&1; then\n  printf \"#!/bin/sh\\nexit 0\\n\" > /usr/local/bin/xdg-open\n  chmod 0755 /usr/local/bin/xdg-open\nfi\nln -sf /var/opencode/bin/uv /usr/local/bin/uv 2>/dev/null || true\nln -sf /var/opencode/bin/uvx /usr/local/bin/uvx 2>/dev/null || true\nln -sf /var/opencode/data/npm/bin/opencode /usr/local/bin/opencode 2>/dev/null || true\n/var/opencode/bin/ttyd -p 7681 -i 0.0.0.0 -W -a -T xterm-256color -w /workspace -b /term -t titleFixed=\"OpenCode Terminal\" -t fontSize=14 -t fontFamily=\"menlo,consolas,dejavu sans mono,monospace\" bash /opt/preview/tty-attach-session.sh &\nnode /opt/preview/port_watcher.mjs &\nnode /opt/preview/data_manager.mjs &\nnode /opt/preview/terminal_manager.js &\nexec node /opt/preview/opencode_supervisor.mjs\n' > /var/opencode/bin/opencode-startup.sh",
+        "printf '#!/bin/bash\nset -e\nexport DEBIAN_FRONTEND=noninteractive\nexport PATH=\"/var/opencode/bin:/var/opencode/data/npm/bin:$PATH\"\nmissing=0\nfor cmd in bash curl git script tmux; do\n  command -v \"$cmd\" >/dev/null 2>&1 || missing=1\ndone\nif [ \"$missing\" = \"1\" ]; then\n  apt-get update -qq\n  apt-get install -y -qq --no-install-recommends {{ .Values.provisioning.aptPackages }}\n  rm -rf /var/lib/apt/lists/*\nfi\nrm -f /usr/lib/python*/EXTERNALLY-MANAGED\nln -sf /usr/bin/vi /usr/local/bin/vim 2>/dev/null || true\nln -sf /usr/bin/fdfind /usr/local/bin/fd 2>/dev/null || true\nln -sf /usr/bin/python3 /usr/local/bin/python 2>/dev/null || true\nln -sf /usr/bin/pip3 /usr/local/bin/pip 2>/dev/null || true\nif ! command -v xdg-open >/dev/null 2>&1; then\n  printf \"#!/bin/sh\\nexit 0\\n\" > /usr/local/bin/xdg-open\n  chmod 0755 /usr/local/bin/xdg-open\nfi\nln -sf /var/opencode/bin/uv /usr/local/bin/uv 2>/dev/null || true\nln -sf /var/opencode/bin/uvx /usr/local/bin/uvx 2>/dev/null || true\nln -sf /var/opencode/data/npm/bin/opencode /usr/local/bin/opencode 2>/dev/null || true\nln -sf /var/opencode/data/npm/bin/openchamber /usr/local/bin/openchamber 2>/dev/null || true\n/var/opencode/bin/ttyd -p 7681 -i 0.0.0.0 -W -a -T xterm-256color -w /workspace -b /term -t titleFixed=\"OpenCode Terminal\" -t fontSize=14 -t fontFamily=\"menlo,consolas,dejavu sans mono,monospace\" bash /opt/preview/tty-attach-session.sh &\nnode /opt/preview/port_watcher.mjs &\nnode /opt/preview/data_manager.mjs &\nnode /opt/preview/terminal_manager.js &\nexec node /opt/preview/opencode_supervisor.mjs\n' > /var/opencode/bin/opencode-startup.sh",
         "chmod 0755 /var/opencode/bin/opencode-startup.sh",
         'rm -rf /workspace/personal/shared',
-      ].join(' && ')
+      ]
+      if (userIsChamber) {
+        initCommandParts.push(
+          "if [ ! -f /var/opencode/data/npm/bin/openchamber ] || [ \"$(cat /var/opencode/.openchamber-version 2>/dev/null)\" != \"${OPENCHAMBER_VERSION}\" ]; then npm install -g \"@openchamber/web@${OPENCHAMBER_VERSION}\" --prefix /var/opencode/data/npm && echo \"${OPENCHAMBER_VERSION}\" > /var/opencode/.openchamber-version && ln -sf /var/opencode/data/npm/bin/openchamber /usr/local/bin/openchamber; fi",
+        )
+      }
+      const initCommand = initCommandParts.join(' && ')
 
       const appCommand = [
         'cp /var/opencode/bin/create-server.sh /workspace/create-server.sh 2>/dev/null || true',
@@ -391,6 +402,7 @@ data:
                   env: [
                     { name: 'OPENCODE_VERSION', value: userOpencodeVersion },
                     { name: 'TTYD_VERSION', value: ttydVersion },
+                    { name: 'OPENCHAMBER_VERSION', value: userOpenChamberVersion },
                     {{- if and .Values.proxy .Values.proxy.enabled }}
                     {{- range .Values.proxy.env }}
                     { name: '{{ .name }}', value: '{{ .value }}' },
@@ -460,9 +472,13 @@ data:
                     { name: 'PREVIEW_STATE_FILE', value: '/var/opencode/state/preview-ports.txt' },
                     { name: 'PREVIEW_MIN_PORT', value: '3000' },
                     { name: 'PREVIEW_MAX_PORT', value: '9999' },
-                    { name: 'PREVIEW_EXCLUDE_PORTS', value: '4096,8082,7681,7682,7683' },
+                    { name: 'PREVIEW_EXCLUDE_PORTS', value: '3000,4096,8082,7681,7682,7683' },
                     { name: 'OPENCODE_VERSION', value: userOpencodeVersion },
                     { name: 'TTYD_VERSION', value: ttydVersion },
+                    { name: 'OPENCODE_UI_MODE', value: userUiMode },
+                    { name: 'OPENCHAMBER_VERSION', value: userOpenChamberVersion },
+                    { name: 'OPENCHAMBER_PORT', value: String(userChamberPort) },
+                    { name: 'OPENCODE_SERVER_PORT', value: String(userServerPort) },
                     { name: 'PREVIEW_USER_SLUG', value: slug },
                     { name: 'TTYD_DOMAIN', value: previewDomainSuffix },
                     { name: 'TTYD_SLUG', value: slug },
@@ -479,21 +495,22 @@ data:
                     {{- end }}
                   ],
                   ports: [
-                    { name: 'http', containerPort: 4096, protocol: 'TCP' },
+                    { name: 'http', containerPort: userIsChamber ? userChamberPort : userServerPort, protocol: 'TCP' },
+                    ...(userIsChamber ? [{ name: 'server', containerPort: userServerPort, protocol: 'TCP' }] : []),
                     { name: 'ttyd', containerPort: 7681, protocol: 'TCP' },
                     { name: 'data-manager', containerPort: 7682, protocol: 'TCP' },
                     { name: 'term-mgr', containerPort: 7683, protocol: 'TCP' },
                   ],
                   readinessProbe: {
-                    tcpSocket: { port: 4096 },
+                    tcpSocket: { port: userIsChamber ? userChamberPort : userServerPort },
                     initialDelaySeconds: 10, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 6,
                   },
                   livenessProbe: {
-                    tcpSocket: { port: 4096 },
+                    tcpSocket: { port: userIsChamber ? userChamberPort : userServerPort },
                     initialDelaySeconds: 30, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3,
                   },
                   startupProbe: {
-                    tcpSocket: { port: 4096 },
+                    tcpSocket: { port: userIsChamber ? userChamberPort : userServerPort },
                     periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 18,
                   },
                   resources: {
@@ -591,7 +608,7 @@ data:
       return {
         host: `${names.service}.${namespace}.svc.cluster.local`,
         port: 8080,
-        injectBasicAuth: true,
+        injectBasicAuth: !userIsChamber,
         preserveHost: true,
       }
     }
