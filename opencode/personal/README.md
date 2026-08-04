@@ -28,7 +28,7 @@ Useful commands:
 
 - `/models` - Try other models or change reasoning effort
 - `/mcp` - See what MCP servers are available
-- `/terminal` - Launch a terminal
+- `/terminal` - Launch one or more terminal tabs (use `+` to add, `✕` to destroy)
 
 > **Tip:** If results don't meet your expectations, suggest improvements to the agent and take your app to the next level!
 
@@ -49,6 +49,18 @@ Useful commands:
 | **Alpaca** | Connects AI chat apps, AI CLIs, or IDEs to Alpaca's Trading API to research markets, analyze data with AI, and place trades with real or paper money. [Guide](https://docs.alpaca.markets/us/docs/alpaca-mcp-server) |
 | **Composio** | Connects your agent to leading SaaS apps. We use it to create a hook to Gmail. [Guide](https://composio.dev/toolkits/composio/framework/opencode) |
 
+
+---
+
+## Terminal
+
+Open the terminal UI at `/terminal`. It gives you **multiple independent terminal tabs**, each with the same environment as the opencode agent:
+
+- **`+`** opens a new terminal tab (a fresh, independent subprocess).
+- Closing the browser tab / reloading the page only *detaches* — each terminal keeps running in its own tmux session.
+- Reopening `/terminal` lists your still-running terminals and re-attaches them.
+- **`✕`** on a tab *destroys* only that tab: its subprocess is terminated and it will not reappear on reload. Other tabs are unaffected.
+- Terminals persist for the lifetime of your running pod (not restored across a pod restart).
 
 ---
 

@@ -62,13 +62,21 @@ A shared Python virtual environment (`/workspace/shared/.venv-preview/`) and `re
 
 ## Terminal
 
-The built-in opencode web terminal can be unreliable in this environment, with text leaking across terminals. To compensate the issue, a dedicated **ttyd-based terminal** is served at:
+The built-in opencode web terminal can be unreliable in this environment, with text leaking across terminals. To address this, a dedicated **tabbed, multi-terminal UI** (built on ttyd + tmux) is served at:
 
 ```
 https://opencode-web-k8s.{DOMAIN_NAME}/terminal
 ```
 
-This terminal is always available and provides a full bash session with the same environment as the opencode agent.
+It is always available and gives you **multiple independent terminal tabs**, each with the same environment as the opencode agent. Run `opencode` in one tab, `python` in another, and `vim` in a third — they are fully isolated subprocesses.
+
+### Tab model
+
+- **`+`** opens a new terminal tab (a fresh, independent subprocess).
+- **Closing the browser tab / reloading the page** only *detaches* — each terminal keeps running in an independent tmux session.
+- Reopening `/terminal` lists your still-running terminals and re-attaches them, so you pick up where you left off from your last session.
+- **`✕`** on a tab *destroys* it: the subprocess is terminated and the terminal is freed (it will not reappear on reload).
+- Terminals persist for the lifetime of your running pod (they are not restored across a pod restart).
 
 ---
 

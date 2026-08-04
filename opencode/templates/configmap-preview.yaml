@@ -57,7 +57,7 @@ data:
     const minPort = Number(process.env.PREVIEW_MIN_PORT || '3000')
     const maxPort = Number(process.env.PREVIEW_MAX_PORT || '9999')
     const exclude = new Set(
-      (process.env.PREVIEW_EXCLUDE_PORTS || '4096,8082,7681')
+      (process.env.PREVIEW_EXCLUDE_PORTS || '4096,8082,7681,7682,7683')
         .split(',')
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isInteger(value)),
@@ -2327,6 +2327,369 @@ data:
       loadStorage();
       setInterval(loadStorage, 30000);
     })();
+    </script>
+    </body>
+    </html>
+  tty-attach-session.sh: |
+    #!/bin/bash
+    # ttyd command wrapper: attach to (or create) a named persistent tmux session.
+    # Each terminal tab maps to its own tmux session, so subprocesses are
+    # independent and survive closing the browser tab. Destroying a tab calls
+    # the manager which runs `tmux kill-session` for that name.
+    set -u
+    name="${1:-main}"
+    [ -z "$name" ] && name=main
+    case "$name" in
+      *[^a-zA-Z0-9_.-]*|''|.) printf 'invalid session name: %s\n' "${name}" >&2; exit 1 ;;
+    esac
+    if [ "${#name}" -gt 64 ]; then
+      printf 'session name too long\n' >&2
+      exit 1
+    fi
+    export TERM="${TERM:-xterm-256color}"
+    export COLORTERM="${COLORTERM:-truecolor}"
+    export LANG="${LANG:-C.UTF-8}"
+    export LC_ALL="${LC_ALL:-C.UTF-8}"
+    export LC_CTYPE="${LC_CTYPE:-C.UTF-8}"
+    tty_conf="${HOME}/.tmux.conf"
+    printf '%s\n' \
+      'set -g default-terminal "tmux-256color"' \
+      'set -ga terminal-overrides ",tmux-256color:RGB"' \
+      'set -as terminal-features ",tmux-256color:RGB"' \
+      'set -g mouse off' \
+      'set -g history-limit 5000' \
+      > "${tty_conf}"
+    exec tmux -u new -A -s "$name" /var/opencode/bin/opencode-login-shell
+  terminal_manager.js: |
+    import http from 'node:http'
+    import fs from 'node:fs'
+    import { execFile } from 'node:child_process'
+    
+    const PORT = parseInt(process.env.TERMINAL_MANAGER_PORT || '7683', 10)
+    const HOST = '0.0.0.0'
+    const BASE = '/terminal'
+    const SESSION_NAME = /^[a-zA-Z0-9_.-]{1,64}$/
+    
+    function json(res, code, data) {
+      res.writeHead(code, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(data))
+    }
+    
+    function sendError(res, code, msg) {
+      json(res, code, { error: msg })
+    }
+    
+    function loadSpaHtml() {
+      try {
+        return fs.readFileSync('/opt/preview/terminal_manager.html', 'utf8')
+      } catch {
+        return '<!DOCTYPE html><html><body><h1>Terminal</h1><p>SPA file not found.</p></body></html>'
+      }
+    }
+    
+    let spaHtml = null
+    
+    function listSessions() {
+      return new Promise((resolve) => {
+        execFile('tmux', ['list-sessions', '-F', '#{session_name}'], { timeout: 5000 }, (err, stdout) => {
+          if (err && err.code === 1) {
+            // no tmux server running yet
+            resolve([])
+            return
+          }
+          if (err) {
+            resolve({ error: String(err.message || err) })
+            return
+          }
+          const names = stdout.split('\n').map((s) => s.trim()).filter(Boolean)
+          resolve(names)
+        })
+      })
+    }
+    
+    function killSession(name) {
+      return new Promise((resolve) => {
+        execFile('tmux', ['kill-session', '-t', name], { timeout: 5000 }, (err) => {
+          if (err) {
+            resolve({ ok: false, error: String(err.message || err) })
+            return
+          }
+          resolve({ ok: true })
+        })
+      })
+    }
+    
+    async function handleRequest(req, res) {
+      const url = new URL(req.url, 'http://internal')
+      const pathname = url.pathname
+    
+      if (!pathname.startsWith(BASE)) {
+        sendError(res, 404, 'Not found')
+        return
+      }
+    
+      const subPath = pathname.slice(BASE.length)
+    
+      if (subPath === '' || subPath === '/') {
+        if (!spaHtml) spaHtml = loadSpaHtml()
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+        res.end(spaHtml)
+        return
+      }
+    
+      if (subPath === '/api/healthz') {
+        json(res, 200, { ok: true })
+        return
+      }
+    
+      if (subPath === '/api/sessions' && req.method === 'GET') {
+        const sessions = await listSessions()
+        if (Array.isArray(sessions)) {
+          json(res, 200, { sessions })
+        } else {
+          json(res, 500, sessions)
+        }
+        return
+      }
+    
+      if (subPath.startsWith('/api/sessions/') && req.method === 'DELETE') {
+        const name = decodeURIComponent(subPath.slice('/api/sessions/'.length))
+        if (!SESSION_NAME.test(name)) {
+          sendError(res, 400, 'Invalid session name')
+          return
+        }
+        const result = await killSession(name)
+        json(res, result.ok ? 200 : 404, result)
+        return
+      }
+    
+      sendError(res, 404, 'Not found: ' + subPath)
+    }
+    
+    const server = http.createServer(handleRequest)
+    server.listen(PORT, HOST, () => {
+      console.log('[terminal_manager] listening on ' + HOST + ':' + PORT)
+    })
+  terminal_manager.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenCode Terminals</title>
+    <style>
+    :root {
+      --bg: #0d1117;
+      --bg-panel: #161b22;
+      --bg-hover: #1c2128;
+      --bg-active: #2d333b;
+      --text: #e6edf3;
+      --text-muted: #7d8590;
+      --accent: #2f81f7;
+      --accent-hover: #388bfd;
+      --border: #30363d;
+      --danger: #f85149;
+      --radius: 6px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 10px;
+      height: 40px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      flex: 0 0 auto;
+    }
+    header h1 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      padding-right: 8px;
+      border-right: 1px solid var(--border);
+      margin-right: 4px;
+      white-space: nowrap;
+    }
+    #tabbar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      overflow-x: auto;
+      flex: 1 1 auto;
+    }
+    .tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 10px;
+      height: 28px;
+      background: var(--bg-hover);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+    }
+    .tab.active {
+      background: var(--bg-active);
+      border-color: var(--accent);
+    }
+    .tab .title {
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tab .close {
+      color: var(--text-muted);
+      font-weight: 700;
+      padding: 0 2px;
+      border-radius: 4px;
+    }
+    .tab .close:hover { color: var(--danger); background: rgba(248, 81, 73, 0.15); }
+    .add {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .add:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent-hover); }
+    #panes { flex: 1 1 auto; position: relative; }
+    .pane { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: none; }
+    .pane.active { display: block; }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #ffffff; --bg-panel: #f6f8fa; --bg-hover: #f0f3f6; --bg-active: #eaeef2;
+        --text: #24292f; --text-muted: #57606a; --border: #d0d7de;
+      }
+    }
+    </style>
+    </head>
+    <body>
+    <header>
+      <h1>Terminal</h1>
+      <div id="tabbar"></div>
+      <button class="add" id="add-btn" title="New terminal tab">+</button>
+    </header>
+    <main id="panes"></main>
+    <script>
+    const API = '/terminal/api';
+    const TERM_PATH = '/term/';
+    const tabbar = document.getElementById('tabbar');
+    const panes = document.getElementById('panes');
+    const addBtn = document.getElementById('add-btn');
+    
+    function newName() {
+      return 't-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    }
+    
+    let active = null;
+    const tabs = new Map(); // name -> { li, iframe }
+    
+    function select(name) {
+      active = name;
+      for (const [n, t] of tabs) {
+        const on = n === name;
+        t.li.classList.toggle('active', on);
+        t.iframe.classList.toggle('active', on);
+      }
+    }
+    
+    function ensurePanes() {
+      if (tabs.size === 0) {
+        createTab(newName());
+      }
+    }
+    
+    function addDom(name) {
+      if (tabs.has(name)) return;
+      const li = document.createElement('div');
+      li.className = 'tab';
+      const span = document.createElement('span');
+      span.className = 'title';
+      span.textContent = name;
+      span.title = name;
+      const close = document.createElement('span');
+      close.className = 'close';
+      close.textContent = '✕';
+      close.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        destroyTab(name);
+      });
+      li.appendChild(span);
+      li.appendChild(close);
+      li.addEventListener('click', () => select(name));
+    
+      const frame = document.createElement('iframe');
+      frame.className = 'pane';
+      frame.src = TERM_PATH + '?arg=' + encodeURIComponent(name);
+    
+      tabbar.appendChild(li);
+      panes.appendChild(frame);
+      tabs.set(name, { li, iframe: frame });
+      select(name);
+    }
+    
+    async function destroyTab(name) {
+      const t = tabs.get(name);
+      if (!t) return;
+      try {
+        await fetch(API + '/sessions/' + encodeURIComponent(name), { method: 'DELETE' });
+      } catch (e) {
+        // ignore network errors; still remove the tab below
+      }
+      t.iframe.src = 'about:blank';
+      t.li.remove();
+      t.iframe.remove();
+      tabs.delete(name);
+      if (active === name) {
+        const remaining = Array.from(tabs.keys());
+        if (remaining.length) select(remaining[remaining.length - 1]);
+        else ensurePanes();
+      }
+    }
+    
+    function createTab(name) {
+      addDom(name);
+    }
+    
+    (async function init() {
+      let sessions = [];
+      try {
+        const resp = await fetch(API + '/sessions');
+        if (resp.ok) sessions = (await resp.json()).sessions || [];
+      } catch (e) {
+        console.error('list sessions failed', e);
+      }
+      for (const name of sessions) {
+        try {
+          addDom(name);
+        } catch (e) {
+          console.error('failed to open session', name, e);
+        }
+      }
+      ensurePanes();
+    })();
+    
+    addBtn.addEventListener('click', () => createTab(newName()));
     </script>
     </body>
     </html>
