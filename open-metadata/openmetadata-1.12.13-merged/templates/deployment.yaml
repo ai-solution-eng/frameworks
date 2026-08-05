@@ -1,0 +1,235 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "OpenMetadata.fullname" . }}
+  labels:
+    {{- include "OpenMetadata.labels" . | indent 4 }}
+    {{- include "hpe-ezua.labels" . | nindent 4 }}
+  {{- with .Values.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.hpa.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "OpenMetadata.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "OpenMetadata.labels" . | indent 8 }}
+        {{- include "hpe-ezua.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets  }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "OpenMetadata.serviceAccountName" . }}
+      {{- if not (.Values.automountServiceAccountToken) }}
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+      {{- with .Values.preMigrateInitContainers }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+      - name: run-db-migrations
+        {{- with .Values.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        {{ include "OpenMetadata.buildUpgradeCommand" .  | nindent 8 }}
+        volumeMounts:
+          {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 10 }}
+          {{- end }}
+        {{- with .Values.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        envFrom:
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-config-secret
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-omd-secret
+          {{- if .Values.openmetadata.config.database.enabled }}
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-db-secret
+          {{- end }}
+          {{- if .Values.openmetadata.config.elasticsearch.enabled }}
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-search-secret
+          {{- end }}
+          {{- if .Values.openmetadata.config.authorizer.enabled }}
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-authorizer-secret
+          {{- end }}
+          {{- if .Values.openmetadata.config.secretsManager.enabled }}
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-secretsmanager-secret
+          {{- end }}
+          {{- if .Values.openmetadata.config.web.enabled }}
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-web-secret
+          {{- end }}
+          {{- if .Values.openmetadata.config.authentication.enabled }}
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-authentication-secret
+          {{- end }}
+          {{- if .Values.openmetadata.config.eventMonitor.enabled }}
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-eventmonitor-secret
+          {{- end }}
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-pipeline-secret
+          {{- if .Values.openmetadata.config.jwtTokenConfiguration.enabled }}
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-jwt-secret
+          {{- end }}
+          {{- with .Values.openmetadata.config.fernetkey }}
+          {{- if not .secretRef }}
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" $ }}-fernetkey-secret
+          {{- end }}
+          {{- end }}
+          {{- if .Values.openmetadata.config.rdf.enabled }}
+          - secretRef:
+              name: {{ include "OpenMetadata.fullname" . }}-rdf-secret
+          {{- end }}
+          {{- with .Values.envFrom }}
+            {{- toYaml . | nindent 10 }}
+          {{- end }}
+        env:
+        {{- include "OpenMetadata.configs" . | nindent 8 }}
+        {{- with .Values.extraEnvs }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.extraInitContainers }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+      volumes:
+      {{- if .Values.extraVolumes }}
+      {{- include "tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if (((.Values.openmetadata.config.pipelineServiceClientConfig).argoWorkflows).customConfig).enabled }}
+        - name: custom-config
+          configMap:
+            name: {{ include "OpenMetadata.fullname" . }}-ingestion-config
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          volumeMounts:
+          {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 10 }}
+          {{- end }}
+          {{- if (((.Values.openmetadata.config.pipelineServiceClientConfig).argoWorkflows).customConfig).enabled }}
+            - name: custom-config
+              mountPath: /custom-config
+              readOnly: true
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.openmetadata.config.openmetadata.port }}
+              protocol: TCP
+            - name: http-admin
+              containerPort: {{ .Values.openmetadata.config.openmetadata.adminPort }}
+              protocol: TCP
+          livenessProbe:
+            {{ .Values.livenessProbe | toYaml | indent 12 | trim }}
+          readinessProbe:
+            {{ .Values.readinessProbe | toYaml | indent 12 | trim }}
+          startupProbe:
+            {{ .Values.startupProbe | toYaml | indent 12 | trim }}
+          env:
+          {{- include "OpenMetadata.configs" . | nindent 10 }}
+          {{- with .Values.extraEnvs }}
+            {{- toYaml . | nindent 10 }}
+          {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" . }}-config-secret
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" . }}-omd-secret
+            {{- if .Values.openmetadata.config.database.enabled }}
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" . }}-db-secret
+            {{- end }}
+            {{- if .Values.openmetadata.config.elasticsearch.enabled }}
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" . }}-search-secret
+            {{- end }}
+            {{- if .Values.openmetadata.config.authorizer.enabled }}
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" . }}-authorizer-secret
+            {{- end }}
+            {{- if .Values.openmetadata.config.secretsManager.enabled }}
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" . }}-secretsmanager-secret
+            {{- end }}
+            {{- if .Values.openmetadata.config.web.enabled }}
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" . }}-web-secret
+            {{- end }}
+            {{- if .Values.openmetadata.config.authentication.enabled }}
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" . }}-authentication-secret
+            {{- end }}
+            {{- if .Values.openmetadata.config.eventMonitor.enabled }}
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" . }}-eventmonitor-secret
+            {{- end }}
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" . }}-pipeline-secret
+            {{- if .Values.openmetadata.config.jwtTokenConfiguration.enabled }}
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" . }}-jwt-secret
+            {{- end }}
+            {{- with .Values.openmetadata.config.fernetkey }}
+            {{- if not .secretRef }}
+            - secretRef:
+                name: {{ include "OpenMetadata.fullname" $ }}-fernetkey-secret
+            {{- end }}
+            {{- end }}
+            {{- with .Values.envFrom }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- if .Values.sidecars }}
+          {{- include "tplvalues.render" (dict "value" .Values.sidecars "context" $) | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

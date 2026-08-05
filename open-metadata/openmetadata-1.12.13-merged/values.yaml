@@ -1,0 +1,1047 @@
+# !!! Important: Deploy this chart using "openmetadata-dependencies" as release name!!!
+
+ezua:
+  virtualService:
+    endpoint: "open-metadata.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  airflowApiServerVirtualService:
+    endpoint: "open-metadata-airflow.${DOMAIN_NAME}"
+
+
+# Values from OpenMetadata Dependencies helm chart
+
+# Default values for deps.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# MySQL configurations for helm dependency
+# you can find more details about this here https://artifacthub.io/packages/helm/bitnami/mysql
+global:
+  security:
+    allowInsecureImages: true
+
+cronJobLabels: {}
+
+mysql:
+  enabled: true
+  fullnameOverride: "mysql"
+  architecture: standalone
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/mysql
+    tag: 8.0.37-debian-12-r2
+    pullPolicy: "Always"
+  auth:
+    rootPassword: password    # to be provided by CI/CD
+  primary:
+    extraFlags: "--sort_buffer_size=10M"
+    persistence:
+      size: 50Gi
+    service:
+      nodePort: 3306
+  initdbScripts:
+    init_openmetadata_db_scripts.sql: |
+      CREATE DATABASE openmetadata_db;
+      CREATE USER 'openmetadata_user'@'%' IDENTIFIED BY 'openmetadata_password';
+      GRANT ALL PRIVILEGES ON openmetadata_db.* TO 'openmetadata_user'@'%' WITH GRANT OPTION;
+      commit;
+    init_airflow_db_scripts.sql: |
+      CREATE DATABASE airflow_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+      CREATE USER 'airflow_user'@'%' IDENTIFIED BY 'airflow_pass';
+      GRANT ALL PRIVILEGES ON airflow_db.* TO 'airflow_user'@'%' WITH GRANT OPTION;
+      commit;
+
+# OpenSearch Helm Dependency
+# you can find more details about this here https://artifacthub.io/packages/helm/opensearch-project-helm-charts/opensearch/2.12.2
+opensearch:
+  enabled: true
+  clusterName: opensearch
+  fullnameOverride: opensearch
+  nodeGroup: ""
+  imagePullPolicy: Always
+  opensearchJavaOpts: "-Xmx1g -Xms1g"
+  persistence:
+    size: 30Gi
+  protocol: http
+  config:
+    opensearch.yml: |
+      plugins.security.disabled: true
+      indices.query.bool.max_clause_count: 4096
+  singleNode: true
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256M"
+    limits:
+      cpu: "2000m"
+      memory: "2048M"
+
+# Airflow configurations for helm dependency
+# you can find more details about this here https://airflow.apache.org/docs/helm-chart/
+airflow:
+  enabled: true
+  createUserJob:
+    useHelmHooks: false
+    applyCustomEnv: false
+    
+  migrateDatabaseJob:
+    useHelmHooks: false
+    applyCustomEnv: false
+  # Static secret key for Airflow webserver (strongly recommended for Airflow 3)
+  # Without this, JWT token authentication may fail between Airflow components
+  # Generate a new key with: openssl rand -hex 32
+  # Set to empty string (~) to auto-generate (not recommended for production)
+  webserverSecretKey: "a5f8c3e2d1b9a7f6e4c3b2a1f9e8d7c6b5a4f3e2d1c9b8a7f6e5d4c3b2a1f0e9"
+  # Use OpenMetadata Airflow image with Airflow 3
+  images:
+    airflow:
+      repository: docker.getcollate.io/openmetadata/ingestion
+      tag: 1.12.13
+      pullPolicy: "IfNotPresent"
+  # Use KubernetesExecutor for production deployments (recommended)
+  # For local development (Docker Desktop/Minikube), use LocalExecutor instead
+  # Note: KubernetesExecutor requires shared DAGs storage (RWX PVC) which isn't available in Docker Desktop
+  executor: "KubernetesExecutor"
+  # Environment variables for Airflow configuration
+  env:
+    # This is required for OpenMetadata UI to fetch status of DAGs
+    - name: AIRFLOW__API__AUTH_BACKENDS
+      value: "airflow.api.auth.backend.session,airflow.api.auth.backend.basic_auth"
+    # OpenMetadata Airflow Apis Plugin DAGs Configuration
+    - name: AIRFLOW__OPENMETADATA_AIRFLOW_APIS__DAG_GENERATED_CONFIGS
+      value: "/opt/airflow/dags"
+    # OpenMetadata Airflow Secrets Manager Configuration
+    - name: AIRFLOW__OPENMETADATA_SECRETS_MANAGER__AWS_REGION
+      value: ""
+    - name: AIRFLOW__OPENMETADATA_SECRETS_MANAGER__AWS_ACCESS_KEY_ID
+      value: ""
+    - name: AIRFLOW__OPENMETADATA_SECRETS_MANAGER__AWS_ACCESS_KEY
+      value: ""
+    # Workaround for Airflow 3 + MySQL compatibility issue
+    # Downgrade FAB provider to avoid CREATE INDEX IF NOT EXISTS issue
+    # Commenting out _PIP_ADDITIONAL_REQUIREMENTS following https://github.com/open-metadata/openmetadata-helm-charts/issues/519 issue
+    - name: _PIP_ADDITIONAL_REQUIREMENTS
+      value: "apache-airflow-providers-fab==2.4.4"
+  # Create admin user
+  webserver:
+    defaultUser:
+      enabled: true
+      role: Admin
+      username: admin
+      email: spiderman@superhero.org
+      firstName: Peter
+      lastName: Parker
+      password: admin
+  # Disable internal PostgreSQL, use external MySQL
+  postgresql:
+    enabled: false
+  # Worker configuration for KubernetesExecutor
+  # Set replicas to 0 for LocalExecutor (local development)
+  workers:
+    replicas: 2
+  # Disable Flower
+  flower:
+    enabled: false
+  # Disable internal Redis
+  redis:
+    enabled: false
+  # Configure external MySQL database
+  # Using downgraded FAB provider (2.4.4) to avoid CREATE INDEX IF NOT EXISTS issue
+  data:
+    metadataConnection:
+      user: airflow_user
+      pass: airflow_pass
+      protocol: mysql
+      host: mysql
+      port: 3306
+      db: airflow_db
+      sslmode: disable
+  # Service account configuration (required for KubernetesExecutor)
+  # DAGs persistence configuration
+  dags:
+    persistence:
+      enabled: true
+      storageClassName: ""
+      size: 1Gi
+  # Logs persistence configuration
+  logs:
+    persistence:
+      enabled: true
+      storageClassName: ""
+      size: 1Gi
+  # API server needs access to DAGs volume for OpenMetadata dynamic DAG generation
+  apiServer:
+    extraVolumes:
+      - name: dags
+        persistentVolumeClaim:
+          claimName: '{{ include "airflow.fullname" . }}-dags'
+    extraVolumeMounts:
+      - name: dags
+        mountPath: /opt/airflow/dags
+
+# Apache Jena Fuseki SPARQL server for the OpenMetadata RDF / Knowledge Graph feature.
+# Disabled by default. When enabled it deploys an in-cluster Fuseki (Deployment +
+# Service "fuseki" on port 3030 + optional PVC). Point OpenMetadata at it by setting
+# openmetadata.config.rdf in the openmetadata chart values, e.g.:
+#   rdf:
+#     enabled: true
+#     remoteEndpoint: "http://fuseki:3030/openmetadata"
+#     username: "admin"
+#     dataset: "openmetadata"
+#     password:
+#       secretRef: fuseki-admin-credentials
+#       secretKey: admin-password
+# Both the server (ADMIN_PASSWORD) and the app (RDF_REMOTE_PASSWORD) read the same
+# admin password secret. Create it before installing:
+#   kubectl create secret generic fuseki-admin-credentials \
+#     --from-literal=admin-password=<STRONG_PASSWORD> -n <namespace>
+fuseki:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: daschswiss/apache-jena-fuseki
+    tag: "6.0.0"
+    pullPolicy: IfNotPresent
+  # Production BYOC resource recommendation. Override for smaller deployments.
+  resources:
+    requests:
+      cpu: "1500m"
+      memory: "10Gi"
+    limits:
+      cpu: "2500m"
+      memory: "12Gi"
+  adminPassword:
+    secretName: "fuseki-admin-credentials"
+    secretKey: "admin-password"
+  jvmArgs: "-Xmx8g -Xms8g"
+  service:
+    type: ClusterIP
+    port: 3030
+  persistence:
+    enabled: true
+    size: 100Gi
+    # Empty string uses the cluster default StorageClass. Set e.g. "gp3" on AWS.
+    storageClass: ""
+  extraEnvs: []
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Default values for OpenMetadata.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+replicaCount: 1
+
+# Overrides the openmetadata config file with the help of Environment Variables
+# Below are defaults as per openmetadata-dependencies Helm Chart Values
+openmetadata:
+  config:
+    upgradeMigrationConfigs:
+      debug: false
+      # You can pass the additional argument flags to the openmetadata-ops.sh migrate command
+      # Example if you want to force migration runs, use additionalArgs: "--force"
+      additionalArgs: ""
+    deployPipelinesConfig:
+      enabled: true
+      debug: false
+      additionalArgs: ""
+    reindexConfig:
+      enabled: true
+      debug: false
+      # You can pass the additional argument flags to the openmetadata-ops.sh reindex command
+      additionalArgs: ""
+    # Values can be OFF, ERROR, WARN, INFO, DEBUG, TRACE, or ALL
+    logLevel: INFO
+    clusterName: openmetadata
+    openmetadata:
+      host: "0.0.0.0"
+      port: 8585
+      adminPort: 8586
+      maxThreads: 50
+      minThreads: 10
+      idleThreadTimeout: "1 minute"
+    elasticsearch:
+      enabled: true
+      host: opensearch
+      searchType: opensearch
+      port: 9200
+      scheme: http
+      clusterAlias: ""
+      # Value in Bytes
+      payLoadSize: 10485760
+      connectionTimeoutSecs: 5
+      socketTimeoutSecs: 60
+      batchSize: 100
+      searchIndexMappingLanguage: "EN"
+      keepAliveTimeoutSecs: 600
+      trustStore:
+        enabled: false
+        path: ""
+        password:
+          secretRef: "elasticsearch-truststore-secrets"
+          secretKey: "openmetadata-elasticsearch-truststore-password"
+      auth:
+        enabled: false
+        username: "elasticsearch"
+        password:
+          secretRef: elasticsearch-secrets
+          secretKey: openmetadata-elasticsearch-password
+    database:
+      enabled: true
+      host: mysql
+      port: 3306
+      driverClass: com.mysql.cj.jdbc.Driver
+      dbScheme: mysql
+      databaseName: openmetadata_db
+      auth:
+        username: openmetadata_user
+        password:
+          secretRef: mysql-secrets
+          secretKey: openmetadata-mysql-password
+      dbParams: "allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC"
+      maxSize: 50
+      minSize: 10
+      initialSize: 10
+      checkConnectionWhileIdle: true
+      checkConnectionOnBorrow: true
+      evictionInterval: 5 minutes
+      minIdleTime: 1 minute
+    pipelineServiceClientConfig:
+      enabled: true
+      # Pipeline service client type - choose between "airflow" or "k8s"
+      type: "airflow"
+
+      # Common configurations for all pipeline service clients
+      # This will be the api endpoint url of OpenMetadata Server
+      metadataApiEndpoint: http://openmetadata:8585/api
+
+      # Airflow configuration (used when type: "airflow")
+      airflow:
+        className: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
+        # endpoint url for airflow (updated for Apache Airflow chart compatibility)
+        apiEndpoint: http://openmetadata-dependencies-api-server:8080
+        # possible values are "no-ssl", "ignore", "validate"
+        verifySsl: "no-ssl"
+        hostIp: ""
+        ingestionIpInfoEnabled: false
+        # healthCheckInterval in seconds
+        healthCheckInterval: 300
+        # local path in Airflow Pod
+        sslCertificatePath: "/no/path"
+        auth:
+          enabled: true
+          username: admin
+          password:
+            secretRef: airflow-secrets
+            secretKey: openmetadata-airflow-password
+          trustStorePath: ""
+          trustStorePassword:
+            secretRef: ""
+            secretKey: ""
+
+      # Kubernetes Jobs configuration (used when type: "k8s")
+      k8s:
+        # Namespace for ingestion jobs (defaults to Helm release namespace if empty)
+        namespace: ""
+        className: "org.openmetadata.service.clients.pipeline.k8s.K8sPipelineClient"
+        # Container image for ingestion jobs
+        ingestionImage: "docker.getcollate.io/openmetadata/ingestion-base:latest"
+        # Image pull policy
+        imagePullPolicy: "IfNotPresent"
+        # Image pull secrets (comma-separated)
+        imagePullSecrets: ""
+        # Service account name for ingestion jobs
+        serviceAccountName: "openmetadata-ingestion"
+        # Time to keep completed jobs (seconds)
+        ttlSecondsAfterFinished: 86400
+        # Maximum job runtime (seconds)
+        activeDeadlineSeconds: 7200
+        # Maximum retry attempts
+        backoffLimit: 3
+        # Job history limits
+        successfulJobsHistoryLimit: 3
+        failedJobsHistoryLimit: 3
+        # Node selector (comma-separated key=value pairs)
+        nodeSelector: ""
+        # Tolerations for ingestion pod scheduling (list of toleration objects)
+        # Example:
+        # tolerations:
+        #   - key: "dedicated"
+        #     operator: "Equal"
+        #     value: "ingestion"
+        #     effect: "NoSchedule"
+        tolerations: []
+        # Pod security context
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          runAsNonRoot: true
+        # Resource limits and requests
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+        # Pod annotations (comma-separated key=value pairs)
+        podAnnotations: ""
+        # Extra environment variables (list of key:value pairs)
+        extraEnvVars: []
+        # Enable failure diagnostics
+        enableFailureDiagnostics: true
+        # Use OMJob operator for guaranteed exit handler execution
+        # Requires omjobOperator.enabled: true
+        useOMJobOperator: false
+        # RBAC configuration
+        rbac:
+          # Set to false if RBAC is managed externally
+          enabled: true
+    authorizer:
+      enabled: true
+      className: "org.openmetadata.service.security.DefaultAuthorizer"
+      containerRequestFilter: "org.openmetadata.service.security.JwtFilter"
+      initialAdmins:
+      - "admin"
+      allowedEmailRegistrationDomains:
+      - "all"
+      principalDomain: "open-metadata.org"
+      allowedDomains: []
+      enforcePrincipalDomain: false
+      enableSecureSocketConnection: false
+      useRolesFromProvider: false
+    authentication:
+      enabled: true
+      clientType: public
+      provider: "basic"
+      publicKeys:
+      - "http://openmetadata:8585/api/v1/system/config/jwks"
+      authority: "https://accounts.google.com"
+      clientId: ""
+      callbackUrl: ""
+      responseType: id_token
+      jwtPrincipalClaims:
+      - "email"
+      - "preferred_username"
+      - "sub"
+      jwtPrincipalClaimsMapping: []
+      # jwtPrincipalClaimsMapping:
+      # - username:sub
+      # - email:email
+      enableSelfSignup: true
+      oidcConfiguration:
+        enabled: false
+        oidcType: ""
+        clientId:
+          secretRef: oidc-secrets
+          secretKey: openmetadata-oidc-client-id
+        clientSecret:
+          secretRef: oidc-secrets
+          secretKey: openmetadata-oidc-client-secret
+        scope: "openid email profile"
+        discoveryUri: ""
+        useNonce: true
+        preferredJwsAlgorithm: RS256
+        responseType: code
+        promptType: "consent"
+        disablePkce: true
+        callbackUrl: http://openmetadata:8585/callback
+        serverUrl: http://openmetadata:8585
+        clientAuthenticationMethod: client_secret_post
+        tenant: ""
+        maxClockSkew: ""
+        tokenValidity: "3600"
+        customParams: '{}'
+        maxAge: "0"
+        # 7 days
+        sessionExpiry: "604800"
+      ldapConfiguration:
+        host: localhost
+        port: 10636
+        dnAdminPrincipal: "cn=admin,dc=example,dc=com"
+        dnAdminPassword:
+          secretRef: ldap-admin-secret
+          secretKey: openmetadata-ldap-secret
+        userBaseDN: "ou=people,dc=example,dc=com"
+        mailAttributeName: email
+        maxPoolSize: 3
+        sslEnabled: false
+        groupBaseDN: ""
+        roleAdminName: ""
+        allAttributeName: ""
+        usernameAttributeName: ""
+        groupAttributeName: ""
+        groupAttributeValue: ""
+        groupMemberAttributeName: ""
+        authRolesMapping: ""
+        authReassignRoles: []
+        # Possible values are CustomTrustStore, HostName, JVMDefault, TrustAll
+        truststoreConfigType: TrustAll
+        trustStoreConfig:
+          customTrustManagerConfig:
+            trustStoreFilePath: ""
+            trustStoreFilePassword:
+              secretRef: ""
+              secretKey: ""
+            trustStoreFileFormat: ""
+            verifyHostname: true
+            examineValidityDates: true
+          hostNameConfig:
+            allowWildCards: false
+            acceptableHostNames: []
+          jvmDefaultConfig:
+            verifyHostname: true
+          trustAllConfig:
+            examineValidityDates: true
+      saml:
+        debugMode: false
+        idp:
+          entityId: ""
+          ssoLoginUrl: ""
+          idpX509Certificate:
+            secretRef: ""
+            secretKey: ""
+          authorityUrl: "http://openmetadata:8585/api/v1/saml/login"
+          nameId: "urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress"
+        sp:
+          entityId: "http://openmetadata:8585/api/v1/saml/metadata"
+          acs: "http://openmetadata:8585/api/v1/saml/acs"
+          spX509Certificate:
+            secretRef: ""
+            secretKey: ""
+          spPrivateKey:
+            secretRef: ""
+            secretKey: ""
+          callback: "http://openmetadata:8585/saml/callback"
+        security:
+          strictMode: false
+          validateXml: false
+          tokenValidity: 3600
+          sendEncryptedNameId: false
+          sendSignedAuthRequest: false
+          signSpMetadata: false
+          wantMessagesSigned: false
+          wantAssertionsSigned: false
+          wantAssertionEncrypted: false
+          keyStoreFilePath: ""
+          keyStoreAlias:
+            secretRef: ""
+            secretKey: ""
+          keyStorePassword:
+            secretRef: ""
+            secretKey: ""
+
+    jwtTokenConfiguration:
+      enabled: true
+      # File Path on Airflow Container
+      rsapublicKeyFilePath: "./conf/public_key.der"
+      # File Path on Airflow Container
+      rsaprivateKeyFilePath: "./conf/private_key.der"
+      jwtissuer: "open-metadata.org"
+      keyId: "Gb389a-9f76-gdjs-a92j-0242bk94356"
+    fernetkey:
+      value: "jJ/9sz0g0OHxsfxOoSfdFdmk3ysNmPRnH3TUAbz3IHA="
+      secretRef: ""
+      secretKey: ""
+    eventMonitor:
+      enabled: true
+      # Possible values are prometheus and cloudwatch
+      type: prometheus
+      batchSize: 10
+      pathPattern:
+      - "/api/v1/tables/*"
+      - "/api/v1/health-check"
+      # For value p99=0.99, p90=0.90, p50=0.50 etc.
+      latency: []
+      # - "p99=0.99"
+      # - "p90=0.90"
+      # - "p50=0.50"
+    secretsManager:
+      enabled: true
+      # Possible values are db, aws, aws-ssm, managed-aws, managed-aws-ssm, in-memory, managed-azure-kv, azure-kv, gcp
+      provider: db
+      # Define the secret key ID as /<prefix>/<clusterName>/<key> for AWS
+      # Define the secret key ID as <prefix>-<clusterName>-<key> for Azure
+      prefix: ""
+       # Add tags to the created resource, e.g., in AWS. Format is `[key1:value1,key2:value2,...]`
+      tags: []
+      additionalParameters:
+        enabled: false
+        region: ""
+        # For AWS
+        accessKeyId:
+          secretRef: ""
+          secretKey: ""
+        secretAccessKey:
+          secretRef: ""
+          secretKey: ""
+        # accessKeyId:
+        #   secretRef: aws-access-key-secret
+        #   secretKey: aws-key-secret
+        # secretAccessKey:
+        #   secretRef: aws-secret-access-key-secret
+        #   secretKey: aws-key-secret
+        # For Azure
+        clientId:
+          secretRef: ""
+          secretKey: ""
+        clientSecret:
+          secretRef: ""
+          secretKey: ""
+        tenantId:
+          secretRef: ""
+          secretKey: ""
+        vaultName:
+          secretRef: ""
+          secretKey: ""
+        # clientId:
+        #   secretRef: azure-client-id-secret
+        #   secretKey: azure-key-secret
+        # clientSecret:
+        #   secretRef: azure-client-secret
+        #   secretKey: azure-key-secret
+        # tenantId:
+        #   secretRef: azure-tenant-id-secret
+        #   secretKey: azure-key-secret
+        # vaultName:
+        #   secretRef: azure-vault-name-secret
+        #   secretKey: azure-key-secret
+        # For GCP
+        projectId:
+          secretRef: ""
+          secretKey: ""
+        # projectId:
+        #   secretRef: gcp-project-id-secret
+        #   secretKey: gcp-key-secret
+      # You can create Kubernetes secrets from AWS Credentials with the below command
+      # kubectl create secret generic aws-key-secret \
+      # --from-literal=aws-access-key-secret=<access_key_id_value> \
+      # --from-literal=aws-secret-access-key-secret=<access_key_secret_value>
+    web:
+      enabled: true
+      uriPath: "/api"
+      hsts:
+        enabled: false
+        maxAge: "365 days"
+        includeSubDomains: "true"
+        preload: "true"
+      frameOptions:
+        enabled: false
+        option: "SAMEORIGIN"
+        origin: ""
+      contentTypeOptions:
+        enabled: false
+      xssProtection:
+        enabled: false
+        onXss: true
+        block: true
+      csp:
+        enabled: false
+        policy: "default-src 'self'"
+        reportOnlyPolicy: ""
+      referrerPolicy:
+        enabled: false
+        option: "SAME_ORIGIN"
+      permissionPolicy:
+        enabled: false
+        option: ""
+      cacheControl: ""
+      pragma: ""
+    rdf:
+      enabled: false
+      baseUri: "https://open-metadata.org/"
+      storageType: "FUSEKI"
+      remoteEndpoint: "http://localhost:3030/openmetadata"
+      username: ""
+      password:
+        secretRef: ""
+        secretKey: ""
+      dataset: "openmetadata"
+
+networkPolicy:
+  # If networkPolicy is true, following values can be set
+  # for ingress on port 8585 and 8586
+  enabled: false
+
+  # Example Google SSO Auth Config
+  # authorizer:
+  #   className: "org.openmetadata.service.security.DefaultAuthorizer"
+  #   containerRequestFilter: "org.openmetadata.service.security.JwtFilter"
+  #   initialAdmins:
+  #   - "suresh"
+  #   principalDomain: "open-metadata.org"
+  # authentication:
+  #   provider: "google"
+  #   publicKeys:
+  #   - "https://www.googleapis.com/oauth2/v3/certs"
+  #   authority: "https://accounts.google.com"
+  #   clientId: "<client_id>"
+  #   callbackUrl: "<callback_url>"
+
+image:
+  repository: docker.getcollate.io/openmetadata/server
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+  pullPolicy: "Always"
+
+sidecars: []
+# - name: "busybox"
+#   image: "busybox:1.34.1"
+#   imagePullPolicy: "Always"
+#   command: ["ls"]
+#   args: ["-latr", "/usr/share"]
+#   env:
+#   - name: DEMO
+#     value: "DEMO"
+#   volumeMounts:
+#   - name: extras
+#     mountPath: /usr/share/extras
+#     readOnly: true
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: "openmetadata"
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+automountServiceAccountToken: true
+podSecurityContext: {}
+  # fsGroup: 2000
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+# readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 100
+service:
+  type: ClusterIP
+  port: 8585
+  adminPort: 8586
+  annotations: {}
+
+# Service monitor for Prometheus metrics
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  annotations: {}
+  labels: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: open-metadata.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+    # - secretName: tls-open-metadata.local
+    #   hosts:
+    #     - open-metadata.local
+
+# Kubernetes Gateway API HTTPRoute — use instead of ingress/route when your cluster
+# already has a Gateway configured.
+gateway:
+  enabled: false
+  annotations: {}
+  labels: {}
+  # Optional hostnames to match for this route.
+  hostnames: []
+  # Parent Gateway references. At least one entry with `name` is required when enabled.
+  parentRefs:
+    - name: ""
+      # Optional fields:
+      # group: gateway.networking.k8s.io
+      # kind: Gateway
+      # namespace: ""
+      # sectionName: ""
+      # port: 80
+  # Optional HTTPRoute rules. If omitted, the chart creates a default rule
+  # matching "/" and forwarding traffic to the OpenMetadata service.
+  rules: []
+    # - matches:
+    #     - path:
+    #         type: PathPrefix
+    #         value: /
+    #       headers:
+    #         - name: x-env
+    #           value: prod
+    #       queryParams:
+    #         - name: debug
+    #           value: "false"
+    #       method: GET
+    #   filters:
+    #     - type: RequestHeaderModifier
+    #       requestHeaderModifier:
+    #         add:
+    #           - name: x-forwarded-by
+    #             value: openmetadata
+    #   backendRefs:
+    #     - name: openmetadata
+    #       port: 8585
+    #       weight: 1
+
+# OpenShift Route — use instead of ingress when deploying on OpenShift.
+# Requires route.openshift.io/v1 API (available on all OpenShift clusters).
+route:
+  enabled: false
+  # host is optional. When omitted, OpenShift auto-assigns a hostname under
+  # the cluster's default subdomain (e.g. openmetadata-openmetadata.apps.<cluster>).
+  host: ""
+  annotations: {}
+  wildcardPolicy: None
+  tls:
+    enabled: true
+    # termination controls where TLS is terminated:
+    #   edge        — TLS terminated at the router; traffic to the pod is plain HTTP (recommended)
+    #   reencrypt   — TLS terminated at the router and re-encrypted to the pod
+    #   passthrough — TLS passed through to the pod unchanged (pod must serve TLS)
+    termination: edge
+    # insecureEdgeTerminationPolicy controls HTTP traffic when termination is edge or reencrypt:
+    #   Redirect — redirect HTTP to HTTPS (recommended)
+    #   Allow    — serve both HTTP and HTTPS
+    #   None     — drop HTTP traffic
+    insecureEdgeTerminationPolicy: Redirect
+
+# Istio ingress resources — use instead of ingress/gateway/route when your cluster
+# is fronted by an Istio ingress gateway.
+istio:
+  enabled: false
+  annotations: {}
+  labels: {}
+  gateway:
+    # Create an Istio Gateway resource. Set to false when binding the VirtualService
+    # to a pre-existing gateway and provide the gateway name(s) in
+    # istio.virtualService.gateways.
+    create: true
+    name: ""
+    annotations: {}
+    labels: {}
+    selector:
+      istio: ingressgateway
+    servers:
+      - port:
+          number: 80
+          name: http
+          protocol: HTTP
+        hosts:
+          - open-metadata.local
+  virtualService:
+    name: ""
+    annotations: {}
+    labels: {}
+    hosts:
+      - open-metadata.local
+    # When empty and istio.gateway.create=true, the chart binds the VirtualService
+    # to the generated Gateway. When istio.gateway.create=false, set this explicitly.
+    gateways: []
+    # If omitted, the chart creates a default route matching "/" and forwarding
+    # traffic only to the application port (8585). The admin port (8586) remains
+    # internal-only and should not be exposed externally.
+    http: []
+      # - match:
+      #     - uri:
+      #         prefix: /
+      #   route:
+      #     - destination:
+      #         host: openmetadata
+      #         port:
+      #           number: 8585
+  destinationRule:
+    enabled: false
+    name: ""
+    annotations: {}
+    labels: {}
+    # Defaults to the OpenMetadata service when empty.
+    host: ""
+    trafficPolicy: {}
+    subsets: []
+    exportTo: []
+
+extraEnvs: []
+# - name: MY_ENVIRONMENT_VAR
+#   value: the_value_goes_here
+
+envFrom: []
+# - secretRef:
+#     name: secret_containing_config
+
+extraVolumes: []
+# - name: extras
+#   emptyDir: {}
+
+extraVolumeMounts: []
+# - name: extras
+#   mountPath: /usr/share/extras
+#   readOnly: true
+
+# Provision for InitContainers to be running after the `run-db-migration` InitContainer
+extraInitContainers: []
+
+# Provision for InitContainers to be running before the `run-db-migration` InitContainer
+preMigrateInitContainers: []
+
+resources: {}
+# We usually recommend not to specify default resources and to leave this as a conscious
+# choice for the user. This also increases chances charts run on environments with little
+# resources, such as Minikube.The resources configuration is required to enable autoscaling.
+# To specify resources, uncomment the following lines, adjust them as necessary, and remove
+# the curly braces after 'resources:'.
+#   limits:
+#     cpu: 1
+#     memory: 2048Mi
+#   requests:
+#     cpu: 500m
+#     memory: 1024Mi
+
+startingDeadlineSeconds: 100
+
+# Test connection pod configuration
+testConnection:
+  resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube.
+  # To specify resources, uncomment the following lines, adjust them as necessary, and remove
+  # the curly braces after 'resources:'.
+  #   limits:
+  #     cpu: 100m
+  #     memory: 128Mi
+  #   requests:
+  #     cpu: 50m
+  #     memory: 64Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+topologySpreadConstraints: []
+
+livenessProbe:
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  failureThreshold: 5
+  httpGet:
+    path: /api/v1/system/health
+    port: http
+readinessProbe:
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  failureThreshold: 5
+  httpGet:
+    path: /api/v1/system/health
+    port: http
+startupProbe:
+  periodSeconds: 60
+  failureThreshold: 5
+  successThreshold: 1
+  httpGet:
+    path: /healthcheck
+    port: http-admin
+
+podDisruptionBudget:
+  enabled: false
+  config:
+    minAvailable: "1"
+
+commonLabels: {}
+deploymentAnnotations: {}
+podAnnotations: {}
+
+# Prerequisites for enabling Horizontal Pod Autoscaler (HPA):
+# 1. Install metrics-server (https://github.com/kubernetes-sigs/metrics-server)
+# 2. Define resource request and limits for the pods
+hpa:
+  enabled: false
+  apiVersion: autoscaling/v2
+  minReplicas: 1
+  maxReplicas: 5
+  behavior: {}
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+# OMJob Operator Configuration
+# This installs the CRD and operator for guaranteed exit handler execution
+omjobOperator:
+  enabled: false  # Set to true to install OMJob CRD and operator
+
+  # Image configuration
+  image:
+    repository: docker.getcollate.io/openmetadata/omjob-operator
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # Resource configuration
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+  # Environment variables
+  env:
+    logLevel: "INFO"
+    reconciliationThreads: "5"
+    healthCheckPort: "8080"
+    metricsPort: "8081"
+    # Polling interval in seconds - how often the operator checks pod status
+    pollingIntervalSeconds: "10"
+    # Requeue delay in seconds - delay when requeueing after errors
+    requeueDelaySeconds: "30"
+    # Namespace watching configuration:
+    # - "ALL" = watch all namespaces (less secure, high resource usage)
+    # - "namespace1,namespace2" = watch specific namespaces (recommended)
+    # - Leave empty for operator's own namespace only
+    watchNamespaces: ""
+
+  # Pod-level securityContext for the operator pod. Empty by default for
+  # backwards compatibility. Required for clusters that enforce Pod
+  # Security Standards "restricted".
+  podSecurityContext: {}
+    # runAsNonRoot: true
+    # runAsUser: 1000
+    # runAsGroup: 1000
+    # seccompProfile:
+    #   type: RuntimeDefault
+
+  # Container-level securityContext for the operator container. Required
+  # for PSS Restricted; the operator image runs as user `omjob` (UID 1000).
+  securityContext: {}
+    # allowPrivilegeEscalation: false
+    # capabilities:
+    #   drop: [ALL]
+    # readOnlyRootFilesystem: false   # JVM operators may need writable root
+    # runAsNonRoot: true
+    # runAsUser: 1000
+    # runAsGroup: 1000
+    # seccompProfile:
+    #   type: RuntimeDefault

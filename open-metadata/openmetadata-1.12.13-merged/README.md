@@ -1,0 +1,662 @@
+# Open Metadata
+
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/open-metadata)](https://artifacthub.io/packages/search?repo=open-metadata)
+
+A Helm Chart for Open Metadata.
+
+## Install OpenMetadata
+
+Assuming kubectl context points to the correct kubernetes cluster, first create kubernetes secrets that contain MySQL and Airflow passwords as secrets.
+
+```
+kubectl create secret generic mysql-secrets --from-literal=openmetadata-mysql-password=openmetadata_password
+kubectl create secret generic airflow-secrets --from-literal=openmetadata-airflow-password=admin
+```
+
+The above commands sets the passwords as an example. Change to any password of choice.
+
+Run the following command to install openmetadata with default configuration.
+
+```
+helm repo add open-metadata https://helm.open-metadata.org
+helm install openmetadata open-metadata/openmetadata
+```
+
+If the default configuration is not applicable, you can update the values listed below in a `values.yaml` file and run
+
+```
+helm install openmetadata open-metadata/openmetadata --values <<path-to-values-file>>
+```
+---
+
+## Expose OpenMetadata with Gateway API
+
+If your cluster uses Kubernetes Gateway API, you can expose OpenMetadata with an `HTTPRoute` instead of Ingress:
+
+```yaml
+gateway:
+  enabled: true
+  hostnames:
+    - openmetadata.example.com
+  parentRefs:
+    - name: shared-gateway
+      namespace: infra
+      sectionName: https
+      port: 443
+```
+
+Optional `gateway.rules` let you configure advanced `matches`, `filters`, and explicit `backendRefs`.
+
+You can enable `gateway` alongside `ingress` during migration. Configure hostnames/listeners carefully to avoid duplicate external routing.
+
+---
+
+## Openmetadata Config Chart Values
+
+| Key | Type | Default | Conf/Openmetadata.yaml |
+|-----|------|---------| ---------------------- |
+| openmetadata.config.authentication.enabled | bool | `true` | |
+| openmetadata.config.authentication.clientType | string | `public` | AUTHENTICATION_CLIENT_TYPE |
+| openmetadata.config.authentication.provider | string | `basic` | AUTHENTICATION_PROVIDER |
+| openmetadata.config.authentication.publicKeys | list | `[http://openmetadata:8585/api/v1/system/config/jwks]` | AUTHENTICATION_PUBLIC_KEYS |
+| openmetadata.config.authentication.authority | string | `https://accounts.google.com` | AUTHENTICATION_AUTHORITY |
+| openmetadata.config.authentication.clientId | string | `Empty String` | AUTHENTICATION_CLIENT_ID |
+| openmetadata.config.authentication.callbackUrl | string | `Empty String` | AUTHENTICATION_CALLBACK_URL |
+| openmetadata.config.authentication.enableSelfSignup | bool | `true` | AUTHENTICATION_ENABLE_SELF_SIGNUP |
+| openmetadata.config.authentication.jwtPrincipalClaims | list | `[email,preferred_username,sub]` | AUTHENTICATION_JWT_PRINCIPAL_CLAIMS |
+| openmetadata.config.authentication.jwtPrincipalClaimsMapping | list | `[]` | AUTHENTICATION_JWT_PRINCIPAL_CLAIMS_MAPPING |
+| openmetadata.config.authentication.ldapConfiguration.host | string | `localhost` | AUTHENTICATION_LDAP_HOST |
+| openmetadata.config.authentication.ldapConfiguration.port |int | 10636 | AUTHENTICATION_LDAP_PORT |
+| openmetadata.config.authentication.ldapConfiguration.dnAdminPrincipal | string | `cn=admin,dc=example,dc=com` | AUTHENTICATION_LOOKUP_ADMIN_DN |
+| openmetadata.config.authentication.ldapConfiguration.dnAdminPassword.secretRef | string | `ldap-secret` | AUTHENTICATION_LOOKUP_ADMIN_PWD |
+| openmetadata.config.authentication.ldapConfiguration.dnAdminPassword.secretKey | string | `openmetadata-ldap-secret` | AUTHENTICATION_LOOKUP_ADMIN_PWD |
+| openmetadata.config.authentication.ldapConfiguration.userBaseDN | string | `ou=people,dc=example,dc=com` | AUTHENTICATION_USER_LOOKUP_BASEDN |
+| openmetadata.config.authentication.ldapConfiguration.groupBaseDN | string | `Empty String` | AUTHENTICATION_GROUP_LOOKUP_BASEDN |
+| openmetadata.config.authentication.ldapConfiguration.roleAdminName | string | `Empty String` | AUTHENTICATION_USER_ROLE_ADMIN_NAME |
+| openmetadata.config.authentication.ldapConfiguration.allAttributeName | string | `Empty String` | AUTHENTICATION_USER_ALL_ATTR |
+| openmetadata.config.authentication.ldapConfiguration.usernameAttributeName | string | `Empty String` | AUTHENTICATION_USER_NAME_ATTR |
+| openmetadata.config.authentication.ldapConfiguration.groupAttributeName | string | `Empty String` | AUTHENTICATION_USER_GROUP_ATTR |
+| openmetadata.config.authentication.ldapConfiguration.groupAttributeValue | string | `Empty String` | AUTHENTICATION_USER_GROUP_ATTR_VALUE |
+| openmetadata.config.authentication.ldapConfiguration.groupMemberAttributeName | string | `Empty String` | AUTHENTICATION_USER_GROUP_MEMBER_ATTR |
+| openmetadata.config.authentication.ldapConfiguration.authRolesMapping | string | `Empty String` | AUTH_ROLES_MAPPING |
+| openmetadata.config.authentication.ldapConfiguration.authReassignRoles | string | `Empty String` | AUTH_REASSIGN_ROLES |
+| openmetadata.config.authentication.ldapConfiguration.mailAttributeName | string | `email` | AUTHENTICATION_USER_MAIL_ATTR |
+| openmetadata.config.authentication.ldapConfiguration.maxPoolSize | int | 3 | AUTHENTICATION_LDAP_POOL_SIZE |
+| openmetadata.config.authentication.ldapConfiguration.sslEnabled | bool | `true` | AUTHENTICATION_LDAP_SSL_ENABLED |
+| openmetadata.config.authentication.ldapConfiguration.truststoreConfigType | string | `TrustAll` | AUTHENTICATION_LDAP_TRUSTSTORE_TYPE |
+| openmetadata.config.authentication.ldapConfiguration.trustStoreConfig.customTrustManagerConfig.trustStoreFilePath | string | `Empty String` | AUTHENTICATION_LDAP_TRUSTSTORE_PATH |
+| openmetadata.config.authentication.ldapConfiguration.trustStoreConfig.customTrustManagerConfig.trustStoreFilePassword.secretRef | string | `Empty String` | AUTHENTICATION_LDAP_KEYSTORE_PASSWORD |
+| openmetadata.config.authentication.ldapConfiguration.trustStoreConfig.customTrustManagerConfig.trustStoreFilePassword.secretKey | string | `Empty String` | AUTHENTICATION_LDAP_KEYSTORE_PASSWORD |
+| openmetadata.config.authentication.ldapConfiguration.trustStoreConfig.customTrustManagerConfig.trustStoreFileFormat | string | `Empty String` | AUTHENTICATION_LDAP_SSL_KEY_FORMAT |
+| openmetadata.config.authentication.ldapConfiguration.trustStoreConfig.customTrustManagerConfig.verifyHostname | string | `Empty String` | AUTHENTICATION_LDAP_SSL_VERIFY_CERT_HOST |
+| openmetadata.config.authentication.ldapConfiguration.trustStoreConfig.customTrustManagerConfig.examineValidityDate | bool | `true` | AUTHENTICATION_LDAP_EXAMINE_VALIDITY_DATES |
+| openmetadata.config.authentication.ldapConfiguration.trustStoreConfig.hostNameConfig.allowWildCards | bool | `false` | AUTHENTICATION_LDAP_ALLOW_WILDCARDS |
+| openmetadata.config.authentication.ldapConfiguration.trustStoreConfig.hostNameConfig.acceptableHostNames | string | `[Empty String]` | AUTHENTICATION_LDAP_ALLOWED_HOSTNAMES |
+| openmetadata.config.authentication.ldapConfiguration.trustStoreConfig.jvmDefaultConfig.verifyHostname | string | `Empty String` | AUTHENTICATION_LDAP_SSL_VERIFY_CERT_HOST |
+| openmetadata.config.authentication.ldapConfiguration.trustStoreConfig.trustAllConfig.examineValidityDates | bool | `true` | AUTHENTICATION_LDAP_EXAMINE_VALIDITY_DATES |
+| openmetadata.config.authentication.oidcConfiguration.callbackUrl | string | `http://openmetadata:8585/callback` | OIDC_CALLBACK |
+| openmetadata.config.authentication.oidcConfiguration.clientAuthenticationMethod | string | `client_secret_post` | OIDC_CLIENT_AUTH_METHOD |
+| openmetadata.config.authentication.oidcConfiguration.clientId.secretKey | string | `openmetadata-oidc-client-id` | OIDC_CLIENT_ID |
+| openmetadata.config.authentication.oidcConfiguration.clientId.secretRef | string | `oidc-secrets` | OIDC_CLIENT_ID |
+| openmetadata.config.authentication.oidcConfiguration.clientSecret.secretKey | string | `openmetadata-oidc-client-secret` | OIDC_CLIENT_SECRET |
+| openmetadata.config.authentication.oidcConfiguration.clientSecret.secretRef | string | `oidc-secrets` | OIDC_CLIENT_SECRET |
+| openmetadata.config.authentication.oidcConfiguration.customParams | string | `{}` | OIDC_CUSTOM_PARAMS |
+| openmetadata.config.authentication.oidcConfiguration.maxAge | string | `0` | OIDC_MAX_AGE |
+| openmetadata.config.authentication.oidcConfiguration.disablePkce | bool | true | OIDC_DISABLE_PKCE |
+| openmetadata.config.authentication.oidcConfiguration.discoveryUri | string | `Empty` | OIDC_DISCOVERY_URI |
+| openmetadata.config.authentication.oidcConfiguration.enabled | bool | false | |
+| openmetadata.config.authentication.oidcConfiguration.maxClockSkew | string | `Empty` | OIDC_MAX_CLOCK_SKEW |
+| openmetadata.config.authentication.oidcConfiguration.oidcType | string | `Empty` | OIDC_TYPE |
+| openmetadata.config.authentication.oidcConfiguration.preferredJwsAlgorithm | string | `RS256` | OIDC_PREFERRED_JWS |
+| openmetadata.config.authentication.oidcConfiguration.responseType | string | `code` | OIDC_RESPONSE_TYPE |
+| openmetadata.config.authentication.oidcConfiguration.promptType | string | `consent` | OIDC_PROMPT_TYPE |
+| openmetadata.config.authentication.oidcConfiguration.scope | string | `openid email profile` | OIDC_SCOPE |
+| openmetadata.config.authentication.oidcConfiguration.serverUrl | string | `http://openmetadata:8585` | OIDC_SERVER_URL |
+| openmetadata.config.authentication.oidcConfiguration.sessionExpiry | string | `604800` | OIDC_SESSION_EXPIRY |
+| openmetadata.config.authentication.oidcConfiguration.tenant | string | `Empty` | OIDC_TENANT |
+| openmetadata.config.authentication.oidcConfiguration.tokenValidity | string | `3600` | OIDC_OM_REFRESH_TOKEN_VALIDITY |
+| openmetadata.config.authentication.oidcConfiguration.useNonce | bool | `true` | OIDC_USE_NONCE |
+| openmetadata.config.authentication.saml.debugMode | bool | false | SAML_DEBUG_MODE |
+| openmetadata.config.authentication.saml.idp.entityId | string | `Empty` | SAML_IDP_ENTITY_ID |
+| openmetadata.config.authentication.saml.idp.ssoLoginUrl |  string | `Empty` | SAML_IDP_SSO_LOGIN_URL |
+| openmetadata.config.authentication.saml.idp.idpX509Certificate.secretRef | string | `Empty` | SAML_IDP_CERTIFICATE |
+| openmetadata.config.authentication.saml.idp.idpX509Certificate.secretKey |  string | `Empty` | SAML_IDP_CERTIFICATE |
+| openmetadata.config.authentication.saml.idp.authorityUrl | string | `http://openmetadata:8585/api/v1/saml/login` | SAML_AUTHORITY_URL |
+| openmetadata.config.authentication.saml.idp.nameId | string | `urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress` | SAML_IDP_NAME_ID |
+| openmetadata.config.authentication.saml.sp.entityId | string | `http://openmetadata:8585/api/v1/saml/metadata` | SAML_SP_ENTITY_ID |
+| openmetadata.config.authentication.saml.sp.acs | string | `http://openmetadata:8585/api/v1/saml/acs` | SAML_SP_ACS |
+| openmetadata.config.authentication.saml.sp.spX509Certificate.secretRef | string | `Empty`  | SAML_SP_CERTIFICATE |
+| openmetadata.config.authentication.saml.sp.spX509Certificate.secretKey | string | `Empty`  | SAML_SP_CERTIFICATE |
+| openmetadata.config.authentication.saml.sp.callback | string | `http://openmetadata:8585/saml/callback` | SAML_SP_CALLBACK |
+| openmetadata.config.authentication.saml.security.strictMode |  bool | false | SAML_STRICT_MODE |
+| openmetadata.config.authentication.saml.security.tokenValidity | int | 3600 | SAML_SP_TOKEN_VALIDITY |
+| openmetadata.config.authentication.saml.security.sendEncryptedNameId | bool | false | SAML_SEND_ENCRYPTED_NAME_ID |
+| openmetadata.config.authentication.saml.security.sendSignedAuthRequest | bool | false | SAML_SEND_SIGNED_AUTH_REQUEST |
+| openmetadata.config.authentication.saml.security.signSpMetadata | bool  | false | SAML_SIGNED_SP_METADATA |
+| openmetadata.config.authentication.saml.security.wantMessagesSigned | bool  | false | SAML_WANT_MESSAGE_SIGNED |
+| openmetadata.config.authentication.saml.security.wantAssertionsSigned | bool  | false | SAML_WANT_ASSERTION_SIGNED |
+| openmetadata.config.authentication.saml.security.wantAssertionEncrypted | bool  | false | SAML_WANT_ASSERTION_ENCRYPTED |
+| openmetadata.config.authentication.saml.security.wantNameIdEncrypted | bool  | false | SAML_WANT_NAME_ID_ENCRYPTED |
+| openmetadata.config.authentication.saml.security.keyStoreFilePath |  string | `Empty` | SAML_KEYSTORE_FILE_PATH |
+| openmetadata.config.authentication.saml.security.keyStoreAlias.secretRef | string  | `Empty` | SAML_KEYSTORE_ALIAS |
+| openmetadata.config.authentication.saml.security.keyStoreAlias.secretKey | string  | `Empty` | SAML_KEYSTORE_ALIAS |
+| openmetadata.config.authentication.saml.security.keyStorePassword.secretRef | string  | `Empty` | SAML_KEYSTORE_PASSWORD |
+| openmetadata.config.authentication.saml.security.keyStorePassword.secretKey | string  | `Empty` | SAML_KEYSTORE_PASSWORD |
+| openmetadata.config.authorizer.enabled | bool | `true` | |
+| openmetadata.config.authorizer.allowedEmailRegistrationDomains | list | `[all]` | AUTHORIZER_ALLOWED_REGISTRATION_DOMAIN |
+| openmetadata.config.authorizer.className | string | `org.openmetadata.service.security.DefaultAuthorizer` | AUTHORIZER_CLASS_NAME |
+| openmetadata.config.authorizer.containerRequestFilter | string | `org.openmetadata.service.security.JwtFilter` | AUTHORIZER_REQUEST_FILTER |
+| openmetadata.config.authorizer.enforcePrincipalDomain | bool | `false` | AUTHORIZER_ENFORCE_PRINCIPAL_DOMAIN |
+| openmetadata.config.authorizer.enableSecureSocketConnection | bool | `false` | AUTHORIZER_ENABLE_SECURE_SOCKET |
+| openmetadata.config.authorizer.initialAdmins | list | `[admin]` | AUTHORIZER_ADMIN_PRINCIPALS |
+| openmetadata.config.authorizer.allowedDomains | list | `[]` | AUTHORIZER_ALLOWED_DOMAINS |
+| openmetadata.config.authorizer.principalDomain | string | `open-metadata.org` | AUTHORIZER_PRINCIPAL_DOMAIN |
+| openmetadata.config.authorizer.useRolesFromProvider | bool | `false` | AUTHORIZER_USE_ROLES_FROM_PROVIDER |
+| openmetadata.config.pipelineServiceClientConfig.auth.password.secretRef | string | `airflow-secrets` | AIRFLOW_PASSWORD |
+| openmetadata.config.pipelineServiceClientConfig.auth.password.secretKey | string | `openmetadata-airflow-password` | AIRFLOW_PASSWORD |
+| openmetadata.config.pipelineServiceClientConfig.auth.username | string | `admin` | AIRFLOW_USERNAME |
+| openmetadata.config.pipelineServiceClientConfig.enabled | bool | `true` | |
+| openmetadata.config.pipelineServiceClientConfig.host | string | `http://openmetadata-dependencies-web:8080` | PIPELINE_SERVICE_CLIENT_ENDPOINT |
+| openmetadata.config.pipelineServiceClientConfig.openmetadata.serverHostApiUrl | string | `http://openmetadata:8585/api` | SERVER_HOST_API_URL |
+| openmetadata.config.pipelineServiceClientConfig.sslCertificatePath | string | `/no/path` | PIPELINE_SERVICE_CLIENT_SSL_CERT_PATH |
+| openmetadata.config.pipelineServiceClientConfig.verifySsl | string | `no-ssl` | PIPELINE_SERVICE_CLIENT_VERIFY_SSL |
+| openmetadata.config.clusterName | string | `openmetadata` | OPENMETADATA_CLUSTER_NAME |
+| openmetadata.config.database.enabled | bool | `true` | |
+| openmetadata.config.database.auth.password.secretRef | string | `mysql-secrets` | DB_USER_PASSWORD |
+| openmetadata.config.database.auth.password.secretKey | string | `openmetadata-mysql-password` | DB_USER_PASSWORD |
+| openmetadata.config.database.auth.username | string | `openmetadata_user` | DB_USER|
+| openmetadata.config.database.databaseName | string | `openmetadata_db` | OM_DATABASE |
+| openmetadata.config.database.dbParams| string | `allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC` | DB_PARAMS |
+| openmetadata.config.database.dbScheme| string | `mysql` | DB_SCHEME |
+| openmetadata.config.database.driverClass| string | `com.mysql.cj.jdbc.Driver` | DB_DRIVER_CLASS |
+| openmetadata.config.database.host | string | `mysql` | DB_HOST |
+| openmetadata.config.database.port | int | 3306 | DB_PORT |
+| openmetadata.config.elasticsearch.enabled | bool | `true` | |
+| openmetadata.config.elasticsearch.auth.enabled | bool | `false` | |
+| openmetadata.config.elasticsearch.auth.username | string | `elasticsearch` | ELASTICSEARCH_USER |
+| openmetadata.config.elasticsearch.auth.password.secretRef | string | `elasticsearch-secrets` | ELASTICSEARCH_PASSWORD |
+| openmetadata.config.elasticsearch.auth.password.secretKey | string | `openmetadata-elasticsearch-password` | ELASTICSEARCH_PASSWORD |
+| openmetadata.config.elasticsearch.host | string | `opensearch` | ELASTICSEARCH_HOST |
+| openmetadata.config.elasticsearch.keepAliveTimeoutSecs | int | `600` | ELASTICSEARCH_KEEP_ALIVE_TIMEOUT_SECS |
+| openmetadata.config.elasticsearch.payLoadSize | int | 10485760 | ELASTICSEARCH_PAYLOAD_BYTES_SIZE |
+| openmetadata.config.elasticsearch.port | int | 9200 | ELASTICSEARCH_PORT |
+| openmetadata.config.elasticsearch.searchType | string | `opensearch` | SEARCH_TYPE |
+| openmetadata.config.elasticsearch.scheme | string | `http` | ELASTICSEARCH_SCHEME |
+| openmetadata.config.elasticsearch.clusterAlias | string | `Empty String` | ELASTICSEARCH_CLUSTER_ALIAS |
+| openmetadata.config.elasticsearch.searchIndexMappingLanguage | string | `EN`| ELASTICSEARCH_INDEX_MAPPING_LANG |
+| openmetadata.config.elasticsearch.trustStore.enabled | bool | `false` | |
+| openmetadata.config.elasticsearch.trustStore.path | string | `Empty String` | ELASTICSEARCH_TRUST_STORE_PATH |
+| openmetadata.config.elasticsearch.trustStore.password.secretRef | string | `elasticsearch-truststore-secrets` | ELASTICSEARCH_TRUST_STORE_PASSWORD |
+| openmetadata.config.elasticsearch.trustStore.password.secretKey | string | `openmetadata-elasticsearch-truststore-password` | ELASTICSEARCH_TRUST_STORE_PASSWORD |
+| openmetadata.config.eventMonitor.enabled | bool | `true` | |
+| openmetadata.config.eventMonitor.type | string | `prometheus` | EVENT_MONITOR |
+| openmetadata.config.eventMonitor.batchSize | int | `10` | EVENT_MONITOR_BATCH_SIZE |
+| openmetadata.config.eventMonitor.pathPattern | list | `[/api/v1/tables/*,/api/v1/health-check]` | EVENT_MONITOR_PATH_PATTERN |
+| openmetadata.config.eventMonitor.latency | list | `[]` | EVENT_MONITOR_LATENCY |
+| openmetadata.config.fernetkey.value | string | `jJ/9sz0g0OHxsfxOoSfdFdmk3ysNmPRnH3TUAbz3IHA=` | FERNET_KEY |
+| openmetadata.config.fernetkey.secretRef | string | `` | FERNET_KEY |
+| openmetadata.config.fernetkey.secretKef | string | `` | FERNET_KEY |
+| openmetadata.config.jwtTokenConfiguration.enabled | bool | `true` | |
+| openmetadata.config.jwtTokenConfiguration.rsapublicKeyFilePath | string | `./conf/public_key.der` | RSA_PUBLIC_KEY_FILE_PATH |
+| openmetadata.config.jwtTokenConfiguration.rsaprivateKeyFilePath | string | `./conf/private_key.der` | RSA_PRIVATE_KEY_FILE_PATH |
+| openmetadata.config.jwtTokenConfiguration.jwtissuer | string | `open-metadata.org` | JWT_ISSUER |
+| openmetadata.config.jwtTokenConfiguration.keyId | string | `Gb389a-9f76-gdjs-a92j-0242bk94356` | JWT_KEY_ID |
+| openmetadata.config.logLevel | string | `INFO` | LOG_LEVEL |
+| openmetadata.config.openmetadata.adminPort | int | 8586 | SERVER_ADMIN_PORT |
+| openmetadata.config.openmetadata.maxThreads | int | 50 | SERVER_MAX_THREADS |
+| openmetadata.config.openmetadata.minThreads | int | 10 | SERVER_MIN_THREADS |
+| openmetadata.config.openmetadata.idleThreadTimeout | string | `1 minute` | SERVER_IDLE_THREAD_TIMEOUT |
+| openmetadata.config.openmetadata.host | string | `openmetadata` | OPENMETADATA_SERVER_URL |
+| openmetadata.config.openmetadata.port | int | 8585 | SERVER_PORT |
+| openmetadata.config.pipelineServiceClientConfig.auth.password.secretRef | string | `airflow-secrets` | AIRFLOW_PASSWORD |
+| openmetadata.config.pipelineServiceClientConfig.auth.password.secretKey | string | `openmetadata-airflow-password` | AIRFLOW_PASSWORD |
+| openmetadata.config.pipelineServiceClientConfig.auth.username | string | `admin` | AIRFLOW_USERNAME |
+| openmetadata.config.pipelineServiceClientConfig.auth.trustStorePath | string | `` | AIRFLOW_TRUST_STORE_PATH |
+| openmetadata.config.pipelineServiceClientConfig.auth.trustStorePassword.secretRef | string | `` | AIRFLOW_TRUST_STORE_PASSWORD |
+| openmetadata.config.pipelineServiceClientConfig.auth.trustStorePassword.secretKey | string | `` | AIRFLOW_TRUST_STORE_PASSWORD |
+| openmetadata.config.pipelineServiceClientConfig.apiEndpoint | string | `http://openmetadata-dependencies-web:8080` | PIPELINE_SERVICE_CLIENT_ENDPOINT |
+| openmetadata.config.pipelineServiceClientConfig.className | string | `org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient` | PIPELINE_SERVICE_CLIENT_CLASS_NAME |
+| openmetadata.config.pipelineServiceClientConfig.enabled | bool | `true` | PIPELINE_SERVICE_CLIENT_ENABLED |
+| openmetadata.config.pipelineServiceClientConfig.healthCheckInterval | int | `300` | PIPELINE_SERVICE_CLIENT_HEALTH_CHECK_INTERVAL |
+| openmetadata.config.pipelineServiceClientConfig.ingestionIpInfoEnabled | bool | `false` | PIPELINE_SERVICE_IP_INFO_ENABLED |
+| openmetadata.config.pipelineServiceClientConfig.metadataApiEndpoint | string | `http://openmetadata:8585/api` | SERVER_HOST_API_URL |
+| openmetadata.config.pipelineServiceClientConfig.sslCertificatePath | string | `/no/path` | PIPELINE_SERVICE_CLIENT_SSL_CERT_PATH |
+| openmetadata.config.pipelineServiceClientConfig.verifySsl | string | `no-ssl` | PIPELINE_SERVICE_CLIENT_VERIFY_SSL |
+| openmetadata.config.pipelineServiceClientConfig.hostIp | string | `Empty` | PIPELINE_SERVICE_CLIENT_HOST_IP |
+| openmetadata.config.secretsManager.enabled | bool | `true` | |
+| openmetadata.config.secretsManager.provider | string | `Empty String` | SECRET_MANAGER |
+| openmetadata.config.secretsManager.prefix | string | `Empty String` | SECRET_MANAGER_PREFIX |
+| openmetadata.config.secretsManager.tags | list | `[]` | SECRET_MANAGER_TAGS |
+| openmetadata.config.secretsManager.additionalParameters.enabled | bool | `false` | |
+| openmetadata.config.secretsManager.additionalParameters.accessKeyId.secretRef | string | `aws-access-key-secret` | OM_SM_ACCESS_KEY_ID |
+| openmetadata.config.secretsManager.additionalParameters.accessKeyId.secretKey | string | `aws-key-secret` | OM_SM_ACCESS_KEY_ID |
+| openmetadata.config.secretsManager.additionalParameters.clientId.secretRef | string | `azure-client-id-secret` | OM_SM_CLIENT_ID |
+| openmetadata.config.secretsManager.additionalParameters.clientId.secretKey | string | `azure-key-secret` | OM_SM_CLIENT_ID |
+| openmetadata.config.secretsManager.additionalParameters.clientSecret.secretRef | string | `azure-client-secret` | OM_SM_CLIENT_SECRET |
+| openmetadata.config.secretsManager.additionalParameters.clientSecret.secretKey | string | `azure-key-secret` | OM_SM_CLIENT_SECRET |
+| openmetadata.config.secretsManager.additionalParameters.tenantId.secretRef | string | `azure-tenant-id-secret` | OM_SM_TENANT_ID |
+| openmetadata.config.secretsManager.additionalParameters.tenantId.secretKey | string | `azure-key-secret` | OM_SM_TENANT_ID |
+| openmetadata.config.secretsManager.additionalParameters.vaultName.secretRef | string | `azure-vault-name-secret` | OM_SM_VAULT_NAME |
+| openmetadata.config.secretsManager.additionalParameters.vaultName.secretKey | string | `azure-key-secret` | OM_SM_VAULT_NAME |
+| openmetadata.config.secretsManager.additionalParameters.projectId.secretRef | string | `gcp-project-id-secret` | OM_SM_PROJECT_ID |
+| openmetadata.config.secretsManager.additionalParameters.projectId.secretKey | string | `gcp-key-secret` | OM_SM_PROJECT_ID |
+| openmetadata.config.secretsManager.additionalParameters.region | string | `Empty String` | OM_SM_REGION |
+| openmetadata.config.secretsManager.additionalParameters.secretAccessKey.secretRef | string | `aws-secret-access-key-secret` | OM_SM_ACCESS_KEY |
+| openmetadata.config.secretsManager.additionalParameters.secretAccessKey.secretKey | string | `aws-key-secret` | OM_SM_ACCESS_KEY |
+| openmetadata.config.upgradeMigrationConfigs.debug | bool | `false` |  |
+| openmetadata.config.upgradeMigrationConfigs.additionalArgs | string | `Empty String` |  |
+| openmetadata.config.deployPipelinesConfig.debug | bool | `false` |   |
+| openmetadata.config.deployPipelinesConfig.additionalArgs | string | `Empty String` |   |
+| openmetadata.config.reindexConfig.debug | bool | `false` |  |
+| openmetadata.config.reindexConfig.additionalArgs | string | `Empty String` |  |
+| openmetadata.config.web.enabled | bool | `true` | |
+| openmetadata.config.web.contentTypeOptions.enabled | bool | `false` | WEB_CONF_CONTENT_TYPE_OPTIONS_ENABLED |
+| openmetadata.config.web.csp.enabled | bool | `false` | WEB_CONF_XSS_CSP_ENABLED |
+| openmetadata.config.web.csp.policy | string | `default-src 'self` | WEB_CONF_XSS_CSP_POLICY |
+| openmetadata.config.web.csp.reportOnlyPolicy | string | `Empty String` | WEB_CONF_XSS_CSP_REPORT_ONLY_POLICY |
+| openmetadata.config.web.frameOptions.enabled | bool | `false` | WEB_CONF_FRAME_OPTION_ENABLED |
+| openmetadata.config.web.frameOptions.option | string | `SAMEORIGIN` | WEB_CONF_FRAME_OPTION |
+| openmetadata.config.web.frameOptions.origin | string | `Empty String` | WEB_CONF_FRAME_ORIGIN |
+| openmetadata.config.web.hsts.enabled | bool | `false` | WEB_CONF_HSTS_ENABLED |
+| openmetadata.config.web.hsts.includeSubDomains | bool | `true` | WEB_CONF_HSTS_INCLUDE_SUBDOMAINS |
+| openmetadata.config.web.hsts.maxAge | string | `365 days` | WEB_CONF_HSTS_MAX_AGE |
+| openmetadata.config.web.hsts.preload | bool | `true` | WEB_CONF_HSTS_PRELOAD |
+| openmetadata.config.web.uriPath | string | `/api` | WEB_CONF_URI_PATH |
+| openmetadata.config.web.xssProtection.block | bool | `true` | WEB_CONF_XSS_PROTECTION_BLOCK |
+| openmetadata.config.web.xssProtection.enabled | bool | `false` | WEB_CONF_XSS_PROTECTION_ENABLED |
+| openmetadata.config.web.xssProtection.onXss | bool | `true` | WEB_CONF_XSS_PROTECTION_ON |
+| openmetadata.config.web.referrer-policy.enabled | bool | `false` | WEB_CONF_REFERRER_POLICY_ENABLED |
+| openmetadata.config.web.referrer-policy.option | string | `SAME_ORIGIN'` | WEB_CONF_REFERRER_POLICY_OPTION |
+| openmetadata.config.web.permission-policy.enabled | bool | `false` | WEB_CONF_PERMISSION_POLICY_ENABLED |
+| openmetadata.config.web.permission-policy.option | string | `Empty String` | WEB_CONF_PERMISSION_POLICY_OPTION |
+| openmetadata.config.rdf.enabled | bool | `false` | RDS_ENABLED |
+| openmetadata.config.rdf.baseUri | string | `https://open-metadata.org/` | RDF_BASE_URI |
+| openmetadata.config.rdf.storageType | string | `FUSEKI` | RDF_STORAGE_TYPE |
+| openmetadata.config.rdf.remoteEndpoint | string | `http://localhost:3030/openmetadata` | RDF_ENDPOINT |
+| openmetadata.config.rdf.username | string | `Empty String` | RDF_REMOTE_USERNAME |
+| openmetadata.config.rdf.password.secretRef | string | `Empty String` | RDF_REMOTE_PASSWORD |
+| openmetadata.config.rdf.password.secretKey | string | `Empty String` | RDF_REMOTE_PASSWORD |
+| openmetadata.config.rdf.dataset | string | `Empty String` | RDF_DATASET |
+
+
+## Chart Values
+
+| Key | Type | Default |
+|-----|------|---------|
+| affinity | object | `{}` |
+| commonLabels | object | `{}` |
+| extraEnvs | Extra [environment variables][] which will be appended to the `env:` definition for the container | `[]` |
+| extraInitContainers | Templatable string of additional `initContainers` to be passed to `tpl` function | `[]` |
+| extraVolumes | Templatable string of additional `volumes` to be passed to the `tpl` function | `[]` |
+| extraVolumeMounts | Templatable string of additional `volumeMounts` to be passed to the `tpl` function | `[]` |
+| fullnameOverride | string | `"openmetadata"` |
+| image.pullPolicy | string | `"Always"` |
+| image.repository | string | `"docker.getcollate.io/openmetadata/server"` |
+| image.tag | string | `1.12.13` |
+| imagePullSecrets | list | `[]` |
+| gateway.annotations | object | `{}` |
+| gateway.enabled | bool | `false` |
+| gateway.hostnames | list | `[]` |
+| gateway.labels | object | `{}` |
+| gateway.parentRefs[0].name | string | `""` |
+| gateway.parentRefs[0].group | string | `nil` |
+| gateway.parentRefs[0].kind | string | `nil` |
+| gateway.parentRefs[0].namespace | string | `nil` |
+| gateway.parentRefs[0].sectionName | string | `nil` |
+| gateway.parentRefs[0].port | int | `nil` |
+| gateway.rules | list | `[]` |
+| istio.annotations | object | `{}` |
+| istio.destinationRule.annotations | object | `{}` |
+| istio.destinationRule.enabled | bool | `false` |
+| istio.destinationRule.exportTo | list | `[]` |
+| istio.destinationRule.host | string | `""` |
+| istio.destinationRule.labels | object | `{}` |
+| istio.destinationRule.name | string | `""` |
+| istio.destinationRule.subsets | list | `[]` |
+| istio.destinationRule.trafficPolicy | object | `{}` |
+| istio.enabled | bool | `false` |
+| istio.gateway.annotations | object | `{}` |
+| istio.gateway.create | bool | `true` |
+| istio.gateway.labels | object | `{}` |
+| istio.gateway.name | string | `""` |
+| istio.gateway.selector | object | `{"istio":"ingressgateway"}` |
+| istio.gateway.servers | list | `[{"hosts":["open-metadata.local"],"port":{"name":"http","number":80,"protocol":"HTTP"}}]` |
+| istio.labels | object | `{}` |
+| istio.virtualService.annotations | object | `{}` |
+| istio.virtualService.gateways | list | `[]` |
+| istio.virtualService.hosts | list | `["open-metadata.local"]` |
+| istio.virtualService.http | list | `[]` |
+| istio.virtualService.labels | object | `{}` |
+| istio.virtualService.name | string | `""` |
+| ingress.annotations | object | `{}` |
+| ingress.className | string | `""` |
+| ingress.enabled | bool | `false` |
+| ingress.hosts[0].host | string | `"open-metadata.local"` |
+| ingress.hosts[0].paths[0].path | string | `"/"` |
+| ingress.hosts[0].paths[0].pathType | string | `"ImplementationSpecific"` |
+| ingress.tls | list | `[]` |
+| route.annotations | object | `{}` |
+| route.enabled | bool | `false` |
+| route.host | string | `""` |
+| route.tls.enabled | bool | `true` |
+| route.tls.insecureEdgeTerminationPolicy | string | `"Redirect"` |
+| route.tls.termination | string | `"edge"` |
+| route.wildcardPolicy | string | `"None"` |
+| livenessProbe.initialDelaySeconds | int | `60` |
+| livenessProbe.periodSeconds | int | `30` |
+| livenessProbe.failureThreshold | int | `5` |
+| livenessProbe.httpGet.path | string | `/healthcheck` |
+| livenessProbe.httpGet.port | string | `http-admin` |
+| nameOverride | string | `""` |
+| nodeSelector | object | `{}` |
+| podAnnotations | object | `{}` |
+| podSecurityContext | object | `{}` |
+| readinessProbe.initialDelaySeconds | int | `60` |
+| readinessProbe.periodSeconds | int | `30` |
+| readinessProbe.failureThreshold | int | `5` |
+| readinessProbe.httpGet.path | string | `/` |
+| readinessProbe.httpGet.port | string | `http` |
+| replicaCount | int | `1` |
+| resources | object | `{}` |
+| startingDeadlineSeconds | int | `100` |
+| testConnection.resources | object | `{}` |
+| securityContext | object | `{}` |
+| service.adminPort | string | `8586` |
+| service.annotations | object | `{}` |
+| service.port | int | `8585` |
+| service.type | string | `"ClusterIP"` |
+| serviceAccount.annotations | object | `{}` |
+| serviceAccount.create | bool | `true` |
+| serviceAccount.name | string | `nil` |
+| automountServiceAccountToken| bool | `true` |
+| serviceMonitor.annotations | object | `{}` |
+| serviceMonitor.enabled | bool | `false` |
+| serviceMonitor.interval | string | `30s` |
+| serviceMonitor.labels | object | `{}` |
+| sidecars | list | `[]` |
+| startupProbe.periodSeconds | int | `60` |
+| startupProbe.failureThreshold | int | `5` |
+| startupProbe.httpGet.path | string | `/healthcheck` |
+| startupProbe.httpGet.port | string | `http-admin` |
+| startupProbe.successThreshold | int | `1` |
+| tolerations | list | `[]` |
+| topologySpreadConstraints | list | `[]` |
+| networkPolicy.enabled | bool |`false` |
+| podDisruptionBudget.enabled | bool | `false` |
+| podDisruptionBudget.config.maxUnavailable | String | `1` |
+| podDisruptionBudget.config.minAvailable | String | `1` |
+| openmetadata.config.deployPipelinesConfig.enabled | bool | `true` |
+| openmetadata.config.reindexConfig.enabled | bool | `true` |
+
+---
+
+### Istio Exposure
+
+Set `istio.enabled=true` to render Istio `Gateway` and `VirtualService` resources for OpenMetadata. The default VirtualService route forwards only to service port `8585`; the admin port `8586` remains internal for health checks and metrics.
+
+When `istio.gateway.create=false`, bind the generated VirtualService to an existing gateway by setting `istio.virtualService.gateways`. `istio.destinationRule.enabled=true` optionally adds a `DestinationRule` for mesh traffic policy/subset configuration.
+
+## 🚨 BREAKING CHANGES
+
+### Pipeline Service Client Configuration Restructure (v1.4.0+)
+
+**Important**: The pipeline service client configuration structure has been **completely restructured** to support both Airflow and native Kubernetes Jobs execution.
+
+#### What Changed
+
+The previous flat configuration structure:
+```yaml
+openmetadata:
+  config:
+    pipelineServiceClientConfig:
+      enabled: true
+      className: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
+      apiEndpoint: http://openmetadata-dependencies-api-server:8080
+      # ... other airflow specific configs
+```
+
+Has been replaced with a nested structure:
+```yaml
+openmetadata:
+  config:
+    pipelineServiceClientConfig:
+      enabled: true
+      type: "airflow"  # NEW: choose "airflow" or "k8s"
+      airflow:         # NEW: airflow configs nested here
+        className: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
+        apiEndpoint: http://openmetadata-dependencies-api-server:8080
+        # ... other airflow configs
+      k8s:             # NEW: k8s configs for native execution
+        className: "org.openmetadata.service.clients.pipeline.k8s.K8sPipelineClient"
+        namespace: "openmetadata-pipelines"
+        # ... other k8s configs
+```
+
+#### Migration Guide
+
+##### For Existing Airflow Users (Recommended)
+
+1. **Update your `values.yaml`** to use the new nested structure:
+
+```yaml
+# OLD (will break in v1.4.0+)
+openmetadata:
+  config:
+    pipelineServiceClientConfig:
+      enabled: true
+      className: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
+      apiEndpoint: http://openmetadata-dependencies-api-server:8080
+      metadataApiEndpoint: http://openmetadata:8585/api
+      verifySsl: "no-ssl"
+      # ... other configs
+
+# NEW (v1.4.0+)
+openmetadata:
+  config:
+    pipelineServiceClientConfig:
+      enabled: true
+      type: "airflow"  # Explicitly choose airflow
+      airflow:
+        className: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
+        apiEndpoint: http://openmetadata-dependencies-api-server:8080
+        metadataApiEndpoint: http://openmetadata:8585/api
+        verifySsl: "no-ssl"
+        # ... move all existing configs under 'airflow:'
+```
+
+2. **No infrastructure changes needed** - your existing Airflow setup will continue to work
+
+##### For New Kubernetes Native Users
+
+Use the new Kubernetes Jobs pipeline client for cloud-native execution without Airflow:
+
+```yaml
+openmetadata:
+  config:
+    pipelineServiceClientConfig:
+      enabled: true
+      type: "k8s"  # Use native Kubernetes Jobs
+      k8s:
+        className: "org.openmetadata.service.clients.pipeline.k8s.K8sPipelineClient"
+        namespace: "openmetadata-pipelines"
+        ingestionImage: "docker.getcollate.io/openmetadata/ingestion:latest"
+        enableFailureDiagnostics: true
+        # ... see K8s configuration section below
+```
+
+#### Configuration Migration Script
+
+For complex deployments, use this script to migrate your values.yaml:
+
+```bash
+#!/bin/bash
+# migrate-pipeline-config.sh
+
+# Backup original values
+cp values.yaml values.yaml.backup
+
+# Migrate configuration (requires yq)
+yq eval '
+  .openmetadata.config.pipelineServiceClientConfig.type = "airflow" |
+  .openmetadata.config.pipelineServiceClientConfig.airflow = .openmetadata.config.pipelineServiceClientConfig |
+  del(.openmetadata.config.pipelineServiceClientConfig.enabled) |
+  del(.openmetadata.config.pipelineServiceClientConfig.type) |
+  .openmetadata.config.pipelineServiceClientConfig.enabled = true
+' values.yaml > values.yaml.migrated
+
+mv values.yaml.migrated values.yaml
+```
+
+---
+
+## Kubernetes Native Pipeline Execution
+
+### Overview
+
+OpenMetadata now supports native Kubernetes Jobs execution as an alternative to Apache Airflow. This eliminates the need for a separate Airflow deployment and provides:
+
+- **Simplified Architecture**: No Airflow dependency
+- **Cloud-Native**: Leverages Kubernetes Job scheduling
+- **Better Resource Management**: Per-pipeline resource allocation
+- **Failure Diagnostics**: Automatic pod log collection and error reporting
+- **Security**: Pod-level isolation with RBAC
+
+### Configuration
+
+To use Kubernetes native pipeline execution:
+
+```yaml
+openmetadata:
+  config:
+    pipelineServiceClientConfig:
+      enabled: true
+      type: "k8s"
+      k8s:
+        # Core configuration
+        className: "org.openmetadata.service.clients.pipeline.k8s.K8sPipelineClient"
+        namespace: "openmetadata-pipelines"
+        ingestionImage: "docker.getcollate.io/openmetadata/ingestion:latest"
+        
+        # Resource management
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+        
+        # Security context
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          runAsNonRoot: true
+        
+        # Failure diagnostics
+        enableFailureDiagnostics: true
+        
+        # Job configuration
+        ttlSecondsAfterFinished: 86400  # 24 hours
+        activeDeadlineSeconds: 7200     # 2 hours max runtime
+        backoffLimit: 3                 # retry attempts
+```
+
+### K8s Pipeline Configuration Reference
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `k8s.namespace` | `openmetadata-pipelines` | Kubernetes namespace for pipeline jobs |
+| `k8s.ingestionImage` | `docker.getcollate.io/openmetadata/ingestion:latest` | Container image for ingestion jobs |
+| `k8s.imagePullPolicy` | `IfNotPresent` | Image pull policy |
+| `k8s.imagePullSecrets` | `""` | Image pull secrets (comma-separated) |
+| `k8s.serviceAccountName` | `openmetadata-ingestion` | Service account for ingestion jobs |
+| `k8s.ttlSecondsAfterFinished` | `86400` | Time to keep completed jobs (24h) |
+| `k8s.activeDeadlineSeconds` | `7200` | Maximum job runtime (2h) |
+| `k8s.backoffLimit` | `3` | Maximum retry attempts |
+| `k8s.successfulJobsHistoryLimit` | `3` | Keep last N successful jobs |
+| `k8s.failedJobsHistoryLimit` | `3` | Keep last N failed jobs |
+| `k8s.enableFailureDiagnostics` | `true` | Enable automatic failure analysis |
+
+### RBAC and Security
+
+The chart automatically creates the required RBAC resources when using `type: "k8s"`:
+
+- **Namespace**: `openmetadata-pipelines` (or configured namespace)
+- **ServiceAccount**: `openmetadata-ingestion`
+- **Role**: Permissions for Jobs, CronJobs, ConfigMaps, Secrets, Pods, Events
+- **RoleBinding**: Binds the role to the service account
+
+### Failure Diagnostics
+
+When enabled, the K8s pipeline client automatically:
+
+1. **Detects job failures** in real-time
+2. **Creates diagnostic jobs** that gather failure information
+3. **Collects pod logs** (last 500 lines) from failed containers
+4. **Gathers pod status** including exit codes and termination reasons
+5. **Fetches Kubernetes events** related to the failed pod
+6. **Updates pipeline status** in OpenMetadata with comprehensive diagnostics
+
+Example diagnostic output:
+```yaml
+failures:
+  - name: "Main Container Diagnostics"
+    error: "Kubernetes job failed - check logs for details"
+    stackTrace: |
+      Pod Description:
+      Pod: om-pipeline-postgres-abc123
+      Status: Failed
+      Container Statuses:
+        ingestion: Ready=false, RestartCount=0
+          State: Terminated - Reason: Error, ExitCode: 1
+      
+      Pod Logs:
+      2024-01-07 16:30:15,123 INFO Starting ingestion pipeline...
+      2024-01-07 16:30:16,456 ERROR Failed to connect to database
+      ...
+```
+
+### Migration from Airflow to K8s
+
+To migrate from Airflow to Kubernetes native execution:
+
+1. **Update configuration** to use `type: "k8s"`
+2. **Deploy the updated chart** - RBAC resources will be created automatically  
+3. **Test with a simple pipeline** to verify functionality
+4. **Gradually migrate pipelines** or switch completely
+5. **Remove Airflow dependencies** when no longer needed
+
+### Comparison: Airflow vs K8s Native
+
+| Aspect | Airflow | K8s Native |
+|--------|---------|------------|
+| **Dependencies** | Requires separate Airflow deployment | No external dependencies |
+| **Resource Usage** | Always-on Airflow webserver + scheduler | On-demand job execution |
+| **Scaling** | Airflow worker scaling | Kubernetes node scaling |
+| **Monitoring** | Airflow UI + OpenMetadata | OpenMetadata + kubectl |
+| **Debugging** | Airflow logs + OpenMetadata | Pod logs + diagnostics in OpenMetadata |
+| **Security** | Airflow RBAC + K8s RBAC | K8s RBAC only |
+| **Maintenance** | Airflow upgrades + configuration | Minimal (K8s Job API stable) |
+
+### Troubleshooting K8s Pipelines
+
+Common issues and solutions:
+
+```bash
+# Check pipeline jobs
+kubectl get jobs -n openmetadata-pipelines
+
+# View job logs  
+kubectl logs -n openmetadata-pipelines job/om-pipeline-<name>-<runId>
+
+# Check service account permissions
+kubectl auth can-i create jobs \
+  --as=system:serviceaccount:openmetadata-pipelines:openmetadata-ingestion \
+  -n openmetadata-pipelines
+
+# View RBAC resources
+kubectl get serviceaccounts,roles,rolebindings \
+  -n openmetadata-pipelines \
+  -l app.kubernetes.io/component=ingestion
+```

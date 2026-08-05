@@ -1,0 +1,45 @@
+{{- $airflow_cleanup_enabled := false }}
+{{- if and (hasKey .Values.airflow "scheduler") (hasKey .Values.airflow.scheduler "logCleanup") }}
+  {{- $airflow_cleanup_enabled = .Values.airflow.scheduler.logCleanup.enabled }}
+{{- end }}
+{{- $airflow_persistence_enabled := and
+  .Values.airflow.enabled
+  .Values.airflow.logs.persistence.enabled
+}}
+{{- $custom_cleanup_enabled := false }}
+{{- if hasKey .Values.airflow.logs.persistence "cleanup" }}
+  {{- $custom_cleanup_enabled = .Values.airflow.logs.persistence.cleanup.enabled }}
+{{- end }}
+{{- if and
+  (not $airflow_cleanup_enabled)
+  $airflow_persistence_enabled
+  $custom_cleanup_enabled
+}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "airflow.fullname" . }}-airflow-logs-cleanup
+  labels: {{- include "OpenMetadataDeps.labels" . | nindent 4 }}
+spec:
+  schedule: "{{ .Values.airflow.logs.persistence.cleanup.schedule }}"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels: {{- include "OpenMetadataDeps.labels" . | nindent 12 }}
+        spec:
+          containers:
+          - name: logs-cleanup
+            image: busybox:latest
+            command:
+              - sh
+              - -c
+              - |
+                find /var/logs -type f -mtime +{{ .Values.airflow.logs.persistence.cleanup.retainDays }} -exec rm -f {} \;
+            volumeMounts:
+              - name: logs-data
+                mountPath: /var/logs
+          restartPolicy: OnFailure
+          volumes:
+            {{- include "airflow.volumes" (dict "Release" .Release "Values" .Values.airflow "extraPipPackages" (list) "extraVolumes" (list) "extraVolumeMounts" (list)) | trim | nindent 12 }}
+{{- end }}
