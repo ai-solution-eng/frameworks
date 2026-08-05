@@ -1,0 +1,17 @@
+{{- if .Values.deployment.vector.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "supabase.vector.fullname" . }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.vector.type }}
+  ports:
+    - port: {{ .Values.service.vector.port }}
+      targetPort: 9001
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "supabase.vector.selectorLabels" . | nindent 4 }}
+{{- end }}

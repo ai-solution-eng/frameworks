@@ -79,7 +79,7 @@ ollama:
 
     # -- only for nvidia cards; change to (example) 'nvidia.com/mig-1g.10gb' to use MIG slice
     nvidiaResource: "nvidia.com/gpu"
-    # nvidiaResource: "nvidia.com/mig-1g.10gb" # example
+    # nvidiaResource: "nvidia.com/mig-2g.24gb" # example
     # If you want to use more than one NVIDIA MIG you can use the following syntax (then nvidiaResource is ignored and only the configuration in the following MIG section is used)
 
     mig:
@@ -90,8 +90,9 @@ ollama:
 
       # -- Specify the mig devices and the corresponding number
       devices: {}
-          #        1g.10gb: 1
-          #        3g.40gb: 1
+      # devices:
+      #        1g.10gb: 1
+      #        3g.40gb: 1
 
   models:
     # -- List of models to pull at container startup
@@ -325,7 +326,15 @@ extraArgs: []
 
 # -- Additional environments variables on the output Deployment definition.
 # For extra OLLAMA env, please refer to https://github.com/ollama/ollama/blob/main/envconfig/config.go
-extraEnv: []
+extraEnv:
+  - name: OLLAMA_FLASH_ATTENTION
+    value: "1"
+  - name: OLLAMA_KEEP_ALIVE
+    value: "30m"
+  - name: OLLAMA_KV_CACHE_TYPE
+    value: "q8_0"
+  - name: OLLAMA_CONTEXT_LENGTH
+    value: "262144"
 #  - name: OLLAMA_DEBUG
 #    value: "1"
 
@@ -338,7 +347,7 @@ extraEnvFrom: []
 # ref: https://kubernetes.io/docs/concepts/storage/persistent-volumes/
 persistentVolume:
   # -- Enable persistence using PVC
-  enabled: false
+  enabled: true
 
   # -- Ollama server data Persistent Volume access modes
   # Must match those of existing PV or dynamic provisioner

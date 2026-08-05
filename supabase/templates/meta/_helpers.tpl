@@ -1,0 +1,43 @@
+{{/*
+Expand the name of the chart.
+*/}}
+{{- define "supabase.meta.name" -}}
+{{- default (print .Chart.Name "-meta") .Values.deployment.meta.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Create a default fully qualified app name.
+We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
+If release name contains chart name it will be used as a full name.
+*/}}
+{{- define "supabase.meta.fullname" -}}
+{{- if .Values.deployment.meta.fullnameOverride }}
+{{- .Values.deployment.meta.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default (print .Chart.Name "-meta") .Values.deployment.meta.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Selector labels
+*/}}
+{{- define "supabase.meta.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "supabase.meta.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Create the name of the service account to use
+*/}}
+{{- define "supabase.meta.serviceAccountName" -}}
+{{- if .Values.serviceAccount.meta.create }}
+{{- default (include "supabase.meta.fullname" .) .Values.serviceAccount.meta.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.meta.name }}
+{{- end }}
+{{- end }}
