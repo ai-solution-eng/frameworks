@@ -43,6 +43,29 @@ ui:
 provisioning:
   aptPackages: "bash ca-certificates curl dnsutils fd-find gh git jq less make nano ncurses-term openssh-client python3 python3-pip python3-venv procps ripgrep tini tmux tree unzip util-linux vim-tiny zip zstd xz-utils lsof"
 
+# ============================================================
+# Warm pool: pre-provisioned, always-ready per-user units.
+# When enabled, the router keeps `size` fully-initialized user pods
+# warm so a new user's first launch proxies in ~seconds instead of
+# waiting 3-5 minutes for the per-user install. A warm unit = its own
+# Deployment + Service + workspace PVC + state PVC (the state PVC holds
+# the installed toolchain, so claiming only restarts the pod, it does
+# not reinstall opencode/uv/ttyd).
+#
+# Tradeoff: each warm unit is an idle user pod consuming resources
+# (up to user.resources.limits). Set size: 0 or enabled: false to keep
+# the original on-demand cold spin-up behavior (exact same as before).
+#
+# Versions are NOT baked into an image: tools are installed at runtime
+# into the pooled state PVCs, so opencode.version / openchamber.version
+# still upgrade via a values.yaml bump - pooled units re-init on the
+# existing template-version annotation check.
+# ============================================================
+warmPool:
+  enabled: false
+  size: 2
+  refreshIntervalSeconds: 15
+
 auth:
   username: opencode
   password: "7Vf9mQ2xKp8tL4nR6wY1cB3hDz5sUa0N"

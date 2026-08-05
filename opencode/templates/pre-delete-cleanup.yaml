@@ -108,6 +108,8 @@ spec:
           value: "{{ .Values.cleanup.podTimeout | default 180 }}"
         - name: PVC_TIMEOUT
           value: "{{ .Values.cleanup.pvcTimeout | default 120 }}"
+        - name: RELEASE_NAME
+          value: "{{ .Release.Name }}"
         command: ['/bin/sh', '-c']
         args:
         - |
@@ -168,9 +170,7 @@ spec:
           async function deleteByLabel(path, label, desc) {
             const items = await listByLabel(path, label)
             console.log('  ' + items.length + ' ' + desc + ' to delete')
-            for (const item of items) {
-              await deleteByName(path, item.metadata.name)
-            }
+            await Promise.all(items.map((item) => deleteByName(path, item.metadata.name)))
             return items.length
           }
 
@@ -196,23 +196,31 @@ spec:
           async function main() {
             const um = 'opencode-user-managed=true'
             const pods = 'app=opencode-user'
+            const routerLabel = 'opencode-role=router'
+            const routerDeployment = process.env.RELEASE_NAME || ''
             const ns = namespace
 
             console.log('=== Helm pre-delete cleanup ===')
             console.log('namespace: ' + ns)
 
-            console.log('Phase 1: delete user deployments (cascade pods)')
-            await deleteByLabel('/apis/apps/v1/namespaces/' + ns + '/deployments', um, 'deployments')
+            console.log('Phase 0: stop router (prevents warm-unit recreation during teardown)')
+            if (routerDeployment) {
+              await deleteByName('/apis/apps/v1/namespaces/' + ns + '/deployments', routerDeployment)
+            }
+            await waitForGone('/api/v1/namespaces/' + ns + '/pods', routerLabel, 'router pods', podTimeout)
+
+            console.log('Phase 1: delete user deployments, services, leases (parallel)')
+            await Promise.all([
+              deleteByLabel('/apis/apps/v1/namespaces/' + ns + '/deployments', um, 'deployments'),
+              deleteByLabel('/api/v1/namespaces/' + ns + '/services', um, 'services'),
+              deleteByLabel('/apis/coordination.k8s.io/v1/namespaces/' + ns + '/leases', um, 'leases'),
+            ])
 
             console.log('Phase 2: wait for user pods to terminate (releases PVC mounts)')
             await waitForGone('/api/v1/namespaces/' + ns + '/pods', pods, 'pods', podTimeout)
 
-            console.log('Phase 3: delete user PVCs, services, leases')
+            console.log('Phase 3: delete user PVCs (parallel), then wait for them to be gone')
             await deleteByLabel('/api/v1/namespaces/' + ns + '/persistentvolumeclaims', um, 'PVCs')
-            await deleteByLabel('/api/v1/namespaces/' + ns + '/services', um, 'services')
-            await deleteByLabel('/apis/coordination.k8s.io/v1/namespaces/' + ns + '/leases', um, 'leases')
-
-            console.log('Phase 4: wait for PVCs to be fully deleted')
             await waitForGone('/api/v1/namespaces/' + ns + '/persistentvolumeclaims', um, 'PVCs', pvcTimeout)
 
             console.log('=== Cleanup done ===')

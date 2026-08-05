@@ -30,6 +30,65 @@ These are bundled into a ConfigMap and copied into each user's `~/.config/openco
 
 ---
 
+## Warm Pool (instant first launch)
+
+By default, a brand-new user's first launch waits while the router provisions a
+per-user Deployment + PVCs and runs a heavy init (`npm install` of opencode,
+uv, ttyd, apt packages) — this can take 3–5 minutes.
+
+The router can instead keep a small pool of **already-provisioned, always-ready
+user units** so a first-time user's environment is usable in roughly seconds.
+
+```yaml
+warmPool:
+  enabled: false   # set to true to opt in
+  size: 2          # number of always-ready idle user units to maintain
+  refreshIntervalSeconds: 15
+```
+
+### How it works
+
+- A "warm unit" is the full per-user set — its own Deployment, Service, workspace
+  PVC, and **state PVC**. The toolchain (opencode/uv/ttyd/openchamber) is installed
+  into the state PVC, so it is built **once** when the unit enters the pool.
+- The router runs a background reconcile loop that keeps `size` warm, un-owned,
+  and Ready units at all times (it builds a new one whenever one is claimed).
+- On a first launch, the router claims the lowest-free warm unit: it patches the
+  pod template to set the user's slug (for preview/ttyd URLs) and records the
+  user as the unit's owner. The rolling restart is fast because the toolchain is
+  already present — no reinstall.
+- `size: 0` or `enabled: false` behaves **exactly like before** (on-demand cold
+  spin-up; zero idle pods).
+- Versions are **not** baked into an image. opencode/OpenChamber remain runtime-
+  parameterized, so bumping `opencode.version` / `openchamber.version` in
+  `values.yaml` and repackaging still works. Warm units adopt a new version the
+  next time they are claimed/re-initialized via the existing template-version
+  logic — no image rebuild.
+
+### Tradeoff
+
+Each warm unit is an idle user pod consuming up to `user.resources.limits`
+(by default 2 cores / 2 Gi). `warmPool.size` therefore adds a permanent overhead
+of `size × those limits`. This is the explicit cost of instant first launch; keep
+it `enabled: false` if idle capacity is a concern.
+
+### Uninstall / `helm uninstall`
+
+A `pre-delete` hook deletes the dynamically-created per-user/warm resources
+(which Helm does not own) so the namespace and shared PVC do not hang in
+`Terminating`. The hook:
+
+1. **Stops the router first** (deletes the router `Deployment`) so it can no
+   longer reconcile/re-create warm units while teardown is running.
+2. Deletes the per-user **Deployments, Services, and Leases in parallel**.
+3. Waits for their **pods to terminate**, then deletes the per-user **PVCs**
+   (PVC deletion must wait for the pods that mount them to unmount first, so
+   that step is ordered after the pods).
+4. Leaves the Helm-owned shared PVC intact (it carries only `hpe-ezua/*`
+   labels, not `opencode-user-managed`).
+
+---
+
 ## Workspaces
 
 HPE Private Cloud AI provides PVC-backed persistent storage:
@@ -97,16 +156,16 @@ A web-based file manager is served at:
 https://opencode-web-k8s.{DOMAIN_NAME}/data_manager
 ```
 
-It provides a full UI for navigating, uploading, downloading, and editing files across the **Personal** and **Shared** PVCs:
+It provides a full UI for navigating, uploading, downloading, and editing files across the **Personal**, **Shared**, and **Config** (`~/.config`) roots:
 
-- **Browse** — Folder tree with breadcrumb navigation across Personal and Shared workspaces.
+- **Browse** — Folder tree with breadcrumb navigation across Personal, Shared, and Config. The Config root also shows hidden dotfiles.
 - **Upload** — Drag-and-drop or click-to-select file upload into any folder.
 - **Download** — Single files download directly (with optional rename); multiple files or folders are archived as ZIP or TAR.GZ with a custom filename.
 - **Edit** — Double-click any text file to open it in the Monaco editor (VS Code's editor engine) with syntax highlighting and save support. Binary or large files show metadata with a download option.
 - **CRUD** — Create folders, create files, rename/move, and delete (recursive for directories).
 - **Storage Status** — A collapsible panel shows real-time PVC usage (bytes + inodes) for Personal, Shared, and State volumes, with color-coded usage bars.
 
-The data manager runs as a zero-dependency Node.js process (`data_manager.mjs`) inside the user pod on port 7682, alongside ttyd and the opencode supervisor. All file operations are path-traversal-protected (clamped to `/workspace/personal` and `/workspace/shared`).
+The data manager runs as a zero-dependency Node.js process (`data_manager.mjs`) inside the user pod on port 7682, alongside ttyd and the opencode supervisor. All file operations are path-traversal-protected (clamped to `/workspace/personal`, `/workspace/shared`, and `/var/opencode/home/.config`).
 
 ---
 

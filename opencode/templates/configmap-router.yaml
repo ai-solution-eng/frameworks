@@ -41,6 +41,11 @@ data:
     const ttydHostPattern = new RegExp(`^t-([a-f0-9]{12})\\.${escapeRegex(previewDomainSuffix)}$`, 'i')
     const activePtyUpgrades = new Map()
     let tunnelSeq = 0
+    const warmPoolEnabled = process.env.WARM_POOL_ENABLED === 'true'
+    const warmPoolSize = Number(process.env.WARM_POOL_SIZE || '0')
+    const warmRefreshIntervalMs = Number(process.env.WARM_REFRESH_INTERVAL_MS || `${warmPoolSize * 15 * 1000}`)
+    const ownerMap = new Map() // user slug -> warm poolId
+    let poolBusy = false
 
     function escapeRegex(value) {
       return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -230,6 +235,10 @@ data:
     }
 
     function userServiceManifest(name, slug) {
+      const spec = serviceSpec(userIsChamber ? userChamberPort : userServerPort)
+      spec.selector = {
+        'opencode-user-slug': slug,
+      }
       return {
         apiVersion: 'v1',
         kind: 'Service',
@@ -242,50 +251,61 @@ data:
             'opencode-user-slug': slug,
           },
         },
+        spec,
+      }
+    }
+
+    function warmServiceManifest(poolId) {
+      const name = warmNamesForPoolId(poolId).service
+      const poolIdStr = String(poolId)
+      return {
+        apiVersion: 'v1',
+        kind: 'Service',
+        metadata: {
+          name,
+          namespace,
+          labels: {
+            app: 'opencode-user',
+            'opencode-user-managed': 'true',
+            'opencode-user-warmpool': 'true',
+            'opencode-user-pool-id': poolIdStr,
+          },
+        },
         spec: {
           type: 'ClusterIP',
           selector: {
-            'opencode-user-slug': slug,
+            'opencode-user-pool-id': poolIdStr,
           },
           ports: [
-            {
-              name: 'http',
-              protocol: 'TCP',
-              port: 8080,
-              targetPort: userIsChamber ? userChamberPort : userServerPort,
-            },
-            {
-              name: 'http-preview',
-              protocol: 'TCP',
-              port: 8082,
-              targetPort: 8082,
-            },
-            {
-              name: 'ttyd',
-              protocol: 'TCP',
-              port: 7681,
-              targetPort: 7681,
-            },
-            {
-              name: 'data-manager',
-              protocol: 'TCP',
-              port: 7682,
-              targetPort: 7682,
-            },
-            {
-              name: 'term-mgr',
-              protocol: 'TCP',
-              port: 7683,
-              targetPort: 7683,
-            },
+            { name: 'http', protocol: 'TCP', port: 8080, targetPort: userIsChamber ? userChamberPort : userServerPort },
+            { name: 'http-preview', protocol: 'TCP', port: 8082, targetPort: 8082 },
+            { name: 'ttyd', protocol: 'TCP', port: 7681, targetPort: 7681 },
+            { name: 'data-manager', protocol: 'TCP', port: 7682, targetPort: 7682 },
+            { name: 'term-mgr', protocol: 'TCP', port: 7683, targetPort: 7683 },
           ],
         },
       }
     }
 
-    async function ensureService(name, slug) {
+    function serviceSpec(appPort) {
+      return {
+        type: 'ClusterIP',
+        selector: {
+          'opencode-user-slug': 'PLACEHOLDER',
+        },
+        ports: [
+          { name: 'http', protocol: 'TCP', port: 8080, targetPort: appPort },
+          { name: 'http-preview', protocol: 'TCP', port: 8082, targetPort: 8082 },
+          { name: 'ttyd', protocol: 'TCP', port: 7681, targetPort: 7681 },
+          { name: 'data-manager', protocol: 'TCP', port: 7682, targetPort: 7682 },
+          { name: 'term-mgr', protocol: 'TCP', port: 7683, targetPort: 7683 },
+        ],
+      }
+    }
+
+    async function upsertService(manifest) {
+      const name = manifest.metadata.name
       const path = `/api/v1/namespaces/${namespace}/services/${name}`
-      const manifest = userServiceManifest(name, slug)
       const existing = await k8sRequest('GET', path)
       if (existing) {
         if (!servicePortsMatch(existing.spec?.ports, manifest.spec.ports)) {
@@ -308,9 +328,43 @@ data:
       }
     }
 
-    async function ensureDeployment(name, workspaceClaim, stateClaim, slug) {
-      const path = `/apis/apps/v1/namespaces/${namespace}/deployments/${name}`
-      const existing = await k8sRequest('GET', path)
+    async function ensureService(name, slug) {
+      await upsertService(userServiceManifest(name, slug))
+    }
+
+    function warmNamesForPoolId(poolId) {
+      const base = `opencode-user-warm-${poolId}`
+      return {
+        deployment: base,
+        service: `${base}-svc`,
+        workspaceClaim: `${base}-workspace-pvc`,
+        stateClaim: `${base}-state-pvc`,
+        slug: `warm-${poolId}`,
+      }
+    }
+
+    async function userDeploymentManifest({ name, workspaceClaim, stateClaim, slug, isWarmPool, poolId, owner }) {
+      slug = owner || (isWarmPool ? `warm-${poolId}` : slug)
+      const matchLabels = isWarmPool
+        ? { 'opencode-user-pool-id': String(poolId) }
+        : { 'opencode-user-slug': slug }
+      const podLabels = {
+        app: 'opencode-user',
+        'opencode-user-managed': 'true',
+        'opencode-role': 'preview',
+        ...matchLabels,
+        ...(isWarmPool ? { 'opencode-user-warmpool': 'true' } : {}),
+      }
+      const deploymentLabels = {
+        app: 'opencode-user',
+        'opencode-user-managed': 'true',
+        ...matchLabels,
+        ...(isWarmPool ? { 'opencode-user-warmpool': 'true' } : {}),
+      }
+      if (owner) {
+        podLabels['opencode-user-owner'] = owner
+        deploymentLabels['opencode-user-owner'] = owner
+      }
       const initCommandParts = [
         'mkdir -p /workspace/personal /workspace/shared /var/opencode/home/.config/opencode/agents /var/opencode/home/.config/opencode/skills /var/opencode/data /var/opencode/state /var/opencode/cache /var/opencode/bin',
         'if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl ca-certificates && rm -rf /var/lib/apt/lists/*; fi',
@@ -362,27 +416,16 @@ data:
         metadata: {
           name,
           namespace,
-          labels: {
-            app: 'opencode-user',
-            'opencode-user-managed': 'true',
-            'opencode-user-slug': slug,
-          },
+          labels: deploymentLabels,
         },
         spec: {
           replicas: 1,
           selector: {
-            matchLabels: {
-              'opencode-user-slug': slug,
-            },
+            matchLabels,
           },
           template: {
             metadata: {
-              labels: {
-                app: 'opencode-user',
-                'opencode-user-managed': 'true',
-                'opencode-user-slug': slug,
-                'opencode-role': 'preview',
-              },
+              labels: podLabels,
               annotations: {
                 'sidecar.istio.io/inject': 'false',
                 'opencode-web-helm/user-template-version': userTemplateVersion,
@@ -556,10 +599,15 @@ data:
           },
         },
       }
+      return manifest
+    }
+
+    async function upsertUserDeployment(name, manifest) {
+      const existing = await k8sRequest('GET', `/apis/apps/v1/namespaces/${namespace}/deployments/${name}`)
       if (existing) {
         const version = existing.spec?.template?.metadata?.annotations?.['opencode-web-helm/user-template-version']
         if (version !== userTemplateVersion) {
-          await k8sRequest('PATCH', path, {
+          await k8sRequest('PATCH', `/apis/apps/v1/namespaces/${namespace}/deployments/${name}`, {
             metadata: { labels: manifest.metadata.labels },
             spec: { template: manifest.spec.template },
           })
@@ -573,6 +621,131 @@ data:
           throw error
         }
       }
+    }
+
+    async function ensureDeployment(name, workspaceClaim, stateClaim, slug) {
+      const manifest = await userDeploymentManifest({ name, workspaceClaim, stateClaim, slug, isWarmPool: false })
+      await upsertUserDeployment(name, manifest)
+    }
+
+    async function ensureWarmDeployment(poolId) {
+      const names = warmNamesForPoolId(poolId)
+      const manifest = await userDeploymentManifest({ name: names.deployment, workspaceClaim: names.workspaceClaim, stateClaim: names.stateClaim, slug: names.slug, isWarmPool: true, poolId })
+      await upsertUserDeployment(names.deployment, manifest)
+    }
+
+    async function ensureWarmUnit(poolId) {
+      const names = warmNamesForPoolId(poolId)
+      await ensurePersistentVolumeClaim(names.workspaceClaim, workspaceSize)
+      await ensurePersistentVolumeClaim(names.stateClaim, stateSize)
+      await upsertService(warmServiceManifest(poolId))
+      await ensureWarmDeployment(poolId)
+    }
+
+    async function listUserDeployments() {
+      const result = await k8sRequest('GET', `/apis/apps/v1/namespaces/${namespace}/deployments?labelSelector=${encodeURIComponent('opencode-user-managed=true')}`)
+      return (result && result.items) || []
+    }
+
+    async function recoverOwnerPool() {
+      ownerMap.clear()
+      if (!warmPoolEnabled || warmPoolSize <= 0) return
+      try {
+        const deployments = await listUserDeployments()
+        for (const dep of deployments) {
+          const labels = dep.metadata?.labels || {}
+          const owner = labels['opencode-user-owner']
+          if (!owner) continue
+          const poolId = Number(labels['opencode-user-pool-id'])
+          if (Number.isFinite(poolId) && poolId > 0) ownerMap.set(owner, poolId)
+        }
+        console.log(`[warmpool] recovered ${ownerMap.size} owned warm unit(s)`)
+      } catch (error) {
+        console.error('[warmpool] owner recovery failed', error)
+      }
+    }
+
+    function warmUnitState(dep) {
+      const labels = dep.metadata?.labels || {}
+      const poolId = Number(labels['opencode-user-pool-id'])
+      const ready = (dep.status?.availableReplicas || 0) >= 1 && (dep.status?.updatedReplicas || 0) >= 1
+      return {
+        labels,
+        isWarm: labels['opencode-user-warmpool'] === 'true',
+        poolId,
+        ready,
+        owned: !!labels['opencode-user-owner'],
+      }
+    }
+
+    async function reconcilePool() {
+      if (!warmPoolEnabled || warmPoolSize <= 0) return
+      if (poolBusy) return
+      poolBusy = true
+      try {
+        const deployments = await listUserDeployments()
+        let maxPoolId = 0
+        let free = 0
+        let pending = 0
+        for (const dep of deployments) {
+          const state = warmUnitState(dep)
+          if (Number.isFinite(state.poolId) && state.poolId > maxPoolId) maxPoolId = state.poolId
+          if (state.isWarm && !state.owned) {
+            if (state.ready) free += 1
+            else pending += 1
+          }
+        }
+        const need = warmPoolSize - free - pending
+        if (need <= 0) return
+        for (let i = 0; i < need; i++) {
+          const poolId = maxPoolId + 1 + i
+          console.log(`[warmpool] ensuring warm unit poolId=${poolId}`)
+          await ensureWarmUnit(poolId)
+          await waitForDeployment(warmNamesForPoolId(poolId).deployment)
+          console.log(`[warmpool] warm unit ready poolId=${poolId}`)
+        }
+      } catch (error) {
+        console.error('[warmpool] reconcile failed', error)
+      } finally {
+        poolBusy = false
+      }
+    }
+
+    async function claimWarmForUser(slug) {
+      const deployments = await listUserDeployments()
+      let mine = null
+      let best = null
+      for (const dep of deployments) {
+        const state = warmUnitState(dep)
+        if (!state.isWarm) continue
+        if (state.owned && state.labels['opencode-user-owner'] === slug) {
+          if (mine === null || state.poolId < mine) mine = state.poolId
+        } else if (!state.owned && state.ready && (best === null || state.poolId < best)) {
+          best = state.poolId
+        }
+      }
+      if (mine !== null) {
+        const poolId = mine
+        const names = warmNamesForPoolId(poolId)
+        ownerMap.set(slug, poolId)
+        await waitForDeployment(names.deployment)
+        return { slug, names }
+      }
+      if (best === null) {
+        return null
+      }
+      const poolId = best
+      const names = warmNamesForPoolId(poolId)
+      const manifest = await userDeploymentManifest({ name: names.deployment, workspaceClaim: names.workspaceClaim, stateClaim: names.stateClaim, slug, isWarmPool: true, poolId, owner: slug })
+      await k8sRequest('PATCH', `/apis/apps/v1/namespaces/${namespace}/deployments/${names.deployment}`, {
+        metadata: { labels: manifest.metadata.labels },
+        spec: { template: manifest.spec.template },
+      })
+      ownerMap.set(slug, poolId)
+      await waitForDeployment(names.deployment)
+      console.log(`[warmpool] claimed poolId=${poolId} owner=${slug}`)
+      reconcilePool()
+      return { slug, names }
     }
 
     async function waitForDeployment(name, timeoutMs = 300000) {
@@ -594,6 +767,10 @@ data:
 
     async function ensureUserEnvironment(userId) {
       const slug = slugForUser(userId)
+      if (warmPoolEnabled && warmPoolSize > 0) {
+        const claimed = await claimWarmForUser(slug)
+        if (claimed) return claimed
+      }
       const names = namesForSlug(slug)
       await ensureLease(`opencode-user-${slug}`)
       await ensurePersistentVolumeClaim(names.workspaceClaim, workspaceSize)
@@ -884,3 +1061,9 @@ data:
     server.listen(8080, '0.0.0.0', () => {
       console.log('opencode router listening on 0.0.0.0:8080')
     })
+
+    recoverOwnerPool()
+    reconcilePool()
+    if (warmPoolEnabled && warmPoolSize > 0) {
+      setInterval(reconcilePool, warmRefreshIntervalMs)
+    }
