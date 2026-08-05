@@ -1,0 +1,22 @@
+{{- if .Values.clamavApi.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "clamav.fullname" . }}-api
+  labels:
+    {{- include "clamav.api.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "clamav.fullname" . }}-api
+  minReplicas: {{ .Values.clamavApi.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.clamavApi.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.clamavApi.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
