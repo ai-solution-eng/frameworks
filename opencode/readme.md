@@ -89,6 +89,45 @@ A `pre-delete` hook deletes the dynamically-created per-user/warm resources
 
 ---
 
+## Provisioning Loading Screen
+
+While a user's pod is being assigned/provisioned (a cold first launch can take
+3–5 minutes for the per-user `npm install`, uv, ttyd, etc.), the router no
+longer leaves the browser hanging on a blank page. It returns a **loading
+screen** immediately:
+
+- A spinner plus an elapsed timer and the text "Setting up your
+  environment…".
+- The page polls the router's `/__oc_setup_status` endpoint every 2 seconds.
+- When the pod becomes ready, the page **auto-reloads** and proxies you into
+  your environment automatically.
+- If provisioning fails or times out, the page swaps to an error state with a
+  **Retry** button (the retry clears the failed provisioning attempt and
+  starts over).
+
+With a [warm pool](#warm-pool-instant-first-launch) enabled the loading
+screen appears only briefly during the fast rolling restart of a claimed
+warm unit (no reinstall), so it is near-instant.
+
+### Configuration
+
+```yaml
+provisioning:
+  loadingUI:
+    enabled: true                      # set false to restore the original blocking behavior
+    heading: "Setting up your environment…"
+    subtext: "This usually takes a few minutes on first launch. Please wait."
+```
+
+- `enabled: false` reverts the router to its previous behavior (the request
+  blocks until the pod is ready and no loading page is shown).
+- The heading and subtext are the messages shown on the loading screen.
+- The status/reset endpoint is the reserved router path `/__oc_setup_status`;
+  it is handled by the router itself (never proxied to the user pod) and
+  requires no ready pod.
+
+---
+
 ## Workspaces
 
 HPE Private Cloud AI provides PVC-backed persistent storage:

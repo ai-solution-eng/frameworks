@@ -108,6 +108,14 @@ spec:
               value: {{ .Values.warmPool.size | default 0 | toString | quote }}
             - name: WARM_REFRESH_INTERVAL_MS
               value: {{ mul (.Values.warmPool.size | default 0) (.Values.warmPool.refreshIntervalSeconds | default 15) 1000 | quote }}
+            - name: SETUP_UI_ENABLED
+              value: {{ .Values.provisioning.loadingUI.enabled | default true | quote }}
+            - name: SETUP_STATUS_PATH
+              value: /__oc_setup_status
+            - name: SETUP_HEADING
+              value: {{ .Values.provisioning.loadingUI.heading | default "Setting up your environment…" | quote }}
+            - name: SETUP_SUBTEXT
+              value: {{ .Values.provisioning.loadingUI.subtext | default "This usually takes a few minutes on first launch. Please wait." | quote }}
 {{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}
 {{- range .Values.certificatesPolicy.env }}
             - name: {{ .name }}

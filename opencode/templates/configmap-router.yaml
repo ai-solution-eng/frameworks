@@ -46,6 +46,11 @@ data:
     const warmRefreshIntervalMs = Number(process.env.WARM_REFRESH_INTERVAL_MS || `${warmPoolSize * 15 * 1000}`)
     const ownerMap = new Map() // user slug -> warm poolId
     let poolBusy = false
+    const setupUiEnabled = process.env.SETUP_UI_ENABLED === 'true'
+    const setupStatusPath = process.env.SETUP_STATUS_PATH || '/__oc_setup_status'
+    const setupHeading = process.env.SETUP_HEADING || 'Setting up your environment\u2026'
+    const setupSubtext = process.env.SETUP_SUBTEXT || 'This usually takes a few minutes on first launch. Please wait.'
+    const provisionTasks = new Map() // deployment name -> { promise, error }
 
     function escapeRegex(value) {
       return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -728,7 +733,6 @@ data:
         const poolId = mine
         const names = warmNamesForPoolId(poolId)
         ownerMap.set(slug, poolId)
-        await waitForDeployment(names.deployment)
         return { slug, names }
       }
       if (best === null) {
@@ -742,7 +746,6 @@ data:
         spec: { template: manifest.spec.template },
       })
       ownerMap.set(slug, poolId)
-      await waitForDeployment(names.deployment)
       console.log(`[warmpool] claimed poolId=${poolId} owner=${slug}`)
       reconcilePool()
       return { slug, names }
@@ -765,7 +768,35 @@ data:
       throw new Error(`Timed out waiting for deployment ${name}`)
     }
 
-    async function ensureUserEnvironment(userId) {
+    async function isEnvironmentReady(names) {
+      const deployment = await k8sRequest('GET', `/apis/apps/v1/namespaces/${namespace}/deployments/${names.deployment}`)
+      if (!deployment) return false
+      const desiredReplicas = deployment?.spec?.replicas || 1
+      return (
+        deployment?.status?.observedGeneration >= deployment?.metadata?.generation
+        && (deployment?.status?.updatedReplicas || 0) >= desiredReplicas
+        && (deployment?.status?.availableReplicas || 0) >= desiredReplicas
+      )
+    }
+
+    function startProvisionWatch(names) {
+      const key = names.deployment
+      const existing = provisionTasks.get(key)
+      if (existing) return existing
+      const task = { promise: null, error: null }
+      task.promise = waitForDeployment(key).catch((error) => {
+        task.error = error
+        throw error
+      })
+      provisionTasks.set(key, task)
+      return task
+    }
+
+    async function provisionReady(names) {
+      await startProvisionWatch(names).promise
+    }
+
+    async function resolveUserEnvironment(userId) {
       const slug = slugForUser(userId)
       if (warmPoolEnabled && warmPoolSize > 0) {
         const claimed = await claimWarmForUser(slug)
@@ -777,7 +808,6 @@ data:
       await ensurePersistentVolumeClaim(names.stateClaim, stateSize)
       await ensureService(names.service, slug)
       await ensureDeployment(names.deployment, names.workspaceClaim, names.stateClaim, slug)
-      await waitForDeployment(names.deployment)
       return { slug, names }
     }
 
@@ -1008,27 +1038,161 @@ data:
         error.statusCode = 401
         throw error
       }
-      const environment = await ensureUserEnvironment(userId)
+      const environment = await resolveUserEnvironment(userId)
       const pathname = new URL(request.url || '/', 'http://internal').pathname
+      let target
       if (pathname === '/terminal' || pathname.startsWith('/terminal/')) {
-        return targetForTerminalManager(environment.names)
+        target = targetForTerminalManager(environment.names)
+      } else if (pathname.startsWith('/term')) {
+        target = targetForTtyd(environment.names)
+      } else if (pathname.startsWith('/data_manager')) {
+        target = targetForDataManager(environment.names)
+      } else {
+        const preview = previewRequest(hostHeader)
+        if (preview) {
+          if (preview.slug !== environment.slug) {
+            const error = new Error('Preview host does not match the authenticated user')
+            error.statusCode = 403
+            throw error
+          }
+          target = targetForPreview(environment.names)
+        } else {
+          target = targetForApp(environment.names)
+        }
       }
-      if (pathname.startsWith('/term')) {
-        return targetForTtyd(environment.names)
+      target.names = environment.names
+      target.slug = environment.slug
+      return target
+    }
+
+    async function handleSetupStatus(request, response) {
+      const userId = userFromHeaders(request.headers)
+      if (!userId) {
+        json(response, 401, { error: `Missing ${usernameHeader} header` })
+        return
       }
-      if (pathname.startsWith('/data_manager')) {
-        return targetForDataManager(environment.names)
+      const url = new URL(request.url || '/', 'http://internal')
+      try {
+        const environment = await resolveUserEnvironment(userId)
+        if (url.searchParams.get('reset') === 'retry') {
+          provisionTasks.delete(environment.names.deployment)
+          json(response, 200, { ready: false, retried: true })
+          return
+        }
+        const ready = await isEnvironmentReady(environment.names)
+        if (ready) {
+          json(response, 200, { ready: true })
+          return
+        }
+        const task = provisionTasks.get(environment.names.deployment)
+        if (task?.error) {
+          json(response, 200, { ready: false, failed: true, error: task.error.message || 'Provisioning failed' })
+          return
+        }
+        json(response, 200, { ready: false })
+      } catch (error) {
+        console.error('setup status failed', error)
+        json(response, 200, { ready: false, failed: true, error: error.message || 'Provisioning failed' })
       }
-      const preview = previewRequest(hostHeader)
-      if (!preview) {
-        return targetForApp(environment.names)
+    }
+
+    function setupPageHtml() {
+      const statusUrl = JSON.stringify(setupStatusPath)
+      const heading = setupHeading.replace(/</g, '&lt;')
+      const subtext = setupSubtext.replace(/</g, '&lt;')
+      return `<!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setting up your environment</title>
+    <style>
+    :root { --bg: #0d1117; --bg-panel: #161b22; --border: #30363d; --text: #e6edf3; --text-muted: #7d8590; --accent: #2f81f7; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+    #card { text-align: center; max-width: 460px; width: 100%; padding: 40px 32px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-panel); }
+    #heading { font-size: 20px; font-weight: 600; margin-bottom: 10px; }
+    #subtext { color: var(--text-muted); line-height: 1.5; margin-bottom: 24px; }
+    .spinner { width: 44px; height: 44px; margin: 0 auto 24px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #timer { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    #error-box { display: none; }
+    #error-box .error-title { color: #f85149; font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+    #error-box .error-detail { font-size: 12px; color: var(--text-muted); margin-bottom: 18px; word-break: break-word; }
+    button { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+    button:hover { filter: brightness(1.1); }
+    </style>
+    </head>
+    <body>
+    <div id="card">
+      <div id="spinner" class="spinner"></div>
+      <div id="heading">${heading}</div>
+      <div id="subtext">${subtext}</div>
+      <div id="timer">0:00</div>
+      <div id="error-box">
+        <div class="error-title">Something went wrong setting up your environment</div>
+        <div class="error-detail" id="error-detail"></div>
+        <button id="retry">Retry</button>
+      </div>
+    </div>
+    <script>
+    (function () {
+      var statusUrl = ${statusUrl};
+      var start = Date.now();
+      var timerEl = document.getElementById('timer');
+      var errorBox = document.getElementById('error-box');
+      var spinner = document.getElementById('spinner');
+      var detail = document.getElementById('error-detail');
+      var retryBtn = document.getElementById('retry');
+      function fmt(ms) {
+        var total = Math.floor(ms / 1000);
+        var h = Math.floor(total / 3600);
+        var m = Math.floor((total % 3600) / 60);
+        var s = total % 60;
+        function pad(n) { return n < 10 ? '0' + n : String(n); }
+        return h > 0 ? h + ':' + pad(m) + ':' + pad(s) : m + ':' + pad(s);
       }
-      if (preview.slug !== environment.slug) {
-        const error = new Error('Preview host does not match the authenticated user')
-        error.statusCode = 403
-        throw error
+      setInterval(function () { timerEl.textContent = fmt(Date.now() - start); }, 1000);
+      function showError(message) {
+        spinner.style.display = 'none';
+        timerEl.style.display = 'none';
+        detail.textContent = message || '';
+        errorBox.style.display = 'block';
       }
-      return targetForPreview(environment.names)
+      function check() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', statusUrl, true);
+        xhr.onload = function () {
+          var state = null;
+          try { state = JSON.parse(xhr.responseText); } catch (e) { state = null; }
+          if (xhr.status !== 200 || !state) { setTimeout(check, 2000); return; }
+          if (state.ready) { window.location.reload(); return; }
+          if (state.failed) { showError(state.error); return; }
+          setTimeout(check, 2000);
+        };
+        xhr.onerror = function () { setTimeout(check, 2000); };
+        xhr.send();
+      }
+      retryBtn.addEventListener('click', function () {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', statusUrl + '?reset=retry', true);
+        xhr.onload = function () { window.location.reload(); };
+        xhr.onerror = function () { window.location.reload(); };
+        xhr.send();
+      });
+      check();
+    })();
+    </script>
+    </body>
+    </html>`
+    }
+
+    function serveSetupPage(response) {
+      response.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store, no-cache, must-revalidate, max-age=0',
+      })
+      response.end(setupPageHtml())
     }
 
     const server = http.createServer(async (request, response) => {
@@ -1036,8 +1200,22 @@ data:
         json(response, 200, { ok: true })
         return
       }
+      const pathname = new URL(request.url || '/', 'http://internal').pathname
+      if (setupUiEnabled && pathname === setupStatusPath) {
+        await handleSetupStatus(request, response)
+        return
+      }
       try {
         const target = await resolveTarget(request)
+        if (setupUiEnabled) {
+          if (!(await isEnvironmentReady(target.names))) {
+            startProvisionWatch(target.names)
+            serveSetupPage(response)
+            return
+          }
+        } else {
+          await provisionReady(target.names)
+        }
         proxyRequest(request, response, target)
       } catch (error) {
         console.error('request handling failed', error)
@@ -1049,6 +1227,7 @@ data:
       const userId = userFromHeaders(request.headers)
       try {
         const target = await resolveTarget(request)
+        await provisionReady(target.names)
         console.log(`upgrade url=${request.url} userId=${userId} target=${target.host}:${target.port}`)
         proxyUpgrade(request, socket, head, target)
       } catch (error) {
