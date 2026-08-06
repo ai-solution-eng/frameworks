@@ -670,6 +670,7 @@ data:
     const ROOTS = [
       { key: 'personal', label: 'Personal', path: '/workspace/personal', navigable: true, shared: false },
       { key: 'shared', label: 'Shared', path: '/workspace/shared', navigable: true, shared: true },
+      { key: 'config', label: 'Config', path: '/var/opencode/home/.config', navigable: true, shared: false },
       { key: 'state', label: 'State', path: '/var/opencode', navigable: false, shared: false },
     ]
     
@@ -794,7 +795,6 @@ data:
         const entries = await fsp.readdir(safePath, { withFileTypes: true })
         const items = await Promise.all(
           entries
-            .filter((e) => !e.name.startsWith('.'))
             .map(async (e) => {
               try {
                 const full = path.join(safePath, e.name)
