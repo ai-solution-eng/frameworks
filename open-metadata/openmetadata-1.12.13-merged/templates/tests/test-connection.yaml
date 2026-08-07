@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "OpenMetadata.fullname" . }}-test-connection"
+  labels:
+    {{- include "OpenMetadata.labels" . | indent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  {{- with .Values.podSecurityContext }}
+  securityContext:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  containers:
+    - name: wget
+      {{- with .Values.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      image: busybox
+      command: ['wget']
+      args: ['{{ include "OpenMetadata.fullname" . }}:{{ .Values.service.port }}']
+      {{- with .Values.testConnection.resources }}
+      resources:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  restartPolicy: Never
+  {{- with .Values.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 8 }}
+  {{- end }}
+  {{- with .Values.affinity }}
+  affinity:
+    {{- toYaml . | nindent 8 }}
+  {{- end }}
+  {{- with .Values.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 8 }}
+  {{- end }}

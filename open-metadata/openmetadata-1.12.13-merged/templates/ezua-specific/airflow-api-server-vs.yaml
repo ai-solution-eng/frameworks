@@ -1,0 +1,21 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: openmetadata-airflow-api-server-vs
+  namespace: {{ .Release.Namespace }}
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway | required ".Values.ezua.virtualService.istioGateway is required !\n" }}
+  hosts:
+    - {{ .Values.ezua.airflowApiServerVirtualService.endpoint }}
+  http:
+    - match:
+        - uri:
+            prefix: /
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: openmetadata-dependencies-api-server.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8080
