@@ -16,6 +16,13 @@ ezua:
 domain: "opencode-web-helm.${DOMAIN_NAME}"
 previewDomain: "${DOMAIN_NAME}"
 
+# Opt-in per system. Set to true only where the cluster's gateway supports the
+# preview wildcard subdomains (e.g. g2 has a "*" catch-all gateway). On systems
+# without wildcard host/cert coverage (e.g. dc15), keep false so the preview
+# VirtualService is not created and the chart installs cleanly.
+preview:
+  enabled: false
+
 storageClass: gl4f-filesystem
 storage:
   sharedSize: 20Gi

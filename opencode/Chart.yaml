@@ -3,7 +3,7 @@ name: opencode-web-helm
 description: Multi-user opencode-web deployment with per-user PVC-backed workspaces
 type: application
 appVersion: "1.18"
-version: "2.0.10"#1
+version: "2.0.11"#1
 keywords:
   - opencode
   - AI

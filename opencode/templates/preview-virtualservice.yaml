@@ -1,3 +1,4 @@
+{{- if .Values.preview.enabled }}
 apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
@@ -20,3 +21,4 @@ spec:
         host: {{ .Release.Name }}-preview-svc.{{ .Release.Namespace }}.svc.cluster.local
         port:
           number: 8082
+{{- end }}
