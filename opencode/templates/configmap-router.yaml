@@ -28,7 +28,7 @@ data:
     const userServerPort = Number(process.env.USER_INSTANCE_OPENCODE_SERVER_PORT || '{{ .Values.ui.serverPort }}')
     const workspaceSize = process.env.PERSONAL_WORKSPACE_SIZE || '{{ .Values.storage.workspaceSize }}'
     const stateSize = process.env.PERSONAL_STATE_SIZE || '{{ .Values.storage.stateSize }}'
-    const userTemplateVersion = `terminal-tab-v3-opencode-${userOpencodeVersion}`
+    const userTemplateVersion = `terminal-tab-v4-opencode-${userOpencodeVersion}`
     const ttydVersion = '1.7.7'
     const usernameHeader = 'x-auth-request-preferred-username'
     const fallbackUserHeader = 'x-auth-request-user'
@@ -396,6 +396,9 @@ data:
         "printf 'export PATH=\"$HOME/.local/bin:/var/opencode/bin:/var/opencode/data/npm/bin:$PATH\"\\nexport COLORTERM=truecolor\\nexport LANG=C.UTF-8\\nexport LC_ALL=C.UTF-8\\nexport LC_CTYPE=C.UTF-8\\n' > /var/opencode/bin/opencode-bashrc",
         "printf '#!/bin/sh\\nexport BASH_ENV=/var/opencode/bin/opencode-bashrc\\nexec /usr/bin/bash \"$@\"\\n' > /var/opencode/bin/opencode-login-shell",
         'chmod 0755 /var/opencode/bin/opencode-login-shell',
+{{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}
+        'echo "export NODE_EXTRA_CA_CERTS=/tmp/certs/ca-certificates.crt" >> /var/opencode/home/.bashrc && echo "export NODE_EXTRA_CA_CERTS=/tmp/certs/ca-certificates.crt" >> /var/opencode/home/.profile && echo "export NODE_EXTRA_CA_CERTS=/tmp/certs/ca-certificates.crt" >> /var/opencode/bin/opencode-bashrc',
+{{- end }}
         "if [ ! -f /var/opencode/bin/uv ]; then curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/var/opencode/bin sh && ln -sf /var/opencode/bin/uv /usr/local/bin/uv && ln -sf /var/opencode/bin/uvx /usr/local/bin/uvx; fi",
         "if [ ! -f /var/opencode/data/npm/bin/opencode ] || [ \"$(cat /var/opencode/.opencode-version 2>/dev/null)\" != \"${OPENCODE_VERSION}\" ]; then npm install -g \"opencode-ai@${OPENCODE_VERSION}\" --prefix /var/opencode/data/npm && echo \"${OPENCODE_VERSION}\" > /var/opencode/.opencode-version && ln -sf /var/opencode/data/npm/bin/opencode /usr/local/bin/opencode; fi",
         "if [ ! -x /var/opencode/bin/ttyd ]; then arch=\"$(uname -m)\"; case \"$arch\" in x86_64|amd64) ttyd_asset=ttyd.x86_64 ;; aarch64|arm64) ttyd_asset=ttyd.aarch64 ;; armv7l|armhf) ttyd_asset=ttyd.armhf ;; arm*) ttyd_asset=ttyd.arm ;; *) echo \"unsupported architecture for ttyd: $arch\" >&2; exit 1 ;; esac; curl -fsSL --retry 3 -o /var/opencode/bin/ttyd \"https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/${ttyd_asset}\" && chmod 0755 /var/opencode/bin/ttyd; fi",
@@ -442,6 +445,19 @@ data:
                 fsGroupChangePolicy: 'OnRootMismatch',
               },
               initContainers: [
+                {{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}
+                {
+                  name: 'build-ca-bundle',
+                  image: '{{ .Values.certificatesPolicy.initContainer.image }}',
+                  imagePullPolicy: 'IfNotPresent',
+                  command: {{ toJson .Values.certificatesPolicy.initContainer.command }},
+                  volumeMounts: [
+                    {{- range .Values.certificatesPolicy.initVolumeMounts }}
+                    { name: '{{ .name }}', mountPath: '{{ .mountPath }}'{{ if .subPath }}, subPath: '{{ .subPath }}'{{ end }}{{ if hasKey . "readOnly" }}, readOnly: {{ .readOnly }}{{ end }} },
+                    {{- end }}
+                  ],
+                },
+                {{- end }}
                 {
                   name: 'init-opencode-storage',
                   image: userInitImage,
@@ -541,6 +557,11 @@ data:
                     { name: '{{ .name }}', value: '{{ .value }}' },
                     {{- end }}
                     {{- end }}
+                    {{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}
+                    {{- range .Values.certificatesPolicy.env }}
+                    { name: '{{ .name }}', value: '{{ .value }}' },
+                    {{- end }}
+                    {{- end }}
                   ],
                   ports: [
                     { name: 'http', containerPort: userIsChamber ? userChamberPort : userServerPort, protocol: 'TCP' },
@@ -578,6 +599,11 @@ data:
                     { name: 'preview-config', mountPath: '/opt/preview/terminal_manager.js', subPath: 'terminal_manager.js' },
                     { name: 'preview-config', mountPath: '/opt/preview/terminal_manager.html', subPath: 'terminal_manager.html' },
                     { name: 'preview-config', mountPath: '/opt/preview/tty-attach-session.sh', subPath: 'tty-attach-session.sh' },
+                    {{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}
+                    {{- range .Values.certificatesPolicy.volumeMounts }}
+                    { name: '{{ .name }}', mountPath: '{{ .mountPath }}'{{ if .subPath }}, subPath: '{{ .subPath }}'{{ end }}{{ if hasKey . "readOnly" }}, readOnly: {{ .readOnly }}{{ end }} },
+                    {{- end }}
+                    {{- end }}
                   ],
                 },
                 {
@@ -599,6 +625,11 @@ data:
                 { name: 'project-config', configMap: { name: '{{ .Release.Name }}-project-config' } },
                 { name: 'personal-content', configMap: { name: '{{ .Release.Name }}-personal-content' } },
                 { name: 'preview-config', configMap: { name: '{{ .Release.Name }}-preview-config', defaultMode: 365 } },
+                {{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}
+                {{- range .Values.certificatesPolicy.volumes }}
+                { name: '{{ .name }}', {{ if hasKey . "emptyDir" }}emptyDir: {}{{ else }}configMap: { name: '{{ .configMap.name }}', {{- if .configMap.items }} items: [ {{- range .configMap.items }} { key: '{{ .key }}', path: '{{ .path }}' }, {{- end }} ] {{- end }} }{{ end }} },
+                {{- end }}
+                {{- end }}
               ],
             },
           },
@@ -798,11 +829,24 @@ data:
 
     async function resolveUserEnvironment(userId) {
       const slug = slugForUser(userId)
+      const names = namesForSlug(slug)
+      // Sticky: if the user already has a dedicated (non-warm) environment, keep
+      // serving them there. Prevents a user who fell back to a dedicated
+      // deployment during a pool shortage from being silently moved to a warm
+      // unit later when the pool recovers.
+      const existingDedicated = await k8sRequest('GET', `/apis/apps/v1/namespaces/${namespace}/deployments/${names.deployment}`)
+      if (existingDedicated) {
+        await ensureLease(`opencode-user-${slug}`)
+        await ensurePersistentVolumeClaim(names.workspaceClaim, workspaceSize)
+        await ensurePersistentVolumeClaim(names.stateClaim, stateSize)
+        await ensureService(names.service, slug)
+        await ensureDeployment(names.deployment, names.workspaceClaim, names.stateClaim, slug)
+        return { slug, names }
+      }
       if (warmPoolEnabled && warmPoolSize > 0) {
         const claimed = await claimWarmForUser(slug)
         if (claimed) return claimed
       }
-      const names = namesForSlug(slug)
       await ensureLease(`opencode-user-${slug}`)
       await ensurePersistentVolumeClaim(names.workspaceClaim, workspaceSize)
       await ensurePersistentVolumeClaim(names.stateClaim, stateSize)

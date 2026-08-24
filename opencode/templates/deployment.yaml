@@ -19,6 +19,8 @@ spec:
         opencode-role: router
         hpe-ezua/app: {{ .Chart.Name }}
         hpe-ezua/type: vendor-service
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-router.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ .Release.Name }}-router
 {{- $hasInitContainers := or (and .Values.certificatesPolicy .Values.certificatesPolicy.enabled) (and .Values.sharedContent .Values.sharedContent.enabled) }}

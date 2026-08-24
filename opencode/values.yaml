@@ -184,7 +184,12 @@ cleanup:
 
 certificatesPolicy:
   enabled: false 
-  
+
+  # These env vars are applied to the router container AND to every dynamically
+  # created user pod (warm pool + per-user). NODE_EXTRA_CA_CERTS is set as a
+  # container env var so it is re-applied automatically on every restart.
+  env: []
+
 # ============================================================
 # Proxy configuration 
 # ============================================================
