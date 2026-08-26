@@ -372,6 +372,7 @@ data:
       }
       const initCommandParts = [
         'mkdir -p /workspace/personal /workspace/shared /var/opencode/home/.config/opencode/agents /var/opencode/home/.config/opencode/skills /var/opencode/data /var/opencode/state /var/opencode/cache /var/opencode/bin',
+        'ln -sfn /workspace /var/opencode/home/workspace',
         'if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl ca-certificates && rm -rf /var/lib/apt/lists/*; fi',
         'if [ ! -d /workspace/personal/.git ]; then git init /workspace/personal >/dev/null; fi',
         'if [ ! -f /var/opencode/home/.config/opencode/opencode.json ]; then if [ -f /var/opencode/config/opencode/opencode.json ]; then cp /var/opencode/config/opencode/opencode.json /var/opencode/home/.config/opencode/opencode.json; else cp /opt/opencode-defaults/opencode.json /var/opencode/home/.config/opencode/opencode.json; fi; fi',
