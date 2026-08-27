@@ -21,32 +21,141 @@ data:
         listen 8082;
         server_name _;
 
-        set $target_port "";
+        # --- Single in-pod entry point -------------------------------------
+        # Every request to this pod (UI, terminal, data manager, previews) is
+        # gated by the signed session cookie validated by the in-pod auth
+        # validator (auth_validator.mjs on 127.0.0.1:7684).
+        auth_request /__auth;
 
-        if ($host ~* '^u-[a-f0-9]{12}-p-([0-9]{4,5})\.{{ include "opencode-web.escapeDomain" .Values.previewDomain }}$') {
-          set $target_port $1;
+        # Unauthenticated / expired session on a pod host -> send to the main
+        # login page instead of showing an error.
+        error_page 401 = @oc_login;
+        location @oc_login {
+          return 302 https://{{ .Values.ezua.virtualService.endpoint }};
         }
-        if ($target_port = "") {
-          return 404;
+
+        location = /__auth {
+          internal;
+          proxy_pass http://127.0.0.1:7684;
+          proxy_pass_request_body off;
+          proxy_set_header Content-Length "";
+          proxy_set_header Cookie $http_cookie;
         }
-        if ($target_port !~ '^[1-9][0-9]{3,4}$') {
-          return 403;
-        }
-        location / {
-          proxy_pass http://127.0.0.1:$target_port;
+
+        # UI port: OpenChamber on 3000 (chamber mode) or opencode web on 4096.
+        set $ui_port {{ if eq .Values.ui.mode "openchamber" }}3000{{ else }}4096{{ end }};
+
+        # --- UI ------------------------------------------------------------
+        location ^~ /terminal {
+          proxy_pass http://127.0.0.1:7683;
           proxy_http_version 1.1;
-          proxy_set_header Host 127.0.0.1:$target_port;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection $connection_upgrade;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_buffering off;
+        }
+        location ^~ /term {
+          proxy_pass http://127.0.0.1:7681;
+          proxy_http_version 1.1;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection $connection_upgrade;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_buffering off;
+        }
+        location ^~ /data_manager {
+          proxy_pass http://127.0.0.1:7682;
+          proxy_http_version 1.1;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection $connection_upgrade;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_buffering off;
+        }
+        location ~ ^/__preview/(?<preview_port>[0-9]+)(?<preview_rest>.*)$ {
+          if ($preview_port !~ '^[1-9][0-9]{3,4}$') {
+            return 403;
+          }
+          proxy_pass http://127.0.0.1:$preview_port$preview_rest;
+          proxy_http_version 1.1;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection $connection_upgrade;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_buffering off;
+        }
+
+        # --- Fallback / main app -------------------------------------------
+        location / {
+          proxy_pass http://127.0.0.1:$ui_port;
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
           proxy_set_header X-Forwarded-Host $host;
           proxy_set_header X-Forwarded-Proto $scheme;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
           proxy_set_header Upgrade $http_upgrade;
           proxy_set_header Connection $connection_upgrade;
+          proxy_set_header Authorization "Basic {{ printf "%s:%s" .Values.auth.username .Values.auth.password | b64enc }}";
           proxy_buffering off;
           proxy_read_timeout 660s;
           proxy_send_timeout 660s;
         }
       }
     }
+  auth_validator.mjs: |
+    import http from 'node:http'
+    import crypto from 'node:crypto'
+
+    const PORT = Number(process.env.AUTH_VALIDATOR_PORT || '7684')
+    const SECRET = process.env.SESSION_KEY || ''
+    const MY_SLUG = process.env.USER_SLUG || ''
+    const COOKIE = 'oc_sess'
+
+    function readCookie(req) {
+      const header = req.headers.cookie || ''
+      for (const part of header.split(';')) {
+        const [name, ...rest] = part.trim().split('=')
+        if (name === COOKIE) return decodeURIComponent(rest.join('='))
+      }
+      return null
+    }
+
+    function valid(req) {
+      if (!SECRET || !MY_SLUG) return false
+      const value = readCookie(req)
+      if (!value) return false
+      const dot = value.lastIndexOf('.')
+      if (dot <= 0) return false
+      const payloadB64 = value.slice(0, dot)
+      const sig = value.slice(dot + 1)
+      const expected = crypto.createHmac('sha256', SECRET).update(payloadB64).digest('hex')
+      if (sig.length !== expected.length) return false
+      const sigBuf = Buffer.from(sig, 'hex')
+      const expBuf = Buffer.from(expected, 'hex')
+      if (!crypto.timingSafeEqual(sigBuf, expBuf)) return false
+      let payload
+      try {
+        payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'))
+      } catch {
+        return false
+      }
+      if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) return false
+      if (payload.slug !== MY_SLUG) return false
+      return true
+    }
+
+    http.createServer((req, res) => {
+      if (valid(req)) {
+        res.writeHead(200, { 'content-type': 'text/plain' })
+        res.end('ok')
+      } else {
+        res.writeHead(401, { 'content-type': 'text/plain' })
+        res.end('unauthorized')
+      }
+    }).listen(PORT, '127.0.0.1', () => {
+      console.log(`[auth_validator] listening on 127.0.0.1:${PORT} slug=${MY_SLUG}`)
+    })
   port_watcher.mjs: |
     import fs from 'node:fs/promises'
     import path from 'node:path'
@@ -57,14 +166,14 @@ data:
     const minPort = Number(process.env.PREVIEW_MIN_PORT || '3000')
     const maxPort = Number(process.env.PREVIEW_MAX_PORT || '9999')
     const exclude = new Set(
-      (process.env.PREVIEW_EXCLUDE_PORTS || '4096,8082,7681,7682,7683')
+      (process.env.PREVIEW_EXCLUDE_PORTS || '4096,8082,7681,7682,7683,7684')
         .split(',')
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isInteger(value)),
     )
 
     function url(port) {
-      return `https://u-${userSlug}-p-${port}.${domain}`
+      return `https://{{ .Values.userHostPrefix }}${userSlug}.${domain}/__preview/${port}/`
     }
 
     async function broadcast(message) {
@@ -154,6 +263,7 @@ data:
   preview-url: |
     #!/bin/sh
     DOMAIN="${PREVIEW_DOMAIN_SUFFIX:-'{{ .Values.previewDomain }}'}"
+    HOST_PREFIX="${USER_HOST_PREFIX:-{{ .Values.userHostPrefix }}}"
     STATE_FILE="${PREVIEW_STATE_FILE:-/var/opencode/state/preview-ports.txt}"
     USER_SLUG="${PREVIEW_USER_SLUG:-shared}"
 
@@ -169,7 +279,7 @@ data:
           exit 1
           ;;
       esac
-      echo "https://u-$USER_SLUG-p-$1.$DOMAIN"
+      echo "https://$HOST_PREFIX$USER_SLUG.$DOMAIN/__preview/$1/"
       exit 0
     fi
 
@@ -468,9 +578,6 @@ data:
     function startChamber() {
       console.log('[opencode] starting openchamber process')
       const args = ['serve', '--port', String(chamberPort), '--host', '0.0.0.0', '--foreground']
-      if (process.env.OPENCODE_SERVER_PASSWORD) {
-        args.push('--ui-password', process.env.OPENCODE_SERVER_PASSWORD)
-      }
       const chamberEnv = {
         ...process.env,
         OPENCODE_HOST: `http://127.0.0.1:${webPort}`,

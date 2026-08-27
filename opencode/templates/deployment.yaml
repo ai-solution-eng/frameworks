@@ -84,6 +84,27 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-auth
                   key: OPENCODE_SERVER_PASSWORD
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-auth
+                  key: SESSION_SECRET
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-auth
+                  key: ADMIN_USERNAME
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-auth
+                  key: ADMIN_PASSWORD
+            - name: USER_HOST_PREFIX
+              value: {{ .Values.userHostPrefix }}
+            - name: USER_REGISTRY_SECRET
+              value: {{ .Release.Name }}-users
+            - name: ISTIO_GATEWAY
+              value: {{ .Values.ezua.virtualService.istioGateway }}
             - name: SHARED_WORKSPACE_CLAIM
               value: {{ .Release.Name }}-shared-pvc
             - name: STORAGE_CLASS_NAME

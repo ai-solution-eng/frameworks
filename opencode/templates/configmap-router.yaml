@@ -52,6 +52,16 @@ data:
     const setupSubtext = process.env.SETUP_SUBTEXT || 'This usually takes a few minutes on first launch. Please wait.'
     const provisionTasks = new Map() // deployment name -> { promise, error }
 
+    // --- Direct-to-pod routing / identity -------------------------------
+    const userHostPrefix = process.env.USER_HOST_PREFIX || '{{ .Values.userHostPrefix }}'
+    const istioGateway = process.env.ISTIO_GATEWAY || '{{ .Values.ezua.virtualService.istioGateway }}'
+    const registrySecretName = process.env.USER_REGISTRY_SECRET || '{{ .Release.Name }}-users'
+    const sessionSecret = process.env.SESSION_SECRET || ''
+    const sessionCookieName = 'oc_sess'
+    const sessionTtlSeconds = 7 * 24 * 60 * 60
+    const adminUsername = process.env.ADMIN_USERNAME || ''
+    const adminPassword = process.env.ADMIN_PASSWORD || ''
+
     function escapeRegex(value) {
       return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     }
@@ -67,7 +77,273 @@ data:
         service: `${base}-svc`,
         workspaceClaim: `${base}-workspace-pvc`,
         stateClaim: `${base}-state-pvc`,
+        virtualService: `opencode-user-vs-${slug}`,
       }
+    }
+
+    function userHostForSlug(slug) {
+      return `${userHostPrefix}${slug}.${previewDomainSuffix}`
+    }
+
+    // --- Admin console ------------------------------------------------
+    const adminCookieName = 'oc_admin'
+    const adminSessionTtlSeconds = 8 * 60 * 60
+
+    function adminSessionCookieHeader() {
+      const payload = { admin: true, exp: Math.floor(Date.now() / 1000) + adminSessionTtlSeconds }
+      const payloadB64 = base64url(JSON.stringify(payload))
+      const sig = crypto.createHmac('sha256', sessionSecret).update(payloadB64).digest('hex')
+      return [
+        `${adminCookieName}=${payloadB64}.${sig}`,
+        `Domain=${previewDomainSuffix}`,
+        'Path=/',
+        `Max-Age=${adminSessionTtlSeconds}`,
+        'HttpOnly',
+        'SameSite=Lax',
+        'Secure',
+      ].join('; ')
+    }
+
+    function clearAdminCookieHeader() {
+      return [
+        `${adminCookieName}=`,
+        `Domain=${previewDomainSuffix}`,
+        'Path=/',
+        'Max-Age=0',
+        'HttpOnly',
+        'SameSite=Lax',
+        'Secure',
+      ].join('; ')
+    }
+
+    function adminCookieValid(request) {
+      if (!sessionSecret) return false
+      const header = request.headers.cookie || ''
+      let value = null
+      for (const part of header.split(';')) {
+        const trimmed = part.trim()
+        if (trimmed.startsWith(`${adminCookieName}=`)) {
+          value = decodeURIComponent(trimmed.slice(adminCookieName.length + 1))
+          break
+        }
+      }
+      if (!value) return false
+      const dot = value.lastIndexOf('.')
+      if (dot <= 0) return false
+      const payloadB64 = value.slice(0, dot)
+      const sig = value.slice(dot + 1)
+      const expected = crypto.createHmac('sha256', sessionSecret).update(payloadB64).digest('hex')
+      if (sig.length !== expected.length) return false
+      if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) return false
+      let payload
+      try {
+        payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'))
+      } catch {
+        return false
+      }
+      if (payload.admin !== true) return false
+      if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) return false
+      return true
+    }
+
+    function isAdmin(request) {
+      if (adminCookieValid(request)) return true
+      if (!adminUsername || !adminPassword) return false
+      const auth = request.headers.authorization || ''
+      if (!auth.startsWith('Basic ')) return false
+      let decoded = ''
+      try {
+        decoded = Buffer.from(auth.slice(6), 'base64').toString('utf8')
+      } catch {
+        return false
+      }
+      const colon = decoded.indexOf(':')
+      if (colon < 0) return false
+      const user = decoded.slice(0, colon)
+      const pass = decoded.slice(colon + 1)
+      return user === adminUsername && pass === adminPassword
+    }
+
+    async function deleteK8s(apiPath, name) {
+      try {
+        await k8sRequest('DELETE', `${apiPath}/${name}?propagationPolicy=Background`)
+      } catch (error) {
+        if (error.statusCode !== 404) throw error
+      }
+    }
+
+    async function waitForDeploymentGone(name, timeoutMs = 90000) {
+      const start = Date.now()
+      while (Date.now() - start < timeoutMs) {
+        const dep = await k8sRequest('GET', `/apis/apps/v1/namespaces/${namespace}/deployments/${name}`)
+        if (!dep || (dep.status?.replicas || 0) === 0) return
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+      }
+    }
+
+    async function deleteUserEnvironment(slug) {
+      const names = namesForSlug(slug)
+      const deployments = await listUserDeployments()
+      let warm = null
+      for (const dep of deployments) {
+        const labels = dep.metadata?.labels || {}
+        if (labels['opencode-user-warmpool'] === 'true' && labels['opencode-user-owner'] === slug) {
+          warm = warmNamesForPoolId(Number(labels['opencode-user-pool-id']))
+          break
+        }
+      }
+      const target = warm || {
+        deployment: names.deployment,
+        service: names.service,
+        workspaceClaim: names.workspaceClaim,
+        stateClaim: names.stateClaim,
+      }
+      await deleteK8s(`/apis/networking.istio.io/v1/namespaces/${namespace}/virtualservices`, names.virtualService)
+      await deleteK8s(`/apis/apps/v1/namespaces/${namespace}/deployments`, target.deployment)
+      await waitForDeploymentGone(target.deployment)
+      await deleteK8s(`/api/v1/namespaces/${namespace}/services`, target.service)
+      await deleteK8s(`/api/v1/namespaces/${namespace}/persistentvolumeclaims`, target.workspaceClaim)
+      await deleteK8s(`/api/v1/namespaces/${namespace}/persistentvolumeclaims`, target.stateClaim)
+      await deleteK8s(`/apis/coordination.k8s.io/v1/namespaces/${namespace}/leases`, `opencode-user-${slug}`)
+    }
+
+    // --- Session cookie --------------------------------------------------
+    function base64url(input) {
+      return Buffer.from(input).toString('base64url')
+    }
+
+    function hmacSign(payloadB64) {
+      return crypto.createHmac('sha256', sessionSecret).update(payloadB64).digest('hex')
+    }
+
+    function deriveSessionKey(identity) {
+      // Per-identity key so a leaked pod key cannot sign another user's slug.
+      return crypto.createHmac('sha256', sessionSecret).update(slugForUser(identity)).digest('hex')
+    }
+
+    function signSession(identity) {
+      const payload = {
+        u: identity,
+        slug: slugForUser(identity),
+        exp: Math.floor(Date.now() / 1000) + sessionTtlSeconds,
+      }
+      const payloadB64 = base64url(JSON.stringify(payload))
+      const key = deriveSessionKey(identity)
+      return `${payloadB64}.${crypto.createHmac('sha256', key).update(payloadB64).digest('hex')}`
+    }
+
+    function readSessionIdentity(request) {
+      if (!sessionSecret) return null
+      const header = request.headers.cookie || ''
+      let value = null
+      for (const part of header.split(';')) {
+        const trimmed = part.trim()
+        if (trimmed.startsWith(`${sessionCookieName}=`)) {
+          value = decodeURIComponent(trimmed.slice(sessionCookieName.length + 1))
+          break
+        }
+      }
+      if (!value) return null
+      const dot = value.lastIndexOf('.')
+      if (dot <= 0) return null
+      const payloadB64 = value.slice(0, dot)
+      const sig = value.slice(dot + 1)
+      let payload
+      try {
+        payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'))
+      } catch {
+        return null
+      }
+      if (!payload || typeof payload.u !== 'string') return null
+      if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) return null
+      const key = deriveSessionKey(payload.u)
+      const expected = crypto.createHmac('sha256', key).update(payloadB64).digest('hex')
+      if (sig.length !== expected.length) return null
+      const sigBuf = Buffer.from(sig, 'hex')
+      const expBuf = Buffer.from(expected, 'hex')
+      if (!crypto.timingSafeEqual(sigBuf, expBuf)) return null
+      return payload.u
+    }
+
+    function sessionCookieHeader(identity, clear) {
+      const value = clear ? '' : signSession(identity)
+      const parts = [
+        `${sessionCookieName}=${value}`,
+        `Domain=${previewDomainSuffix}`,
+        'Path=/',
+        'Max-Age=' + (clear ? '0' : String(sessionTtlSeconds)),
+        'HttpOnly',
+        'SameSite=Lax',
+        'Secure',
+      ]
+      return parts.join('; ')
+    }
+
+    // --- User registry (scrypt-hashed passwords in a Secret) ------------
+    function hashPassword(password, salt) {
+      return crypto.scryptSync(password, salt, 64).toString('hex')
+    }
+
+    async function loadUserRegistry() {
+      const path = `/api/v1/namespaces/${namespace}/secrets/${registrySecretName}`
+      const existing = await k8sRequest('GET', path)
+      if (!existing || !existing.data || !existing.data.users) {
+        return {}
+      }
+      try {
+        return JSON.parse(Buffer.from(existing.data.users, 'base64').toString('utf8')) || {}
+      } catch {
+        return {}
+      }
+    }
+
+    async function saveUserRegistry(users) {
+      const path = `/api/v1/namespaces/${namespace}/secrets/${registrySecretName}`
+      const body = {
+        metadata: {
+          name: registrySecretName,
+          labels: {
+            app: '{{ .Chart.Name }}',
+            'opencode-user-managed': 'true',
+          },
+        },
+        stringData: {
+          users: JSON.stringify(users),
+        },
+      }
+      const existing = await k8sRequest('GET', path)
+      if (existing) {
+        await k8sRequest('PUT', path, { ...existing, metadata: body.metadata, stringData: body.stringData })
+        return
+      }
+      try {
+        await k8sRequest('POST', `/api/v1/namespaces/${namespace}/secrets`, { apiVersion: 'v1', kind: 'Secret', metadata: body.metadata, type: 'Opaque', stringData: body.stringData })
+      } catch (error) {
+        if (error.statusCode !== 409) throw error
+      }
+    }
+
+    async function registerUser(identity, password) {
+      const users = await loadUserRegistry()
+      if (users[identity]) {
+        const error = new Error('Username already exists')
+        error.statusCode = 409
+        throw error
+      }
+      const salt = crypto.randomBytes(16).toString('hex')
+      users[identity] = { salt, hash: hashPassword(password, salt), createdAt: new Date().toISOString() }
+      await saveUserRegistry(users)
+    }
+
+    async function verifyUser(identity, password) {
+      const users = await loadUserRegistry()
+      const record = users[identity]
+      if (!record || !record.salt || !record.hash) return false
+      const candidate = hashPassword(password, record.salt)
+      const a = Buffer.from(candidate, 'hex')
+      const b = Buffer.from(record.hash, 'hex')
+      if (a.length !== b.length) return false
+      return crypto.timingSafeEqual(a, b)
     }
 
     function readHeader(headers, name) {
@@ -108,6 +384,11 @@ data:
 
     function json(response, statusCode, payload) {
       response.writeHead(statusCode, { 'content-type': 'application/json' })
+      response.end(JSON.stringify(payload))
+    }
+
+    function jsonWithCookie(response, statusCode, payload, cookie) {
+      response.writeHead(statusCode, { 'content-type': 'application/json', 'set-cookie': [cookie] })
       response.end(JSON.stringify(payload))
     }
 
@@ -337,6 +618,82 @@ data:
       await upsertService(userServiceManifest(name, slug))
     }
 
+    async function ensureUserVirtualService(slug, serviceName) {
+      const names = namesForSlug(slug)
+      const host = userHostForSlug(slug)
+      const destinationService = serviceName || names.service
+      const manifest = {
+        apiVersion: 'networking.istio.io/v1',
+        kind: 'VirtualService',
+        metadata: {
+          name: names.virtualService,
+          namespace,
+          labels: {
+            app: '{{ .Chart.Name }}',
+            'opencode-user-managed': 'true',
+            'opencode-user-slug': slug,
+          },
+        },
+        spec: {
+          hosts: [host],
+          gateways: [istioGateway],
+          http: [
+            {
+              match: [{ uri: { prefix: '/' } }],
+              route: [
+                {
+                  destination: {
+                    host: `${destinationService}.${namespace}.svc.cluster.local`,
+                    port: { number: 8082 },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      }
+      const path = `/apis/networking.istio.io/v1/namespaces/${namespace}/virtualservices/${names.virtualService}`
+      const existing = await k8sRequest('GET', path)
+      if (existing) {
+        if (JSON.stringify(existing.spec || {}) !== JSON.stringify(manifest.spec)) {
+          await k8sRequest('PATCH', path, {
+            metadata: { labels: manifest.metadata.labels },
+            spec: manifest.spec,
+          })
+        }
+        return
+      }
+      try {
+        await k8sRequest('POST', `/apis/networking.istio.io/v1/namespaces/${namespace}/virtualservices`, manifest)
+      } catch (error) {
+        if (error.statusCode !== 409) {
+          throw error
+        }
+      }
+    }
+
+    async function reconcileUserVirtualServices() {
+      try {
+        const deployments = await listUserDeployments()
+        for (const dep of deployments) {
+          const labels = dep.metadata?.labels || {}
+          const owner = labels['opencode-user-owner']
+          const slug = labels['opencode-user-slug']
+          const useSlug = owner || slug
+          if (!useSlug) continue
+          const poolId = Number(labels['opencode-user-pool-id'])
+          const isWarm = labels['opencode-user-warmpool'] === 'true'
+          const serviceName = isWarm
+            ? warmNamesForPoolId(poolId).service
+            : namesForSlug(useSlug).service
+          await ensureUserVirtualService(useSlug, serviceName)
+        }
+        console.log(`[vs] reconciled ${deployments.length} user virtual service(s)`)
+      } catch (error) {
+        console.error('[vs] reconcile failed', error)
+      }
+    }
+
     function warmNamesForPoolId(poolId) {
       const base = `opencode-user-warm-${poolId}`
       return {
@@ -537,12 +894,13 @@ data:
                     { name: 'PREVIEW_STATE_FILE', value: '/var/opencode/state/preview-ports.txt' },
                     { name: 'PREVIEW_MIN_PORT', value: '3000' },
                     { name: 'PREVIEW_MAX_PORT', value: '9999' },
-                    { name: 'PREVIEW_EXCLUDE_PORTS', value: '3000,4096,8082,7681,7682,7683' },
+                    { name: 'PREVIEW_EXCLUDE_PORTS', value: '3000,4096,8082,7681,7682,7683,7684' },
                     { name: 'OPENCODE_VERSION', value: userOpencodeVersion },
                     { name: 'TTYD_VERSION', value: ttydVersion },
                     { name: 'OPENCODE_UI_MODE', value: userUiMode },
                     { name: 'OPENCHAMBER_VERSION', value: userOpenChamberVersion },
                     { name: 'OPENCHAMBER_PORT', value: String(userChamberPort) },
+                    { name: 'OPENCHAMBER_ALLOW_UNAUTHENTICATED_LAN', value: 'true' },
                     { name: 'OPENCODE_SERVER_PORT', value: String(userServerPort) },
                     { name: 'PREVIEW_USER_SLUG', value: slug },
                     { name: 'TTYD_DOMAIN', value: previewDomainSuffix },
@@ -616,6 +974,22 @@ data:
                   ],
                   volumeMounts: [
                     { name: 'preview-config', mountPath: '/etc/nginx/nginx.conf', subPath: 'nginx.conf' },
+                  ],
+                },
+                {
+                  name: 'opencode-auth',
+                  image: userInstanceImage,
+                  imagePullPolicy: 'Always',
+                  command: ['node', '/opt/preview/auth_validator.mjs'],
+                  env: [
+                    { name: 'SESSION_KEY', value: crypto.createHmac('sha256', sessionSecret).update(slug).digest('hex') },
+                    { name: 'USER_SLUG', value: slug },
+                  ],
+                  ports: [
+                    { name: 'auth', containerPort: 7684, protocol: 'TCP' },
+                  ],
+                  volumeMounts: [
+                    { name: 'preview-config', mountPath: '/opt/preview/auth_validator.mjs', subPath: 'auth_validator.mjs' },
                   ],
                 },
               ],
@@ -842,17 +1216,22 @@ data:
         await ensurePersistentVolumeClaim(names.stateClaim, stateSize)
         await ensureService(names.service, slug)
         await ensureDeployment(names.deployment, names.workspaceClaim, names.stateClaim, slug)
+        await ensureUserVirtualService(slug, names.service)
         return { slug, names }
       }
       if (warmPoolEnabled && warmPoolSize > 0) {
         const claimed = await claimWarmForUser(slug)
-        if (claimed) return claimed
+        if (claimed) {
+          await ensureUserVirtualService(slug, claimed.names.service)
+          return claimed
+        }
       }
       await ensureLease(`opencode-user-${slug}`)
       await ensurePersistentVolumeClaim(names.workspaceClaim, workspaceSize)
       await ensurePersistentVolumeClaim(names.stateClaim, stateSize)
       await ensureService(names.service, slug)
       await ensureDeployment(names.deployment, names.workspaceClaim, names.stateClaim, slug)
+      await ensureUserVirtualService(slug, names.service)
       return { slug, names }
     }
 
@@ -1111,9 +1490,9 @@ data:
     }
 
     async function handleSetupStatus(request, response) {
-      const userId = userFromHeaders(request.headers)
+      const userId = readSessionIdentity(request)
       if (!userId) {
-        json(response, 401, { error: `Missing ${usernameHeader} header` })
+        json(response, 401, { error: 'Missing session' })
         return
       }
       const url = new URL(request.url || '/', 'http://internal')
@@ -1240,46 +1619,646 @@ data:
       response.end(setupPageHtml())
     }
 
+    function readJsonBody(request) {
+      return new Promise((resolve, reject) => {
+        const chunks = []
+        request.on('data', (chunk) => chunks.push(chunk))
+        request.on('end', () => {
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'))
+          } catch (error) {
+            reject(error)
+          }
+        })
+        request.on('error', reject)
+      })
+    }
+
+    function authPageHtml(identity) {
+      const esc = (value) => String(value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
+      const strip = identity
+        ? `<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div style="font-size:13px;">Signed in as <b>${esc(identity)}</b></div>
+            <div style="display:flex;gap:14px;">
+              <a href="/__oc_start" style="color:var(--accent);">Open your environment</a>
+              <a href="/__oc_logout" style="color:var(--text-muted);">Log out</a>
+            </div>
+          </div>`
+        : ''
+      return `<!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenCode Web</title>
+    <style>
+    :root { --bg: #0d1117; --bg-panel: #161b22; --border: #30363d; --text: #e6edf3; --text-muted: #7d8590; --accent: #2f81f7; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+    .wrap { width: 100%; max-width: 440px; padding: 24px; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .sub { color: var(--text-muted); margin-bottom: 24px; line-height: 1.5; }
+    .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+    .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+    label { display: block; font-size: 12px; color: var(--text-muted); margin: 10px 0 4px; }
+    input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 9px 12px; font-size: 14px; }
+    button { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 10px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 14px; }
+    button.secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+    .err { display: none; color: #f85149; font-size: 12px; margin-top: 10px; word-break: break-word; }
+    .hint { color: var(--text-muted); font-size: 11px; margin-top: 10px; line-height: 1.4; }
+    </style>
+    </head>
+    <body>
+    <div class="wrap">
+      ${strip}
+      <h1>OpenCode Web</h1>
+      <div class="sub">Sign in to your personal environment. Each user gets their own isolated workspace.</div>
+      <div class="card">
+        <button id="sso" class="secondary" type="button">Continue with SSO</button>
+        <div class="hint">Uses your platform (PCAI) identity. Best when every user has a distinct SSO account.</div>
+      </div>
+      <div class="card">
+        <h2>Use a local account</h2>
+        <form id="form">
+          <label for="username">Username</label>
+          <input id="username" name="username" autocomplete="username" required>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:6px;"><input type="checkbox" id="show-pass" style="width:auto;"> show password</label>
+          <button type="submit" id="submit-btn">Log in</button>
+          <button type="button" class="secondary" id="reg-btn">Create account</button>
+          <div class="err" id="err"></div>
+        </form>
+        <div class="hint">Each username gets its own dedicated pod. If the account doesn&rsquo;t exist yet, create one.</div>
+      </div>
+      <div class="card">
+        <h2>Admin login</h2>
+        <form id="admin-form">
+          <label for="admin-username">Admin username</label>
+          <input id="admin-username" name="admin-username" autocomplete="username" required>
+          <label for="admin-password">Admin password</label>
+          <input id="admin-password" name="admin-password" type="password" autocomplete="current-password" required>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:6px;"><input type="checkbox" id="admin-show-pass" style="width:auto;"> show password</label>
+          <button type="submit" id="admin-btn">Log in as admin</button>
+          <div class="err" id="admin-err"></div>
+        </form>
+      </div>
+    </div>
+    <script>
+    var err = document.getElementById('err');
+    function show(msg) { err.style.display = 'block'; err.textContent = msg; }
+    async function post(path, body) {
+      var res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      if (res.redirected) { window.location = res.url; return; }
+      var data = null; try { data = await res.json(); } catch (e) {}
+      if (data && data.redirect) { window.location = data.redirect; return; }
+      if (res.status >= 200 && res.status < 300) { window.location.reload(); return; }
+      show((data && data.error) || ('Error ' + res.status));
+    }
+    document.getElementById('sso').addEventListener('click', function () {
+      post('/__oc_sso', {});
+    });
+    document.getElementById('submit-btn').addEventListener('click', function (e) {
+      e.preventDefault();
+      post('/__oc_login', { username: document.getElementById('username').value, password: document.getElementById('password').value });
+    });
+    document.getElementById('reg-btn').addEventListener('click', function (e) {
+      e.preventDefault();
+      post('/__oc_register', { username: document.getElementById('username').value, password: document.getElementById('password').value });
+    });
+    document.getElementById('form').addEventListener('submit', function (e) { e.preventDefault(); });
+    document.getElementById('show-pass').addEventListener('change', function () {
+      document.getElementById('password').type = this.checked ? 'text' : 'password';
+    });
+    document.getElementById('admin-show-pass').addEventListener('change', function () {
+      document.getElementById('admin-password').type = this.checked ? 'text' : 'password';
+    });
+    var adminErr = document.getElementById('admin-err');
+    function showAdmin(msg) { adminErr.style.display = 'block'; adminErr.textContent = msg; }
+    document.getElementById('admin-btn').addEventListener('click', async function (e) {
+      e.preventDefault();
+      var u = document.getElementById('admin-username').value.trim();
+      var p = document.getElementById('admin-password').value;
+      if (!u || !p) { showAdmin('admin username and password required'); return; }
+      try {
+        var res = await fetch('/__oc_admin_login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) });
+        var data = null; try { data = await res.json(); } catch (e2) {}
+        if (data && data.redirect) { window.location = data.redirect; return; }
+        if (res.status >= 400) { showAdmin((data && data.error) || ('Error ' + res.status)); return; }
+        window.location = '/__oc_admin';
+      } catch (e3) { showAdmin('admin login failed'); }
+    });
+    document.getElementById('admin-form').addEventListener('submit', function (e) { e.preventDefault(); });
+    </script>
+    </body>
+    </html>`
+    }
+
+    function serveAuthPage(response, identity) {
+      response.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store, no-cache, must-revalidate, max-age=0',
+      })
+      response.end(authPageHtml(identity))
+    }
+
+    function redirectToPod(response, slug) {
+      response.writeHead(302, { location: `https://${userHostForSlug(slug)}` })
+      response.end()
+    }
+
+    function adminPageHtml() {
+      return `<!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenCode Admin</title>
+    <style>
+    :root { --bg: #0d1117; --bg-panel: #161b22; --border: #30363d; --text: #e6edf3; --text-muted: #7d8590; --accent: #2f81f7; --danger: #f85149; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; padding: 24px; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    .sub { color: var(--text-muted); margin-bottom: 24px; }
+    .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 20px; max-width: 720px; }
+    .card h2 { font-size: 15px; margin-bottom: 12px; }
+    label { display: block; font-size: 12px; color: var(--text-muted); margin: 8px 0 4px; }
+    input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-size: 14px; }
+    button { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 12px; }
+    button.danger { background: var(--danger); }
+    .msg { display: none; margin-top: 10px; font-size: 12px; word-break: break-word; }
+    .msg.err { color: var(--danger); }
+    .msg.ok { color: #3fb950; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    th { color: var(--text-muted); font-weight: 600; }
+    .spinner { display:inline-block; width:12px; height:12px; border:2px solid var(--border); border-top-color: var(--accent); border-radius:50%; animation: spin .8s linear infinite; vertical-align:middle; margin-right:6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .ready { color:#3fb950; font-weight:600; }
+    .none-dot { color: var(--text-muted); }
+    .empty { color: var(--text-muted); padding: 12px 0; }
+    a.back { color: var(--accent); font-size: 12px; text-decoration: none; }
+    </style>
+    </head>
+    <body>
+    <a class="back" href="/">&larr; back to login</a>
+    <span style="float:right;"><a class="back" href="/__oc_admin_logout">Log out</a></span>
+    <h1>Admin</h1>
+    <div class="sub">Create or delete user accounts.</div>
+
+    <div class="card">
+      <h2>Create user</h2>
+      <label for="u">Username</label>
+      <input id="u" autocomplete="off">
+      <label for="p">Password</label>
+      <input id="p" type="password">
+      <label style="display:flex;align-items:center;gap:6px;margin-top:6px;"><input type="checkbox" id="p-show" style="width:auto;"> show password</label>
+      <button id="create">Create user</button>
+      <div class="msg" id="create-msg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Users</h2>
+      <div id="list" class="empty">Loading&hellip;</div>
+    </div>
+
+    <div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);align-items:center;justify-content:center;z-index:20;">
+      <div class="card" style="max-width:380px;width:100%;">
+        <h2 id="modal-title"></h2>
+        <label id="modal-label" style="display:none;">New username</label>
+        <input id="modal-username" type="text" style="display:none;">
+        <label id="modal-pass-label" style="display:none;">New password</label>
+        <input id="modal-pass" type="password" style="display:none;">
+        <label id="modal-pass-show-wrap" style="display:none;align-items:center;gap:6px;margin-top:6px;"><input type="checkbox" id="modal-pass-show" style="width:auto;"> show password</label>
+        <div class="msg err" id="modal-msg"></div>
+        <button id="modal-ok">OK</button>
+        <button id="modal-cancel">Cancel</button>
+      </div>
+    </div>
+
+    <script>
+    var listEl = document.getElementById('list');
+    var pollTimer = null;
+    var modalMode = null;
+    var modalUser = null;
+    function msg(id, text, ok) {
+      var el = document.getElementById(id);
+      el.style.display = 'block';
+      el.className = 'msg ' + (ok ? 'ok' : 'err');
+      el.textContent = text;
+      if (ok) setTimeout(function () { el.style.display = 'none'; }, 2500);
+    }
+    async function api(path, method, body) {
+      var res = await fetch(path, { method: method || 'GET', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+      var data = null; try { data = await res.json(); } catch (e) {}
+      if (res.status >= 400) throw new Error((data && data.error) || ('Error ' + res.status));
+      return data;
+    }
+    function openModal(mode, username) {
+      modalMode = mode;
+      modalUser = username;
+      var isReset = mode === 'reset';
+      document.getElementById('modal-title').textContent = (isReset ? 'Reset password' : 'Rename') + ' for ' + username;
+      document.getElementById('modal-msg').style.display = 'none';
+      document.getElementById('modal-username').style.display = isReset ? 'none' : 'block';
+      document.getElementById('modal-label').style.display = isReset ? 'none' : 'block';
+      document.getElementById('modal-pass-label').style.display = isReset ? 'block' : 'none';
+      document.getElementById('modal-pass').style.display = isReset ? 'block' : 'none';
+      document.getElementById('modal-pass-show').checked = false;
+      document.getElementById('modal-pass').type = 'password';
+      document.getElementById('modal-pass-show-wrap').style.display = isReset ? 'flex' : 'none';
+      document.getElementById('modal-username').value = '';
+      document.getElementById('modal-pass').value = '';
+      document.getElementById('modal').style.display = 'flex';
+    }
+    function closeModal() {
+      document.getElementById('modal').style.display = 'none';
+      modalMode = null;
+      modalUser = null;
+    }
+    document.getElementById('modal-cancel').addEventListener('click', closeModal);
+    document.getElementById('modal-pass-show').addEventListener('change', function () {
+      document.getElementById('modal-pass').type = this.checked ? 'text' : 'password';
+    });
+    document.getElementById('modal-ok').addEventListener('click', async function () {
+      if (!modalMode || !modalUser) return;
+      var btn = document.getElementById('modal-ok');
+      btn.disabled = true;
+      try {
+        if (modalMode === 'reset') {
+          var pass = document.getElementById('modal-pass').value;
+          if (!pass) throw new Error('password required');
+          await api('/__oc_admin/api/reset-password', 'POST', { username: modalUser, password: pass });
+        } else {
+          var nu = document.getElementById('modal-username').value.trim();
+          if (!nu) throw new Error('new username required');
+          await api('/__oc_admin/api/rename', 'POST', { username: modalUser, newUsername: nu });
+        }
+        closeModal();
+        await loadUsers();
+      } catch (e) {
+        var me = document.getElementById('modal-msg');
+        me.style.display = 'block';
+        me.textContent = e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    async function loadUsers() {
+      try {
+        var data = await api('/__oc_admin/api/users');
+        var users = data.users || [];
+        if (users.length === 0) {
+          listEl.innerHTML = '<div class="empty">No users.</div>';
+          syncPoll(users);
+          return;
+        }
+        listEl.innerHTML = '<table><thead><tr><th>Username</th><th>Slug</th><th>Status</th><th></th></tr></thead><tbody>' +
+          users.map(function (u) {
+            return '<tr><td>' + u.username + '</td><td><code>' + u.slug + '</code></td><td>' + statusHtml(u) + '</td>' +
+              '<td style="white-space:nowrap;">' +
+              '<button data-act="rename" data-u="' + u.username + '" style="padding:6px 10px;font-size:12px;margin-right:6px;">Rename</button>' +
+              '<button data-act="reset" data-u="' + u.username + '" style="padding:6px 10px;font-size:12px;margin-right:6px;">Reset</button>' +
+              '<button class="danger" data-act="delete" data-u="' + u.username + '" style="padding:6px 10px;font-size:12px;">Delete</button>' +
+              '</td></tr>';
+          }).join('') + '</tbody></table>';
+        syncPoll(users);
+        listEl.querySelectorAll('button[data-u]').forEach(function (b) {
+          b.addEventListener('click', async function () {
+            var u = b.getAttribute('data-u');
+            var act = b.getAttribute('data-act');
+            if (act === 'rename') { openModal('rename', u); return; }
+            if (act === 'reset') { openModal('reset', u); return; }
+            b.disabled = true;
+            b.innerHTML = '&hellip;';
+            try { await api('/__oc_admin/api/delete', 'POST', { username: u }); } catch (e) { alert(e.message); }
+            await loadUsers();
+          });
+        });
+      } catch (e) {
+        listEl.innerHTML = '<div class="empty">' + e.message + '</div>';
+      }
+    }
+    function statusHtml(u) {
+      if (u.ready) return '<span class="ready">&#10003; ready</span>';
+      if (u.exists) return '<span class="spinner"></span>creating&hellip;';
+      return '<span class="none-dot">&mdash;</span>';
+    }
+    function syncPoll(users) {
+      var anyCreating = users.some(function (u) { return u.exists && !u.ready; });
+      if (anyCreating && !pollTimer) pollTimer = setInterval(loadUsers, 4000);
+      else if (!anyCreating && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+    document.getElementById('p-show').addEventListener('change', function () {
+      document.getElementById('p').type = this.checked ? 'text' : 'password';
+    });
+    document.getElementById('create').addEventListener('click', async function () {
+      var btn = document.getElementById('create');
+      var u = document.getElementById('u').value.trim();
+      var p = document.getElementById('p').value;
+      if (!u || !p) { msg('create-msg', 'username and password required', false); return; }
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Creating&hellip;';
+      try {
+        await api('/__oc_admin/api/create', 'POST', { username: u, password: p });
+        msg('create-msg', 'created ' + u, true);
+        document.getElementById('u').value = '';
+        document.getElementById('p').value = '';
+        document.getElementById('p-show').checked = false;
+        document.getElementById('p').type = 'password';
+        await loadUsers();
+      } catch (e) {
+        msg('create-msg', e.message, false);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Create user';
+      }
+    });
+    loadUsers();
+    </script>
+    </body>
+    </html>`
+    }
+
+    function serveAdminPage(response) {
+      response.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store, no-cache, must-revalidate, max-age=0',
+      })
+      response.end(adminPageHtml())
+    }
+
     const server = http.createServer(async (request, response) => {
-      if (request.url === '/healthz') {
+      const url = new URL(request.url || '/', 'http://internal')
+      const pathname = url.pathname
+      const method = request.method || 'GET'
+
+      if (pathname === '/healthz') {
         json(response, 200, { ok: true })
         return
       }
-      const pathname = new URL(request.url || '/', 'http://internal').pathname
+
+      if (pathname === '/__oc_login' && method === 'POST') {
+        const body = await readJsonBody(request).catch(() => null)
+        const identity = (body?.username || '').trim().toLowerCase()
+        const password = body?.password || ''
+        if (!identity || !password) {
+          json(response, 400, { error: 'username and password are required' })
+          return
+        }
+        if (!(await verifyUser(identity, password))) {
+          json(response, 401, { error: 'invalid username or password' })
+          return
+        }
+        jsonWithCookie(response, 200, { ok: true, redirect: '/__oc_start' }, sessionCookieHeader(identity, false))
+        return
+      }
+
+      if (pathname === '/__oc_register' && method === 'POST') {
+        const body = await readJsonBody(request).catch(() => null)
+        const identity = (body?.username || '').trim().toLowerCase()
+        const password = body?.password || ''
+        if (!/^[a-z0-9._-]{3,64}$/.test(identity)) {
+          json(response, 400, { error: 'username must be 3-64 chars (lowercase letters, digits, . _ -)' })
+          return
+        }
+        if (password.length < 6) {
+          json(response, 400, { error: 'password must be at least 6 characters' })
+          return
+        }
+        try {
+          await registerUser(identity, password)
+        } catch (error) {
+          json(response, error.statusCode || 500, { error: error.message })
+          return
+        }
+        jsonWithCookie(response, 200, { ok: true, redirect: '/__oc_start' }, sessionCookieHeader(identity, false))
+        return
+      }
+
+      if (pathname === '/__oc_sso' && method === 'POST') {
+        const ssoIdentity = (userFromHeaders(request.headers) || '').trim().toLowerCase()
+        if (!ssoIdentity) {
+          json(response, 401, { error: 'not authenticated via SSO' })
+          return
+        }
+        jsonWithCookie(response, 200, { ok: true, redirect: '/__oc_start' }, sessionCookieHeader(ssoIdentity, false))
+        return
+      }
+
+      if (pathname === '/__oc_logout' && (method === 'GET' || method === 'POST')) {
+        response.writeHead(302, { location: '/', 'set-cookie': [sessionCookieHeader('', true)] })
+        response.end()
+        return
+      }
+
+      // Admin console (basic-auth gated)
+      if (pathname === '/__oc_admin_login' && method === 'POST') {
+        const body = await readJsonBody(request).catch(() => null)
+        const u = (body?.username || '').trim()
+        const p = body?.password || ''
+        if (u === adminUsername && p === adminPassword) {
+          jsonWithCookie(response, 200, { ok: true, redirect: '/__oc_admin' }, adminSessionCookieHeader())
+          return
+        }
+        json(response, 401, { error: 'invalid admin credentials' })
+        return
+      }
+      if (pathname === '/__oc_admin_logout' && (method === 'GET' || method === 'POST')) {
+        response.writeHead(302, { location: '/', 'set-cookie': [clearAdminCookieHeader()] })
+        response.end()
+        return
+      }
+      if (pathname === '/__oc_admin' && method === 'GET') {
+        if (!isAdmin(request)) {
+          response.writeHead(401, { 'www-authenticate': 'Basic realm="opencode-admin"' })
+          response.end()
+          return
+        }
+        serveAdminPage(response)
+        return
+      }
+      if (pathname === '/__oc_admin/api/users' && method === 'GET') {
+        if (!isAdmin(request)) {
+          json(response, 401, { error: 'unauthorized' })
+          return
+        }
+        const users = await loadUserRegistry()
+        const deployments = await listUserDeployments()
+        const list = Object.keys(users).map((username) => {
+          const slug = slugForUser(username)
+          const dep = deployments.find((d) => {
+            const labels = d.metadata?.labels || {}
+            return labels['opencode-user-slug'] === slug
+              || (labels['opencode-user-warmpool'] === 'true' && labels['opencode-user-owner'] === slug)
+          })
+          return {
+            username,
+            slug,
+            exists: !!dep,
+            ready: !!dep && (dep.status?.readyReplicas || 0) >= 1,
+          }
+        })
+        json(response, 200, { users: list })
+        return
+      }
+      if (pathname === '/__oc_admin/api/create' && method === 'POST') {
+        if (!isAdmin(request)) {
+          json(response, 401, { error: 'unauthorized' })
+          return
+        }
+        const body = await readJsonBody(request).catch(() => null)
+        const identity = (body?.username || '').trim().toLowerCase()
+        const password = body?.password || ''
+        if (!/^[a-z0-9._-]{3,64}$/.test(identity)) {
+          json(response, 400, { error: 'username must be 3-64 chars (lowercase letters, digits, . _ -)' })
+          return
+        }
+        if (password.length < 6) {
+          json(response, 400, { error: 'password must be at least 6 characters' })
+          return
+        }
+        try {
+          await registerUser(identity, password)
+        } catch (error) {
+          json(response, error.statusCode || 500, { error: error.message })
+          return
+        }
+        try {
+          // Provision the pod immediately so the account is "ready" up front.
+          await resolveUserEnvironment(identity)
+        } catch (error) {
+          console.error('admin create provisioning failed', error)
+        }
+        json(response, 200, { ok: true, username: identity })
+        return
+      }
+      if (pathname === '/__oc_admin/api/delete' && method === 'POST') {
+        if (!isAdmin(request)) {
+          json(response, 401, { error: 'unauthorized' })
+          return
+        }
+        const body = await readJsonBody(request).catch(() => null)
+        const identity = (body?.username || '').trim().toLowerCase()
+        if (!identity) {
+          json(response, 400, { error: 'username is required' })
+          return
+        }
+        try {
+          await deleteUserEnvironment(slugForUser(identity))
+          const users = await loadUserRegistry()
+          if (users[identity]) {
+            delete users[identity]
+            await saveUserRegistry(users)
+          }
+          json(response, 200, { ok: true, username: identity })
+        } catch (error) {
+          console.error('admin delete failed', error)
+          json(response, 500, { error: error.message })
+        }
+        return
+      }
+      if (pathname === '/__oc_admin/api/reset-password' && method === 'POST') {
+        if (!isAdmin(request)) {
+          json(response, 401, { error: 'unauthorized' })
+          return
+        }
+        const body = await readJsonBody(request).catch(() => null)
+        const identity = (body?.username || '').trim().toLowerCase()
+        const password = body?.password || ''
+        const users = await loadUserRegistry()
+        if (!users[identity]) {
+          json(response, 404, { error: 'user not found' })
+          return
+        }
+        if (password.length < 6) {
+          json(response, 400, { error: 'password must be at least 6 characters' })
+          return
+        }
+        const salt = crypto.randomBytes(16).toString('hex')
+        users[identity] = { ...users[identity], salt, hash: hashPassword(password, salt), updatedAt: new Date().toISOString() }
+        await saveUserRegistry(users)
+        json(response, 200, { ok: true, username: identity })
+        return
+      }
+      if (pathname === '/__oc_admin/api/rename' && method === 'POST') {
+        if (!isAdmin(request)) {
+          json(response, 401, { error: 'unauthorized' })
+          return
+        }
+        const body = await readJsonBody(request).catch(() => null)
+        const oldName = (body?.username || '').trim().toLowerCase()
+        const newName = (body?.newUsername || '').trim().toLowerCase()
+        if (oldName === newName) {
+          json(response, 400, { error: 'new username is the same as the current one' })
+          return
+        }
+        if (!/^[a-z0-9._-]{3,64}$/.test(newName)) {
+          json(response, 400, { error: 'new username must be 3-64 chars (lowercase letters, digits, . _ -)' })
+          return
+        }
+        const users = await loadUserRegistry()
+        if (!users[oldName]) {
+          json(response, 404, { error: 'user not found' })
+          return
+        }
+        if (users[newName]) {
+          json(response, 409, { error: 'username already exists' })
+          return
+        }
+        users[newName] = users[oldName]
+        delete users[oldName]
+        await saveUserRegistry(users)
+        try {
+          await resolveUserEnvironment(newName)
+        } catch (error) {
+          console.error('admin rename provision failed', error)
+        }
+        try {
+          await deleteUserEnvironment(slugForUser(oldName))
+        } catch (error) {
+          console.error('admin rename cleanup failed', error)
+        }
+        json(response, 200, { ok: true, username: newName })
+        return
+      }
+
       if (setupUiEnabled && pathname === setupStatusPath) {
         await handleSetupStatus(request, response)
         return
       }
-      try {
-        const target = await resolveTarget(request)
-        if (setupUiEnabled) {
-          if (!(await isEnvironmentReady(target.names))) {
-            startProvisionWatch(target.names)
-            serveSetupPage(response)
-            return
-          }
-        } else {
-          await provisionReady(target.names)
-        }
-        proxyRequest(request, response, target)
-      } catch (error) {
-        console.error('request handling failed', error)
-        json(response, error.statusCode || 500, { error: error.message })
-      }
-    })
 
-    server.on('upgrade', async (request, socket, head) => {
-      const userId = userFromHeaders(request.headers)
-      try {
-        const target = await resolveTarget(request)
-        await provisionReady(target.names)
-        console.log(`upgrade url=${request.url} userId=${userId} target=${target.host}:${target.port}`)
-        proxyUpgrade(request, socket, head, target)
-      } catch (error) {
-        console.error(`upgrade handling failed url=${request.url} userId=${userId}`, error)
-        socket.write(`HTTP/1.1 ${error.statusCode || 500} Error\r\n\r\n`)
-        socket.destroy()
+      // Provisioning entry point: after login/register/sso. Ensures the user's
+      // pod, shows the loading page while it comes up, then redirects to the pod.
+      if (pathname === '/__oc_start') {
+        const identity = readSessionIdentity(request)
+        if (!identity) {
+          response.writeHead(302, { location: '/' })
+          response.end()
+          return
+        }
+        try {
+          const environment = await resolveUserEnvironment(identity)
+          if (setupUiEnabled) {
+            if (!(await isEnvironmentReady(environment.names))) {
+              startProvisionWatch(environment.names)
+              serveSetupPage(response)
+              return
+            }
+          } else {
+            await provisionReady(environment.names)
+          }
+          redirectToPod(response, slugForUser(identity))
+        } catch (error) {
+          console.error('start request handling failed', error)
+          json(response, error.statusCode || 500, { error: error.message })
+        }
+        return
       }
+
+      // Main host always presents the login/account page (with an "Open your
+      // environment / Log out" strip when a session already exists).
+      serveAuthPage(response, readSessionIdentity(request))
     })
 
     server.listen(8080, '0.0.0.0', () => {
@@ -1288,6 +2267,7 @@ data:
 
     recoverOwnerPool()
     reconcilePool()
+    reconcileUserVirtualServices()
     if (warmPoolEnabled && warmPoolSize > 0) {
       setInterval(reconcilePool, warmRefreshIntervalMs)
     }

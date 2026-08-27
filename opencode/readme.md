@@ -4,6 +4,66 @@ Deploy and manage multiple isolated [opencode](https://opencode.ai) coding-agent
 
 ---
 
+## Access & Authentication
+
+The app entry point is `https://opencode.{DOMAIN_NAME}` (protected by platform
+SSO). From there you choose how to log in:
+
+- **Continue with SSO** — uses your platform identity. Each distinct SSO
+  account gets its own pod.
+- **Use a local account** — create a username/password (or log in if you've
+  created one). Every username is assigned its **own dedicated pod**, which is
+  ideal when a whole demo shares one SSO account but each person needs their
+  own opencode instance.
+
+After logging in you are redirected to your personal host
+`https://opencode-u-{slug}.{DOMAIN_NAME}`, which serves your UI, terminal,
+data manager, and previews directly from your own pod. Access to that host is
+gated by the signed session cookie issued at login, so each user can only reach
+their own pod.
+
+### Host scheme
+
+| Purpose | URL |
+|---|---|
+| Login / SSO / register / provisioning | `https://opencode.{DOMAIN_NAME}` |
+| Personal environment | `https://opencode-u-{slug}.{DOMAIN_NAME}` |
+| Terminal | `.../terminal` |
+| Data Manager | `.../data_manager` |
+| Preview for port `PORT` | `.../__preview/{PORT}/` |
+
+Previews are auth-gated (same cookie as the rest of the pod). Share them with
+someone who can authenticate to that pod.
+
+### DNS
+
+The platform's DNS must resolve the app hosts to the Istio ingress gateway IP:
+
+- `opencode.{DOMAIN_NAME}` → the gateway IP
+- `opencode-u-*.{DOMAIN_NAME}` → the same gateway IP (covers every user's pod
+  host, including users created later)
+
+## Admin Console
+
+Admins manage accounts at `https://opencode.{DOMAIN_NAME}/__oc_admin`, reached
+via the **Admin login** form on the login page (or by navigating directly).
+Credentials come from your values file:
+
+```yaml
+admin:
+  username: admin-user
+  password: "admin-password"
+```
+
+From the admin console you can:
+
+- **Create user** — add a username/password; the account is provisioned
+  immediately (spinner → **ready**), so you can pre-provision accounts for a
+  workshop and hand out the credentials.
+- **Delete user** — remove the account and all its pods/PVCs.
+- **Reset password** — set a new password for a user.
+- **Rename** — change a username (recreates the environment under the new name).
+
 ## Configuration
 
 ### opencode.json, Agents & Skills
@@ -24,7 +84,7 @@ To switch the version of either opencode or OpenChamber, change the number in `v
 ### UI modes
 
 - **`ui.mode: opencode`** (default) — the built-in `opencode web` UI is served on the app port, exactly as before.
-- **`ui.mode: openchamber`** — a headless `opencode serve` runs on `ui.serverPort` (loopback, `127.0.0.1`) and [OpenChamber](https://openchamber.dev) is served on `ui.chamberPort` (default `3000`), connecting to it via `OPENCODE_HOST` / `OPENCODE_SKIP_START`. OpenChamber is npm-installed into the user state volume (no separate runtime needed; it runs on the same Node 22 image). The existing terminal / data-manager / preview portals are unchanged. Because the opencode server is loopback-only in this mode, its HTTP basic auth is disabled and access is gated by the inbound `oauth2-proxy` and OpenChamber's `--ui-password` (driven from `auth.password`).
+- **`ui.mode: openchamber`** — a headless `opencode serve` runs on `ui.serverPort` (loopback, `127.0.0.1`) and [OpenChamber](https://openchamber.dev) is served on `ui.chamberPort` (default `3000`), connecting to it via `OPENCODE_HOST` / `OPENCODE_SKIP_START`. OpenChamber is npm-installed into the user state volume (no separate runtime needed; it runs on the same Node 22 image). The terminal / data-manager / preview portals are unchanged. Because the opencode server is loopback-only in this mode, its HTTP basic auth is disabled and OpenChamber's own password prompt is turned off — access is gated entirely by the signed session cookie (the in-pod nginx `auth_request` gate), so there is no additional "Unlock OpenChamber" prompt.
 
 These are bundled into a ConfigMap and copied into each user's `~/.config/opencode/` on first start. Users can **edit any of these files directly** inside their environment — a watcher (`opencode_supervisor.mjs`) monitors `opencode.json`, `config.json`, `opencode.jsonc` and the `skills/` / `agents/` directories for changes and automatically restarts the opencode process. Just **refresh the browser** to see changes take effect.
 
@@ -67,10 +127,11 @@ warmPool:
 
 ### Tradeoff
 
-Each warm unit is an idle user pod consuming up to `user.resources.limits`
-(by default 2 cores / 2 Gi). `warmPool.size` therefore adds a permanent overhead
-of `size × those limits`. This is the explicit cost of instant first launch; keep
-it `enabled: false` if idle capacity is a concern.
+Each warm unit is an idle user pod consuming up to the per-user pod limits
+(2 cores / 2 Gi, hardcoded in the user template). `warmPool.size` therefore
+adds a permanent overhead of `size × those limits`. This is the explicit cost
+of instant first launch; keep it `enabled: false` if idle capacity is a
+concern.
 
 ### Uninstall / `helm uninstall`
 
@@ -99,8 +160,8 @@ screen** immediately:
 - A spinner plus an elapsed timer and the text "Setting up your
   environment…".
 - The page polls the router's `/__oc_setup_status` endpoint every 2 seconds.
-- When the pod becomes ready, the page **auto-reloads** and proxies you into
-  your environment automatically.
+- When the pod becomes ready, the page **auto-reloads** and redirects you to
+  your pod host automatically.
 - If provisioning fails or times out, the page swaps to an error state with a
   **Retry** button (the retry clears the failed provisioning attempt and
   starts over).
@@ -172,7 +233,7 @@ A shared Python virtual environment (`/workspace/shared/.venv-preview/`) and `re
 The built-in opencode web terminal can be unreliable in this environment, with text leaking across terminals. To address this, a dedicated **tabbed, multi-terminal UI** (built on ttyd + tmux) is served at:
 
 ```
-https://opencode-web-k8s.{DOMAIN_NAME}/terminal
+https://opencode-u-{slug}.{DOMAIN_NAME}/terminal
 ```
 
 It is always available and gives you **multiple independent terminal tabs**, each with the same environment as the opencode agent. Run `opencode` in one tab, `python` in another, and `vim` in a third — they are fully isolated subprocesses.
@@ -192,7 +253,7 @@ It is always available and gives you **multiple independent terminal tabs**, eac
 A web-based file manager is served at:
 
 ```
-https://opencode-web-k8s.{DOMAIN_NAME}/data_manager
+https://opencode-u-{slug}.{DOMAIN_NAME}/data_manager
 ```
 
 It provides a full UI for navigating, uploading, downloading, and editing files across the **Personal**, **Shared**, and **Config** (`~/.config`) roots:
@@ -212,17 +273,18 @@ The data manager runs as a zero-dependency Node.js process (`data_manager.mjs`) 
 
 A background watcher (`port_watcher.mjs`) polls `/proc/net/tcp` every 3 seconds. When any process listens on a port in the 3000–9999 range (excluding reserved ports), the watcher:
 
-1. Generates a public preview URL: `https://u-{slug}-p-{port}.{DOMAIN_NAME}`
+1. Generates a public preview URL: `https://opencode-u-{slug}.{DOMAIN_NAME}/__preview/{port}/`
 2. Prints the URL directly to the terminal (and all PTY sessions)
 3. Writes it to a state file for querying via the `preview-url` helper
 
-The platform's routing layer (Istio VirtualService + nginx sidecar) forwards traffic from `*.{DOMAIN_NAME}` to the correct local port.
+The platform's routing layer — the per-user Istio VirtualService + the in-pod
+nginx — forwards traffic from your host to the correct local port.
 
 ### Quick start a preview server
 
 ```bash
 /workspace/create-server.sh /workspace/personal/my-file.html 8000
-# → [preview] Preview available for port 8000: https://u-abc123def456-p-8000.{DOMAIN_NAME}
+# → [preview] Preview available for port 8000: https://opencode-u-abc123def456.{DOMAIN_NAME}/__preview/8000/
 ```
 
 ---
