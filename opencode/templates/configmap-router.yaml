@@ -37,8 +37,6 @@ data:
     const serviceAccountToken = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim()
     const serviceAccountCa = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt')
     const basicAuth = `Basic ${Buffer.from(`${process.env.OPENCODE_SERVER_USERNAME}:${process.env.OPENCODE_SERVER_PASSWORD}`).toString('base64')}`
-    const previewHostPattern = new RegExp(`^u-([a-f0-9]{12})-p-(\\d{4,5})\\.${escapeRegex(previewDomainSuffix)}$`, 'i')
-    const ttydHostPattern = new RegExp(`^t-([a-f0-9]{12})\\.${escapeRegex(previewDomainSuffix)}$`, 'i')
     const activePtyUpgrades = new Map()
     let tunnelSeq = 0
     const warmPoolEnabled = process.env.WARM_POOL_ENABLED === 'true'
@@ -48,12 +46,11 @@ data:
     let poolBusy = false
     const setupUiEnabled = process.env.SETUP_UI_ENABLED === 'true'
     const setupStatusPath = process.env.SETUP_STATUS_PATH || '/__oc_setup_status'
-    const setupHeading = process.env.SETUP_HEADING || 'Setting up your environment\u2026'
+    const setupHeading = process.env.SETUP_HEADING || 'Setting up your account\u2026'
     const setupSubtext = process.env.SETUP_SUBTEXT || 'This usually takes a few minutes on first launch. Please wait.'
     const provisionTasks = new Map() // deployment name -> { promise, error }
 
     // --- Direct-to-pod routing / identity -------------------------------
-    const userHostPrefix = process.env.USER_HOST_PREFIX || '{{ .Values.userHostPrefix }}'
     const istioGateway = process.env.ISTIO_GATEWAY || '{{ .Values.ezua.virtualService.istioGateway }}'
     const registrySecretName = process.env.USER_REGISTRY_SECRET || '{{ .Release.Name }}-users'
     const sessionSecret = process.env.SESSION_SECRET || ''
@@ -61,10 +58,11 @@ data:
     const sessionTtlSeconds = 7 * 24 * 60 * 60
     const adminUsername = process.env.ADMIN_USERNAME || ''
     const adminPassword = process.env.ADMIN_PASSWORD || ''
-
-    function escapeRegex(value) {
-      return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    }
+    // Version the per-user PVC names so a new environment provisions a fresh
+    // VAST volume instead of colliding with an orphaned quota left behind by a
+    // previously-deleted volume (VAST CSI deletes can fail when
+    // deletionViewPolicy is not configured to allow local volume deletion).
+    const pvcNameVersion = process.env.PVC_NAME_VERSION || '{{ .Values.storage.nameVersion }}'
 
     function slugForUser(userId) {
       return crypto.createHash('sha256').update(userId.toLowerCase()).digest('hex').slice(0, 12)
@@ -75,14 +73,10 @@ data:
       return {
         deployment: base,
         service: `${base}-svc`,
-        workspaceClaim: `${base}-workspace-pvc`,
-        stateClaim: `${base}-state-pvc`,
+        workspaceClaim: `${base}-workspace-pvc-${pvcNameVersion}`,
+        stateClaim: `${base}-state-pvc-${pvcNameVersion}`,
         virtualService: `opencode-user-vs-${slug}`,
       }
-    }
-
-    function userHostForSlug(slug) {
-      return `${userHostPrefix}${slug}.${previewDomainSuffix}`
     }
 
     // --- Admin console ------------------------------------------------
@@ -361,27 +355,6 @@ data:
       return userId || null
     }
 
-    function previewRequest(hostname) {
-      const match = hostname.match(previewHostPattern)
-      if (!match) {
-        return null
-      }
-      return {
-        slug: match[1].toLowerCase(),
-        port: Number(match[2]),
-      }
-    }
-
-    function ttydRequest(hostname) {
-      const match = hostname.match(ttydHostPattern)
-      if (!match) {
-        return null
-      }
-      return {
-        slug: match[1].toLowerCase(),
-      }
-    }
-
     function json(response, statusCode, payload) {
       response.writeHead(statusCode, { 'content-type': 'application/json' })
       response.end(JSON.stringify(payload))
@@ -618,89 +591,13 @@ data:
       await upsertService(userServiceManifest(name, slug))
     }
 
-    async function ensureUserVirtualService(slug, serviceName) {
-      const names = namesForSlug(slug)
-      const host = userHostForSlug(slug)
-      const destinationService = serviceName || names.service
-      const manifest = {
-        apiVersion: 'networking.istio.io/v1',
-        kind: 'VirtualService',
-        metadata: {
-          name: names.virtualService,
-          namespace,
-          labels: {
-            app: '{{ .Chart.Name }}',
-            'opencode-user-managed': 'true',
-            'opencode-user-slug': slug,
-          },
-        },
-        spec: {
-          hosts: [host],
-          gateways: [istioGateway],
-          http: [
-            {
-              match: [{ uri: { prefix: '/' } }],
-              route: [
-                {
-                  destination: {
-                    host: `${destinationService}.${namespace}.svc.cluster.local`,
-                    port: { number: 8082 },
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      }
-      const path = `/apis/networking.istio.io/v1/namespaces/${namespace}/virtualservices/${names.virtualService}`
-      const existing = await k8sRequest('GET', path)
-      if (existing) {
-        if (JSON.stringify(existing.spec || {}) !== JSON.stringify(manifest.spec)) {
-          await k8sRequest('PATCH', path, {
-            metadata: { labels: manifest.metadata.labels },
-            spec: manifest.spec,
-          })
-        }
-        return
-      }
-      try {
-        await k8sRequest('POST', `/apis/networking.istio.io/v1/namespaces/${namespace}/virtualservices`, manifest)
-      } catch (error) {
-        if (error.statusCode !== 409) {
-          throw error
-        }
-      }
-    }
-
-    async function reconcileUserVirtualServices() {
-      try {
-        const deployments = await listUserDeployments()
-        for (const dep of deployments) {
-          const labels = dep.metadata?.labels || {}
-          const owner = labels['opencode-user-owner']
-          const slug = labels['opencode-user-slug']
-          const useSlug = owner || slug
-          if (!useSlug) continue
-          const poolId = Number(labels['opencode-user-pool-id'])
-          const isWarm = labels['opencode-user-warmpool'] === 'true'
-          const serviceName = isWarm
-            ? warmNamesForPoolId(poolId).service
-            : namesForSlug(useSlug).service
-          await ensureUserVirtualService(useSlug, serviceName)
-        }
-        console.log(`[vs] reconciled ${deployments.length} user virtual service(s)`)
-      } catch (error) {
-        console.error('[vs] reconcile failed', error)
-      }
-    }
-
     function warmNamesForPoolId(poolId) {
       const base = `opencode-user-warm-${poolId}`
       return {
         deployment: base,
         service: `${base}-svc`,
-        workspaceClaim: `${base}-workspace-pvc`,
-        stateClaim: `${base}-state-pvc`,
+        workspaceClaim: `${base}-workspace-pvc-${pvcNameVersion}`,
+        stateClaim: `${base}-state-pvc-${pvcNameVersion}`,
         slug: `warm-${poolId}`,
       }
     }
@@ -1216,13 +1113,11 @@ data:
         await ensurePersistentVolumeClaim(names.stateClaim, stateSize)
         await ensureService(names.service, slug)
         await ensureDeployment(names.deployment, names.workspaceClaim, names.stateClaim, slug)
-        await ensureUserVirtualService(slug, names.service)
         return { slug, names }
       }
       if (warmPoolEnabled && warmPoolSize > 0) {
         const claimed = await claimWarmForUser(slug)
         if (claimed) {
-          await ensureUserVirtualService(slug, claimed.names.service)
           return claimed
         }
       }
@@ -1231,55 +1126,37 @@ data:
       await ensurePersistentVolumeClaim(names.stateClaim, stateSize)
       await ensureService(names.service, slug)
       await ensureDeployment(names.deployment, names.workspaceClaim, names.stateClaim, slug)
-      await ensureUserVirtualService(slug, names.service)
       return { slug, names }
     }
 
-    function targetForApp(names) {
-      return {
-        host: `${names.service}.${namespace}.svc.cluster.local`,
-        port: 8080,
-        injectBasicAuth: !userIsChamber,
-        preserveHost: true,
-      }
-    }
-
-    function targetForPreview(names) {
+    function targetForUserPath(names, path, slug) {
       return {
         host: `${names.service}.${namespace}.svc.cluster.local`,
         port: 8082,
         injectBasicAuth: false,
         preserveHost: true,
+        path,
+        forwardedPrefix: `/u-${slug}`,
       }
     }
 
-    function targetForTtyd(names) {
+    function targetForPassthrough(names, path) {
       return {
         host: `${names.service}.${namespace}.svc.cluster.local`,
-        port: 7681,
+        port: 8082,
         injectBasicAuth: false,
         preserveHost: true,
-        ttyd: true,
+        path,
       }
     }
 
-    function targetForTerminalManager(names) {
-      return {
-        host: `${names.service}.${namespace}.svc.cluster.local`,
-        port: 7683,
-        injectBasicAuth: false,
-        preserveHost: true,
-        ttyd: true,
-      }
-    }
-
-    function targetForDataManager(names) {
-      return {
-        host: `${names.service}.${namespace}.svc.cluster.local`,
-        port: 7682,
-        injectBasicAuth: false,
-        preserveHost: true,
-      }
+    function stripSlugPrefix(requestUrl, slug) {
+      const prefix = `/u-${slug}`
+      if (!requestUrl.startsWith(prefix)) return requestUrl
+      const rest = requestUrl.slice(prefix.length)
+      if (rest === '') return '/'
+      if (rest.startsWith('?')) return '/' + rest
+      return rest
     }
 
     function proxyHeaders(request, target) {
@@ -1295,11 +1172,14 @@ data:
       if (target.injectBasicAuth) {
         headers.authorization = basicAuth
       }
+      if (target.forwardedPrefix) {
+        headers['x-forwarded-prefix'] = target.forwardedPrefix
+      }
       return headers
     }
 
     function ptyUpgradeKey(request, target) {
-      const pathname = new URL(request.url || '/', 'http://internal').pathname
+      const pathname = new URL(target.path || request.url || '/', 'http://internal').pathname
       const match = pathname.match(/^\/pty\/([^/]+)\/connect$/)
       if (!match) return null
       return `${target.host}:${target.port}:${match[1]}`
@@ -1311,7 +1191,7 @@ data:
           host: target.host,
           port: target.port,
           method: request.method,
-          path: request.url,
+          path: target.path || request.url,
           headers: proxyHeaders(request, target),
         },
         (upstreamResponse) => {
@@ -1364,7 +1244,7 @@ data:
 
       upstreamSocket = net.connect(target.port, target.host, () => {
         const method = request.method || 'GET'
-        const reqLine = `${method} ${request.url} HTTP/1.1\r\n`
+        const reqLine = `${method} ${target.path || request.url} HTTP/1.1\r\n`
         const headers = proxyHeaders(request, target)
         headers.host = request.headers.host
         const headerStr = Object.entries(headers)
@@ -1454,41 +1334,6 @@ data:
       })
     }
 
-    async function resolveTarget(request) {
-      const hostHeader = (request.headers.host || '').split(':')[0].toLowerCase()
-      const userId = userFromHeaders(request.headers)
-      if (!userId) {
-        const error = new Error(`Missing ${usernameHeader} header`)
-        error.statusCode = 401
-        throw error
-      }
-      const environment = await resolveUserEnvironment(userId)
-      const pathname = new URL(request.url || '/', 'http://internal').pathname
-      let target
-      if (pathname === '/terminal' || pathname.startsWith('/terminal/')) {
-        target = targetForTerminalManager(environment.names)
-      } else if (pathname.startsWith('/term')) {
-        target = targetForTtyd(environment.names)
-      } else if (pathname.startsWith('/data_manager')) {
-        target = targetForDataManager(environment.names)
-      } else {
-        const preview = previewRequest(hostHeader)
-        if (preview) {
-          if (preview.slug !== environment.slug) {
-            const error = new Error('Preview host does not match the authenticated user')
-            error.statusCode = 403
-            throw error
-          }
-          target = targetForPreview(environment.names)
-        } else {
-          target = targetForApp(environment.names)
-        }
-      }
-      target.names = environment.names
-      target.slug = environment.slug
-      return target
-    }
-
     async function handleSetupStatus(request, response) {
       const userId = readSessionIdentity(request)
       if (!userId) {
@@ -1529,7 +1374,7 @@ data:
     <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Setting up your environment</title>
+    <title>Setting up your account</title>
     <style>
     :root { --bg: #0d1117; --bg-panel: #161b22; --border: #30363d; --text: #e6edf3; --text-muted: #7d8590; --accent: #2f81f7; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1539,7 +1384,6 @@ data:
     #subtext { color: var(--text-muted); line-height: 1.5; margin-bottom: 24px; }
     .spinner { width: 44px; height: 44px; margin: 0 auto 24px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    #timer { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     #error-box { display: none; }
     #error-box .error-title { color: #f85149; font-size: 16px; font-weight: 600; margin-bottom: 8px; }
     #error-box .error-detail { font-size: 12px; color: var(--text-muted); margin-bottom: 18px; word-break: break-word; }
@@ -1552,7 +1396,6 @@ data:
       <div id="spinner" class="spinner"></div>
       <div id="heading">${heading}</div>
       <div id="subtext">${subtext}</div>
-      <div id="timer">0:00</div>
       <div id="error-box">
         <div class="error-title">Something went wrong setting up your environment</div>
         <div class="error-detail" id="error-detail"></div>
@@ -1562,24 +1405,12 @@ data:
     <script>
     (function () {
       var statusUrl = ${statusUrl};
-      var start = Date.now();
-      var timerEl = document.getElementById('timer');
       var errorBox = document.getElementById('error-box');
       var spinner = document.getElementById('spinner');
       var detail = document.getElementById('error-detail');
       var retryBtn = document.getElementById('retry');
-      function fmt(ms) {
-        var total = Math.floor(ms / 1000);
-        var h = Math.floor(total / 3600);
-        var m = Math.floor((total % 3600) / 60);
-        var s = total % 60;
-        function pad(n) { return n < 10 ? '0' + n : String(n); }
-        return h > 0 ? h + ':' + pad(m) + ':' + pad(s) : m + ':' + pad(s);
-      }
-      setInterval(function () { timerEl.textContent = fmt(Date.now() - start); }, 1000);
       function showError(message) {
         spinner.style.display = 'none';
-        timerEl.style.display = 'none';
         detail.textContent = message || '';
         errorBox.style.display = 'block';
       }
@@ -1675,7 +1506,6 @@ data:
       <div class="sub">Sign in to your personal environment. Each user gets their own isolated workspace.</div>
       <div class="card">
         <button id="sso" class="secondary" type="button">Continue with SSO</button>
-        <div class="hint">Uses your platform (PCAI) identity. Best when every user has a distinct SSO account.</div>
       </div>
       <div class="card">
         <h2>Use a local account</h2>
@@ -1686,10 +1516,8 @@ data:
           <input id="password" name="password" type="password" autocomplete="current-password" required>
           <label style="display:flex;align-items:center;gap:6px;margin-top:6px;"><input type="checkbox" id="show-pass" style="width:auto;"> show password</label>
           <button type="submit" id="submit-btn">Log in</button>
-          <button type="button" class="secondary" id="reg-btn">Create account</button>
           <div class="err" id="err"></div>
         </form>
-        <div class="hint">Each username gets its own dedicated pod. If the account doesn&rsquo;t exist yet, create one.</div>
       </div>
       <div class="card">
         <h2>Admin login</h2>
@@ -1721,10 +1549,6 @@ data:
     document.getElementById('submit-btn').addEventListener('click', function (e) {
       e.preventDefault();
       post('/__oc_login', { username: document.getElementById('username').value, password: document.getElementById('password').value });
-    });
-    document.getElementById('reg-btn').addEventListener('click', function (e) {
-      e.preventDefault();
-      post('/__oc_register', { username: document.getElementById('username').value, password: document.getElementById('password').value });
     });
     document.getElementById('form').addEventListener('submit', function (e) { e.preventDefault(); });
     document.getElementById('show-pass').addEventListener('change', function () {
@@ -1763,7 +1587,7 @@ data:
     }
 
     function redirectToPod(response, slug) {
-      response.writeHead(302, { location: `https://${userHostForSlug(slug)}` })
+      response.writeHead(302, { location: `/u-${slug}` })
       response.end()
     }
 
@@ -2256,9 +2080,95 @@ data:
         return
       }
 
+      // Path-based per-user routing: /u-{slug}/... -> that user's pod nginx (:8082).
+      const userPathMatch = pathname.match(/^\/u-([a-f0-9]{12})(\/.*)?$/)
+      if (userPathMatch) {
+        const pathSlug = userPathMatch[1]
+        const identity = readSessionIdentity(request)
+        if (!identity || slugForUser(identity) !== pathSlug) {
+          response.writeHead(302, { location: '/' })
+          response.end()
+          return
+        }
+        try {
+          const environment = await resolveUserEnvironment(identity)
+          if (setupUiEnabled) {
+            if (!(await isEnvironmentReady(environment.names))) {
+              startProvisionWatch(environment.names)
+              serveSetupPage(response)
+              return
+            }
+          } else {
+            await provisionReady(environment.names)
+          }
+          const target = targetForUserPath(environment.names, stripSlugPrefix(request.url || '/', pathSlug), pathSlug)
+          proxyRequest(request, response, target)
+        } catch (error) {
+          console.error('user path request handling failed', error)
+          json(response, error.statusCode || 500, { error: error.message })
+        }
+        return
+      }
+
+      // Session-keyed passthrough: any other path on the main host is served to the
+      // signed-in user's pod so in-pod apps that emit root-relative URLs (openchamber,
+      // data manager, terminal) keep working without a /u-{slug}/ prefix.
+      const sessionIdentity = readSessionIdentity(request)
+      if (sessionIdentity && pathname !== '/') {
+        try {
+          const environment = await resolveUserEnvironment(sessionIdentity)
+          const target = targetForPassthrough(environment.names, request.url || '/')
+          proxyRequest(request, response, target)
+        } catch (error) {
+          console.error('session passthrough failed', error)
+          json(response, error.statusCode || 500, { error: error.message })
+        }
+        return
+      }
+
       // Main host always presents the login/account page (with an "Open your
       // environment / Log out" strip when a session already exists).
-      serveAuthPage(response, readSessionIdentity(request))
+      serveAuthPage(response, sessionIdentity)
+    })
+
+    // WebSocket upgrades for /u-{slug}/... (terminal, ttyd, preview sockets).
+    server.on('upgrade', async (request, socket, head) => {
+      const pathname = new URL(request.url || '/', 'http://internal').pathname
+      const match = pathname.match(/^\/u-([a-f0-9]{12})(\/.*)?$/)
+      const reject = (status, message) => {
+        socket.write(`HTTP/1.1 ${status} ${message}\r\n\r\n`)
+        socket.destroy()
+      }
+      if (!match) {
+        // Root-relative WebSocket from an in-pod app: route to the signed-in user's pod.
+        const identity = readSessionIdentity(request)
+        if (!identity) {
+          reject(401, 'Unauthorized')
+          return
+        }
+        try {
+          const environment = await resolveUserEnvironment(identity)
+          proxyUpgrade(request, socket, head, targetForPassthrough(environment.names, request.url || '/'))
+        } catch (error) {
+          console.error('session passthrough upgrade failed', error)
+          reject(502, 'Bad Gateway')
+        }
+        return
+      }
+      const pathSlug = match[1]
+      const identity = readSessionIdentity(request)
+      if (!identity || slugForUser(identity) !== pathSlug) {
+        reject(401, 'Unauthorized')
+        return
+      }
+      try {
+        const environment = await resolveUserEnvironment(identity)
+        const target = targetForUserPath(environment.names, stripSlugPrefix(request.url || '/', pathSlug), pathSlug)
+        proxyUpgrade(request, socket, head, target)
+      } catch (error) {
+        console.error('user path upgrade failed', error)
+        reject(502, 'Bad Gateway')
+      }
     })
 
     server.listen(8080, '0.0.0.0', () => {
@@ -2267,7 +2177,6 @@ data:
 
     recoverOwnerPool()
     reconcilePool()
-    reconcileUserVirtualServices()
     if (warmPoolEnabled && warmPoolSize > 0) {
       setInterval(reconcilePool, warmRefreshIntervalMs)
     }

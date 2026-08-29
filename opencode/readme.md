@@ -11,37 +11,42 @@ SSO). From there you choose how to log in:
 
 - **Continue with SSO** — uses your platform identity. Each distinct SSO
   account gets its own pod.
-- **Use a local account** — create a username/password (or log in if you've
-  created one). Every username is assigned its **own dedicated pod**, which is
-  ideal when a whole demo shares one SSO account but each person needs their
-  own opencode instance.
+- **Use a local account** — log in with a username/password that an **admin
+  pre-provisioned** for you. (Self-registration is disabled on the login page;
+  accounts are created by an admin — see [Admin Console](#admin-console).)
 
-After logging in you are redirected to your personal host
-`https://opencode-u-{slug}.{DOMAIN_NAME}`, which serves your UI, terminal,
-data manager, and previews directly from your own pod. Access to that host is
-gated by the signed session cookie issued at login, so each user can only reach
-their own pod.
+After logging in you are redirected to your personal path
+`https://opencode.{DOMAIN_NAME}/u-{slug}`, which serves your UI, terminal,
+data manager, and previews directly from your own pod. Access is gated by the
+signed session cookie issued at login, so each user can only reach their own
+pod.
 
-### Host scheme
+### URL scheme
+
+Everything lives on the single main host; each user's environment is addressed
+by its deterministic slug:
 
 | Purpose | URL |
 |---|---|
-| Login / SSO / register / provisioning | `https://opencode.{DOMAIN_NAME}` |
-| Personal environment | `https://opencode-u-{slug}.{DOMAIN_NAME}` |
-| Terminal | `.../terminal` |
-| Data Manager | `.../data_manager` |
-| Preview for port `PORT` | `.../__preview/{PORT}/` |
+| Login / SSO / Admin | `https://opencode.{DOMAIN_NAME}` |
+| Admin console | `https://opencode.{DOMAIN_NAME}/__oc_admin` |
+| Personal environment | `https://opencode.{DOMAIN_NAME}/u-{slug}` |
+| Terminal | `.../u-{slug}/terminal` |
+| Data Manager | `.../u-{slug}/data_manager` |
+| Preview for port `PORT` | `.../u-{slug}/__preview/{PORT}/` |
 
 Previews are auth-gated (same cookie as the rest of the pod). Share them with
 someone who can authenticate to that pod.
 
 ### DNS
 
-The platform's DNS must resolve the app hosts to the Istio ingress gateway IP:
+The platform's DNS must resolve the single app host to the Istio ingress
+gateway IP:
 
 - `opencode.{DOMAIN_NAME}` → the gateway IP
-- `opencode-u-*.{DOMAIN_NAME}` → the same gateway IP (covers every user's pod
-  host, including users created later)
+
+No wildcard is needed — per-user traffic is routed to pods by path, not by
+per-user subdomains.
 
 ## Admin Console
 
@@ -58,8 +63,9 @@ admin:
 From the admin console you can:
 
 - **Create user** — add a username/password; the account is provisioned
-  immediately (spinner → **ready**), so you can pre-provision accounts for a
-  workshop and hand out the credentials.
+  immediately (spinner → **ready**). This is the **only** way to create local
+  accounts (self-registration is hidden on the login page), so pre-provision
+  accounts for a workshop and hand out the credentials.
 - **Delete user** — remove the account and all its pods/PVCs.
 - **Reset password** — set a new password for a user.
 - **Rename** — change a username (recreates the environment under the new name).
@@ -157,11 +163,10 @@ While a user's pod is being assigned/provisioned (a cold first launch can take
 longer leaves the browser hanging on a blank page. It returns a **loading
 screen** immediately:
 
-- A spinner plus an elapsed timer and the text "Setting up your
-  environment…".
+- A spinner plus the text **"Setting up your account…"**.
 - The page polls the router's `/__oc_setup_status` endpoint every 2 seconds.
 - When the pod becomes ready, the page **auto-reloads** and redirects you to
-  your pod host automatically.
+  `/u-{slug}` automatically.
 - If provisioning fails or times out, the page swaps to an error state with a
   **Retry** button (the retry clears the failed provisioning attempt and
   starts over).
@@ -176,7 +181,7 @@ warm unit (no reinstall), so it is near-instant.
 provisioning:
   loadingUI:
     enabled: true                      # set false to restore the original blocking behavior
-    heading: "Setting up your environment…"
+    heading: "Setting up your account…"
     subtext: "This usually takes a few minutes on first launch. Please wait."
 ```
 
@@ -233,7 +238,7 @@ A shared Python virtual environment (`/workspace/shared/.venv-preview/`) and `re
 The built-in opencode web terminal can be unreliable in this environment, with text leaking across terminals. To address this, a dedicated **tabbed, multi-terminal UI** (built on ttyd + tmux) is served at:
 
 ```
-https://opencode-u-{slug}.{DOMAIN_NAME}/terminal
+https://opencode.{DOMAIN_NAME}/u-{slug}/terminal
 ```
 
 It is always available and gives you **multiple independent terminal tabs**, each with the same environment as the opencode agent. Run `opencode` in one tab, `python` in another, and `vim` in a third — they are fully isolated subprocesses.
@@ -253,7 +258,7 @@ It is always available and gives you **multiple independent terminal tabs**, eac
 A web-based file manager is served at:
 
 ```
-https://opencode-u-{slug}.{DOMAIN_NAME}/data_manager
+https://opencode.{DOMAIN_NAME}/u-{slug}/data_manager
 ```
 
 It provides a full UI for navigating, uploading, downloading, and editing files across the **Personal**, **Shared**, and **Config** (`~/.config`) roots:
@@ -273,18 +278,18 @@ The data manager runs as a zero-dependency Node.js process (`data_manager.mjs`) 
 
 A background watcher (`port_watcher.mjs`) polls `/proc/net/tcp` every 3 seconds. When any process listens on a port in the 3000–9999 range (excluding reserved ports), the watcher:
 
-1. Generates a public preview URL: `https://opencode-u-{slug}.{DOMAIN_NAME}/__preview/{port}/`
+1. Generates a public preview URL: `https://opencode.{DOMAIN_NAME}/u-{slug}/__preview/{port}/`
 2. Prints the URL directly to the terminal (and all PTY sessions)
 3. Writes it to a state file for querying via the `preview-url` helper
 
-The platform's routing layer — the per-user Istio VirtualService + the in-pod
-nginx — forwards traffic from your host to the correct local port.
+The platform's routing layer — the router proxy (`/u-{slug}` + the in-pod
+nginx) — forwards traffic to the correct local port.
 
 ### Quick start a preview server
 
 ```bash
 /workspace/create-server.sh /workspace/personal/my-file.html 8000
-# → [preview] Preview available for port 8000: https://opencode-u-abc123def456.{DOMAIN_NAME}/__preview/8000/
+# → [preview] Preview available for port 8000: https://opencode.{DOMAIN_NAME}/u-abc123def456/__preview/8000/
 ```
 
 ---

@@ -99,8 +99,6 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-auth
                   key: ADMIN_PASSWORD
-            - name: USER_HOST_PREFIX
-              value: {{ .Values.userHostPrefix }}
             - name: USER_REGISTRY_SECRET
               value: {{ .Release.Name }}-users
             - name: ISTIO_GATEWAY
@@ -136,7 +134,7 @@ spec:
             - name: SETUP_STATUS_PATH
               value: /__oc_setup_status
             - name: SETUP_HEADING
-              value: {{ .Values.provisioning.loadingUI.heading | default "Setting up your environment…" | quote }}
+              value: {{ .Values.provisioning.loadingUI.heading | default "Setting up your account…" | quote }}
             - name: SETUP_SUBTEXT
               value: {{ .Values.provisioning.loadingUI.subtext | default "This usually takes a few minutes on first launch. Please wait." | quote }}
 {{- if and .Values.certificatesPolicy .Values.certificatesPolicy.enabled }}

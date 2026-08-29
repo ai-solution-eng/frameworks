@@ -15,10 +15,6 @@ ezua:
 # ============================================================
 previewDomain: "${DOMAIN_NAME}"
 
-# Per-user host prefix. Each user pod is reached directly at
-# `<userHostPrefix><slug>.<previewDomain>` (e.g. opencode-u-<slug>.<domain>).
-userHostPrefix: "opencode-u-"
-
 # Session cookie signing secret (also used by each user pod to validate the
 # session cookie that gates access to that pod's UI/terminal/previews).
 sessionSecret: "9xT2mQvR4pS7kL1nW8yB5dF3hJ6cZ0aG"
@@ -27,6 +23,10 @@ storageClass: gl4f-filesystem
 storage:
   sharedSize: 20Gi
   workspaceSize: 5Gi
+  # Version suffix for per-user PVC names. Bump to provision fresh volumes and
+  # avoid colliding with orphaned VAST quotas (when VAST volume deletion is not
+  # enabled). v2 is the first versioned scheme; no user data exists yet to migrate.
+  nameVersion: v2
   stateSize: 2Gi
 
 images:
@@ -52,7 +52,7 @@ provisioning:
   # When disabled the router reverts to the original blocking behavior.
   loadingUI:
     enabled: true
-    heading: "Setting up your environment\u2026"
+    heading: "Setting up your account\u2026"
     subtext: "This usually takes a few minutes on first launch. Please wait."
 
 # ============================================================

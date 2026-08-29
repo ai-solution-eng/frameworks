@@ -173,7 +173,7 @@ data:
     )
 
     function url(port) {
-      return `https://{{ .Values.userHostPrefix }}${userSlug}.${domain}/__preview/${port}/`
+      return `https://{{ .Values.ezua.virtualService.endpoint }}/u-${userSlug}/__preview/${port}/`
     }
 
     async function broadcast(message) {
@@ -263,7 +263,6 @@ data:
   preview-url: |
     #!/bin/sh
     DOMAIN="${PREVIEW_DOMAIN_SUFFIX:-'{{ .Values.previewDomain }}'}"
-    HOST_PREFIX="${USER_HOST_PREFIX:-{{ .Values.userHostPrefix }}}"
     STATE_FILE="${PREVIEW_STATE_FILE:-/var/opencode/state/preview-ports.txt}"
     USER_SLUG="${PREVIEW_USER_SLUG:-shared}"
 
@@ -279,7 +278,7 @@ data:
           exit 1
           ;;
       esac
-      echo "https://$HOST_PREFIX$USER_SLUG.$DOMAIN/__preview/$1/"
+      echo "https://{{ .Values.ezua.virtualService.endpoint }}/u-$USER_SLUG/__preview/$1/"
       exit 0
     fi
 
