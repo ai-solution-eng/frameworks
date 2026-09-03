@@ -1,0 +1,380 @@
+# Default values for kite.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+ezua:
+  #Use next options in order to configure the application endpoint.
+  virtualService:
+    endpoint: "kite.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+
+# This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+replicaCount: 1
+
+# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+image:
+  repository: ghcr.io/kite-org/kite
+  # This sets the pull policy for images.
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag:
+
+# This will set the deployment strategy. More information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#strategy
+#
+# IMPORTANT: If persistence is enabled and using SQLite with a
+# ReadWriteOnce PersistentVolumeClaim, you MUST set this to "Recreate".
+# Using "RollingUpdate" will cause pod conflicts during upgrades because multiple
+# pods cannot mount the same RWO volume simultaneously.
+deploymentStrategy:
+  type: RollingUpdate
+  # rollingUpdate:
+  #   maxSurge: 25%
+  #   maxUnavailable: 25%
+
+# This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+imagePullSecrets: []
+# This is to override the chart name.
+nameOverride: ""
+fullnameOverride: ""
+
+debug: false
+
+# External Host for the application
+# Used in generate OAuth redirect URLs
+# Leave empty to obtain from request headers
+# Example: https://kite.zzde.me
+host: ""
+
+# Base path for the application
+# If you are serving kite under a subpath, set this value accordingly.
+# Remember to also set the ingress path to match.
+# Example: "/kite"
+basePath: ""
+
+# Set to true to enable the anonymous user with full-admin access
+# Be careful with this setting in production
+anonymousUserEnabled: false
+
+# Secret key for signing JWT tokens. Auto-generated if empty.
+# Ignored if using existingSecret
+jwtSecret: ""
+
+# This is the key used for encrypting sensitive data
+# Change this in production
+# Ignored if using existingSecret
+encryptKey: "kite-default-encryption-key-change-in-production"
+
+# Secret handling
+# By default the chart will create a Kubernetes Secret containing sensitive values.
+secret:
+  # Create the Secret from chart values (true) or reference an existing Secret (false)
+  create: true
+  # If set, the deployment will use this existing secret name instead of the generated one (ignored when `create: true`).
+  # must contain all required keys.
+  #  JWT_SECRET
+  #  KITE_ENCRYPT_KEY
+  #  DB_TYPE supported values: sqlite, postgres, mysql (defaults to sqlite if not set)
+  #  DB_DSN (not required for sqlite)
+  # if set, the db.dsn and db.type values from the chart will be ignored.
+  existingSecret: ""
+
+# Database configuration
+# type: sqlite | postgres | mysql
+# - sqlite: embedded DB (default). If you choose sqlite and want data to survive pod restarts,
+#   enable persistence below so a PVC will be used to store the sqlite file.
+# - postgres/mysql: connection fields for external DBs.
+db:
+  # supported values: sqlite, postgres, mysql
+  type: sqlite
+  # full DSN string for MySQL/Postgres.
+  # when type is mysql/postgres, is required
+  # leave empty for use existingSecret to provide it when type is not sqlite
+  # Example: "mysql://user:password@tcp(host:port)/dbname"
+  dsn: ""
+  
+  # sqlite-specific options
+  sqlite:
+    # If true, the chart will create a PVC and mount it into the pod for the sqlite DB file.
+    # Set to false to use ephemeral storage (not recommended for production).
+    persistence:
+      pvc:
+        enabled: false
+        existingClaim: ""
+        # StorageClass to request for the PVC (optional)
+        storageClass: ""
+        # accessModes for the PVC
+        accessModes:
+          - ReadWriteOnce
+        # requested size
+        size: 5Gi
+      hostPath:
+        enabled: false
+        path: /path/to/host/dir
+        type: DirectoryOrCreate
+      # where to mount inside the container
+      mountPath: /data
+      # sqlite filename inside the mountPath
+      filename: kite.db
+    # Additional sqlite database connection options
+    # Example: "_journal_mode=WAL&_busy_timeout=5000"
+    options: ""
+extraEnvs:
+  # - name: "EXAMPLE_ENV"
+  #   value: "example_value"
+
+# Application configuration from values
+# When enabled, the specified sections become read-only in the UI.
+# You can either provide an existing Secret containing a config.yaml key,
+# or define the configuration inline below.
+config:
+  enabled: false
+  # Name of an existing Secret containing a `config.yaml` key.
+  # When set, the inline config below is ignored.
+  # The user is responsible for creating and managing this Secret.
+  # Example: kubectl create secret generic kite-config --from-file=config.yaml=./my-config.yaml
+  existingSecret: ""
+  # --- Inline configuration (used when existingSecret is empty) ---
+  # Super user configuration (created if the user doesn't exist, password updated on restart)
+  # superUser:
+  #   username: "admin"
+  #   password: "change-me-in-production"
+  # Sensitive values support ${ENV_VAR} placeholders, expanded from environment
+  # variables at startup. Use extraEnvs to inject secrets from Kubernetes Secrets:
+  #
+  # extraEnvs:
+  #   - name: PROD_KUBECONFIG
+  #     valueFrom:
+  #       secretKeyRef:
+  #         name: my-cluster-secrets
+  #         key: prod-kubeconfig
+  #   - name: OAUTH_SECRET
+  #     valueFrom:
+  #       secretKeyRef:
+  #         name: my-oauth-secrets
+  #         key: google-client-secret
+  #
+  # Then reference them in the config below:
+  # clusters:
+  #   - name: production
+  #     config: "${PROD_KUBECONFIG}"
+  # oauth:
+  #   - name: google
+  #     clientSecret: "${OAUTH_SECRET}"
+  #
+  # Cluster configurations
+  # clusters:
+  #   - name: production
+  #     description: "Production cluster"
+  #     config: |
+  #       apiVersion: v1
+  #       kind: Config
+  #       ...
+  #     prometheusURL: "http://prometheus:9090"
+  #     default: true
+  #   - name: in-cluster
+  #     inCluster: true
+  #
+  # OAuth provider configurations
+  # oauth:
+  #   - name: google
+  #     clientId: "xxx.apps.googleusercontent.com"
+  #     clientSecret: "secret-value"
+  #     issuer: "https://accounts.google.com"
+  #     scopes: "openid,profile,email"
+  #     enabled: true
+  #
+  # LDAP configuration
+  # ldap:
+  #   enabled: true
+  #   serverUrl: "ldap://ldap.example.com:389"
+  #   bindDn: "cn=admin,dc=example,dc=com"
+  #   bindPassword: "secret"
+  #   userBaseDn: "ou=users,dc=example,dc=com"
+  #   groupBaseDn: "ou=groups,dc=example,dc=com"
+  #
+  # RBAC configuration (roles and role mappings)
+  # rbac:
+  #   roles:
+  #     - name: admin
+  #       description: "Full access"
+  #       clusters: ["*"]
+  #       namespaces: ["*"]
+  #       resources: ["*"]
+  #       verbs: ["*"]
+  #   roleMapping:
+  #     - name: admin
+  #       users: ["alice"]
+  #       oidcGroups: ["admins"]
+
+# This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+rbac:
+  create: true
+  rules:
+    - apiGroups: ["*"]
+      resources: ["*"]
+      verbs: ["*"]
+    - nonResourceURLs: ["*"]
+      verbs: ["*"]
+
+# This is for setting Kubernetes Annotations to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+podAnnotations: {}
+# This is for setting Kubernetes Labels to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+podLabels: {}
+
+podSecurityContext:
+  {}
+  # fsGroup: 2000
+
+securityContext:
+  {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+service:
+  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+  type: ClusterIP
+  # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+  port: 8080
+
+# This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: kite.zzde.me
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  # tls:
+  #  - hosts:
+  #      - kite.zzde.me
+
+# Gateway API resources for exposing Kite
+# Requires Gateway API CRDs to be installed in the cluster
+# For more information: https://gateway-api.sigs.k8s.io/
+gateway:
+  enabled: false
+  # GatewayClass name - must exist in cluster
+  # Examples: "istio", "cilium", "nginx", "envoy-gateway"
+  className: ""
+  # Set to true to create a new Gateway resource
+  # Set to false to use an existing Gateway
+  create: false
+  # Name of the Gateway (used for both creating new or referencing existing)
+  name: ""
+  # Namespace of existing Gateway (only used when create is false)
+  # Defaults to release namespace if not specified
+  namespace: ""
+  # Annotations for the Gateway (only used when create is true)
+  annotations: {}
+  # Gateway listeners configuration (only used when create is true)
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      # Optional hostname for the listener
+      # hostname: "*.example.com"
+      allowedRoutes:
+        namespaces:
+          from: Same
+    # Uncomment to add HTTPS listener
+    # - name: https
+    #   port: 443
+    #   protocol: HTTPS
+    #   hostname: "kite.example.com"
+    #   allowedRoutes:
+    #     namespaces:
+    #       from: Same
+    #   tls:
+    #     mode: Terminate
+    #     certificateRefs:
+    #       - name: kite-tls-secret
+  # HTTPRoute configuration (supports multiple routes)
+  httpRoutes:
+    - name: kite
+      # Annotations for the HTTPRoute
+      annotations: {}
+      # Hostnames to match (optional, matches all if empty)
+      hostnames: []
+        # - kite.example.com
+      # Routing rules
+      rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+          timeouts:
+            request: "120s"
+    # Example: additional route for different hostname/path
+    # - name: kite-api
+    #   annotations: {}
+    #   hostnames:
+    #     - api.example.com
+    #   rules:
+    #     - matches:
+    #         - path:
+    #             type: PathPrefix
+    #             value: /api
+
+resources:
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  limits:
+    cpu: 2 
+    memory: 2Gi
+  requests:
+    cpu: 1
+    memory: 1Gi
+
+# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+# Additional volumes on the output Deployment definition.
+volumes: []
+# - name: foo
+#   secret:
+#     secretName: mysecret
+#     optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

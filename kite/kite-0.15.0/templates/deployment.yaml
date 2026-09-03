@@ -1,0 +1,144 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kite.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kite.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kite.selectorLabels" . | nindent 6 }}
+  {{- with .Values.deploymentStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "kite.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kite.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/app/kite"]
+          {{- if .Values.debug }}
+          args: ["-v", "1"]
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ include "kite.secret" . }}
+          env:
+            {{- if .Values.host }}
+            - name: HOST
+              value: {{ .Values.host }}
+            {{- end }}
+            {{- if .Values.anonymousUserEnabled }}
+            - name: ANONYMOUS_USER_ENABLED
+              value: "true"
+            {{- end }}
+            {{- if eq .Values.db.type "sqlite" }}
+            - name: DB_TYPE
+              value: sqlite
+            - name: DB_DSN
+              value: {{ (printf "%s/%s?%s" .Values.db.sqlite.persistence.mountPath .Values.db.sqlite.persistence.filename .Values.db.sqlite.options) }}
+            {{- end }}
+            {{- if .Values.basePath }}
+            - name: KITE_BASE
+              value: {{ .Values.basePath }}
+            {{- end }}
+            {{- if .Values.config.enabled }}
+            - name: KITE_CONFIG_FILE
+              value: /etc/kite/config.yaml
+            {{- end }}
+          {{- with .Values.extraEnvs }}
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+          {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.config.enabled }}
+            - name: kite-config
+              mountPath: /etc/kite
+              readOnly: true
+          {{- end }}
+          {{- if and (eq .Values.db.type "sqlite")}}
+            - name: {{ include "kite.fullname" . }}-storage
+              mountPath: {{ .Values.db.sqlite.persistence.mountPath }}
+          {{- end }}
+      volumes:
+      {{- if .Values.config.enabled }}
+        - name: kite-config
+          secret:
+            secretName: {{ .Values.config.existingSecret | default (printf "%s-config" (include "kite.fullname" .)) }}
+            items:
+              - key: config.yaml
+                path: config.yaml
+      {{- end }}
+      {{- if eq .Values.db.type "sqlite"}}
+        - name: {{ include "kite.fullname" . }}-storage
+      {{- if .Values.db.sqlite.persistence.pvc.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.db.sqlite.persistence.pvc.existingClaim | default (printf "%s-storage" (include "kite.fullname" .)) }}
+      {{- else if .Values.db.sqlite.persistence.hostPath.enabled }}
+          hostPath:
+            path: {{ .Values.db.sqlite.persistence.hostPath.path }}
+            type: {{ .Values.db.sqlite.persistence.hostPath.type }}
+      {{- else }}
+          emptyDir: {}
+      {{- end }}
+      {{- end }}
+      {{- with .Values.volumes }}
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

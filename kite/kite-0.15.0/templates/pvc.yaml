@@ -1,0 +1,18 @@
+{{- if and (eq .Values.db.type "sqlite") .Values.db.sqlite.persistence.pvc.enabled (not .Values.db.sqlite.persistence.pvc.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kite.fullname" . }}-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kite.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.db.sqlite.persistence.pvc.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.db.sqlite.persistence.pvc.size }}
+  {{- if .Values.db.sqlite.persistence.pvc.storageClass }}
+  storageClassName: {{ .Values.db.sqlite.persistence.pvc.storageClass }}
+  {{- end }}
+{{- end }}
