@@ -69,31 +69,18 @@ This project provides Docker container definitions for various aspects of the Op
 
 ### Deployment
 
-- **Helm Chart**: A complete [Helm chart](https://www.helm.sh/) simplifying the process of deploying the entire system onto a Kubernetes cluster. See the [chart documentation](osm-seed/README.md) for details.
+- **Helm Chart**: A complete [Helm chart](https://www.helm.sh/) simplifying the process of deploying the entire system onto a Kubernetes cluster. See the [chart documentation](porting.md) for details.
 
 ## Quick Start
 
-### Using Docker Compose (Local Development)
-
-```bash
-# Run just the website
-docker compose -f compose/web.yml up
-
-# Run website with data import
-docker compose -f compose/web.yml -f compose/populate-apidb.yml up
-```
-
 ### Using Helm (Kubernetes)
 
-The recommended way to install osm-seed is to use the published Helm chart. See [INSTALL.md](INSTALL.md) for detailed instructions.
+The recommended way to install osm-seed is to use the published Helm chart. See [INSTALL.md](INSTALL.md) for detailed instructions, on how the chart has been adapted to be installed in HPE Private Cloud AI.
 
 ## Installation
 
-For detailed installation instructions, see [INSTALL.md](INSTALL.md).
-
 ### Requirements
 
-- Docker and Docker Compose (for local development)
 - Kubernetes cluster (for production deployment)
 - Helm 3.x (for Kubernetes deployment)
 
