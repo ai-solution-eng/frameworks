@@ -1,0 +1,137 @@
+{{- if .Values.cgimap.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-cgimap-deployment
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: cgimap-deployment
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  replicas: {{ .Values.cgimap.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "osm-seed.name" . }}
+      release: {{ .Release.Name }}
+      run: {{ .Release.Name }}-cgimap-deployment
+  template:
+    metadata:
+      labels:
+        app: {{ template "osm-seed.name" . }}
+        release: {{ .Release.Name }}
+        run: {{ .Release.Name }}-cgimap-deployment
+        "hpe-ezua/type": vendor-service
+        "hpe-ezua/app": {{ .Chart.Name }}
+    spec:
+      priorityClassName: {{ .Release.Name }}-{{ .Values.cgimap.priorityClass | default "high-priority" }}
+{{ include "osm-seed.certsInitBlock" . | nindent 6 }}
+      containers:
+        - name: {{ .Chart.Name }}-cgimap
+          image: "{{ .Values.cgimap.image.name }}:{{ .Values.cgimap.image.tag }}"
+          # Command override: the released image's start.sh relies on CGIMAP_* env
+          # vars that the pinned binary does not map ("--dbname is required but
+          # missing"). Replicate start.sh here with explicit DB flags.
+          # Revert to the image entrypoint once images are rebuilt with the
+          # fixed images/cgimap/start.sh.
+          command:
+            - /bin/bash
+            - -c
+            - |
+              export CGIMAP_HOST="$POSTGRES_HOST" \
+                     CGIMAP_DBNAME="$POSTGRES_DB" \
+                     CGIMAP_USERNAME="$POSTGRES_USER" \
+                     CGIMAP_PASSWORD="$POSTGRES_PASSWORD" \
+                     CGIMAP_OAUTH_HOST="$POSTGRES_HOST" \
+                     CGIMAP_UPDATE_HOST="$POSTGRES_HOST" \
+                     CGIMAP_LOGFILE="/var/www/log/cgimap.log" \
+                     CGIMAP_MEMCACHE="$MEMCACHE_SERVER" \
+                     CGIMAP_RATELIMIT="204800" \
+                     CGIMAP_MAXDEBT="2048" \
+                     CGIMAP_MAP_AREA="0.25" \
+                     CGIMAP_MAP_NODES="100000" \
+                     CGIMAP_MAX_WAY_NODES="2000" \
+                     CGIMAP_MAX_RELATION_MEMBERS="32000" \
+                     CGIMAP_MODERATOR_RATELIMIT="1048576" \
+                     CGIMAP_MODERATOR_MAXDEBT="2048"
+              mkdir -p /var/www/log
+              if [ "$WEBSITE_STATUS" = "database_readonly" ] || [ "$WEBSITE_STATUS" = "api_readonly" ]; then
+                export CGIMAP_DISABLE_API_WRITE="true"
+              fi
+              if [ "$WEBSITE_STATUS" = "database_offline" ] || [ "$WEBSITE_STATUS" = "api_offline" ]; then
+                echo "Website is $WEBSITE_STATUS. No action required for cgimap service."
+              else
+                export PGOPTIONS="-c enable_mergejoin=false -c enable_hashjoin=false"
+                /usr/local/bin/openstreetmap-cgimap \
+                  --dbname="$POSTGRES_DB" \
+                  --host="$POSTGRES_HOST" \
+                  --username="$POSTGRES_USER" \
+                  --password="$POSTGRES_PASSWORD" \
+                  --port=8000 \
+                  --instances=10
+              fi
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            # The released image ships no liveness script (COPY missed it) — use a
+            # process-level TCP check on the serving port instead.
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          {{- if .Values.cgimap.resources.enabled }}
+          resources:
+            {{- if .Values.cgimap.resources.requests.enabled }}
+            requests:
+              memory: {{ .Values.cgimap.resources.requests.memory }}
+              cpu: {{ .Values.cgimap.resources.requests.cpu }}
+            {{- end }}
+            {{- if .Values.cgimap.resources.limits.enabled }}
+            limits:
+              memory: {{ .Values.cgimap.resources.limits.memory }}
+              cpu: {{ .Values.cgimap.resources.limits.cpu }}
+            {{- end }}
+          {{- end }}
+          env:
+{{ include "osm-seed.proxyCertsEnv" . | nindent 12 }}
+            - name: POSTGRES_HOST
+              value: {{ .Release.Name }}-db
+            - name: POSTGRES_DB
+              value: {{ .Values.db.env.POSTGRES_DB }}
+            - name: PGPASSWORD
+              value: {{ quote .Values.db.env.POSTGRES_PASSWORD }}
+            - name: POSTGRES_PASSWORD
+              value: {{ quote .Values.db.env.POSTGRES_PASSWORD }}
+            - name: POSTGRES_USER
+              value: {{ .Values.db.env.POSTGRES_USER }}
+            - name: WEBSITE_STATUS
+              value: {{ .Values.web.env.WEBSITE_STATUS }}
+            - name: MEMCACHE_SERVER
+              value: {{ .Release.Name }}-memcached:11211
+{{ include "osm-seed.certsVolumeMountsBlock" . | nindent 10 }}
+{{ include "osm-seed.certsVolumesBlock" . | nindent 6 }}
+      {{- if .Values.cgimap.nodeSelector.enabled }}
+      nodeSelector:
+        {{ .Values.cgimap.nodeSelector.label_key }} : {{ .Values.cgimap.nodeSelector.label_value }}
+      {{- end }}
+      # Affinity settings
+      {{- if .Values.cgimap.nodeAffinity.enabled }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ .Values.cgimap.nodeAffinity.key }}
+                    operator: In
+                    values:
+                    {{- range .Values.cgimap.nodeAffinity.values }}
+                      - {{ . | quote }}
+                    {{- end }}
+      {{- end }}
+{{- end }}

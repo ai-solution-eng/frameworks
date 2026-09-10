@@ -1,0 +1,82 @@
+{{- if eq .Values.s3.provider "minio" -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-minio
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: minio-statefulset
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  replicas: 1
+  serviceName: {{ .Release.Name }}-minio
+  selector:
+    matchLabels:
+      app: {{ template "osm-seed.name" . }}
+      release: {{ .Release.Name }}
+      run: {{ .Release.Name }}-minio
+  template:
+    metadata:
+      labels:
+        app: {{ template "osm-seed.name" . }}
+        release: {{ .Release.Name }}
+        run: {{ .Release.Name }}-minio
+        "hpe-ezua/type": vendor-service
+        "hpe-ezua/app": {{ .Chart.Name }}
+    spec:
+{{ include "osm-seed.certsInitBlock" . | nindent 6 }}
+      priorityClassName: {{ .Release.Name }}-{{ .Values.s3.minio.priorityClass | default "medium-priority" }}
+      containers:
+        - name: {{ .Chart.Name }}-minio
+          image: "{{ .Values.s3.minio.image.name }}:{{ .Values.s3.minio.image.tag }}"
+          # args (not command): the minio/minio image has its own ENTRYPOINT
+          # wrapper script — command: would override it ("exec: server not found").
+          args:
+            - server
+            - /data
+            - --address
+            - ":9000"
+            - --console-address
+            - ":9001"
+          env:
+            - name: MINIO_ROOT_USER
+              value: {{ .Values.s3.minio.accessKey | quote }}
+            - name: MINIO_ROOT_PASSWORD
+              value: {{ .Values.s3.minio.secretKey | quote }}
+{{ include "osm-seed.proxyCertsEnv" . | nindent 12 }}
+          ports:
+            - name: api
+              containerPort: 9000
+              protocol: TCP
+            - name: console
+              containerPort: 9001
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 4
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+{{ toYaml .Values.s3.minio.resources | nindent 12 }}
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+{{ include "osm-seed.certsVolumeMountsEntry" . | nindent 12 }}
+      volumes:
+        - name: minio-data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-minio-data
+{{ include "osm-seed.certsVolumesEntry" . | nindent 8 }}
+{{- end }}

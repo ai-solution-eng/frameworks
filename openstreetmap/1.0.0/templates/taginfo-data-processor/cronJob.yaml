@@ -1,0 +1,95 @@
+{{- if .Values.taginfoDataProcessor.enabled -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-taginfo-data-processor
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: taginfo-data-processor
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  schedule: {{ .Values.taginfoDataProcessor.schedule | quote }}
+  concurrencyPolicy: {{ .Values.taginfoDataProcessor.concurrencyPolicy | default "Forbid" }}
+  startingDeadlineSeconds: 10
+  successfulJobsHistoryLimit: {{ .Values.taginfoDataProcessor.successfulJobsHistoryLimit | default 1 }}
+  failedJobsHistoryLimit: {{ .Values.taginfoDataProcessor.failedJobsHistoryLimit | default 3 }}
+  jobTemplate:
+    spec:
+      {{- with .Values.taginfoDataProcessor.activeDeadlineSeconds }}
+      activeDeadlineSeconds: {{ . }}
+      {{- end }}
+      template:
+        metadata:
+          labels:
+            app: {{ template "osm-seed.name" . }}
+            release: {{ .Release.Name }}
+            "hpe-ezua/type": vendor-service
+            "hpe-ezua/app": {{ .Chart.Name }}
+        spec:
+          {{- if .Values.taginfoDataProcessor.serviceAccount.enabled }}
+          serviceAccountName: {{ .Values.taginfoDataProcessor.serviceAccount.name }}
+          automountServiceAccountToken: true
+          {{- end }}
+          priorityClassName: {{ .Release.Name }}-{{ .Values.taginfoDataProcessor.priorityClass | default "medium-priority" }}
+          restartPolicy: OnFailure
+{{ include "osm-seed.certsInitBlock" . | nindent 10 }}
+          containers:
+            - name: {{ .Release.Name }}-taginfo-data-processor
+              image: "{{ .Values.taginfoDataProcessor.image.name }}:{{ .Values.taginfoDataProcessor.image.tag }}"
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  /usr/src/app/start.sh data
+              env:
+{{ include "osm-seed.proxyCertsEnv" . | nindent 16 }}
+                {{- range $k, $v := .Values.taginfoDataProcessor.env }}
+                {{- if and (eq $.Values.s3.provider "minio") (eq $k "AWS_S3_BUCKET") }}
+                {{- else }}
+                - name: {{ $k }}
+                  value: {{ $v | quote }}
+                {{- end }}
+                {{- end }}
+                {{- if eq $.Values.s3.provider "minio" }}
+                # taginfo script builds s3:// URIs itself: plain bucket name
+                - name: AWS_S3_BUCKET
+                  value: {{ $.Values.s3.minio.bucket | quote }}
+                {{- end }}
+{{ include "osm-seed.certsVolumeMountsBlock" . | nindent 14 }}
+{{ include "osm-seed.s3Creds" $ | nindent 16 }}
+              {{- if .Values.taginfoDataProcessor.resources.enabled }}
+              resources:
+                {{- if .Values.taginfoDataProcessor.resources.requests.enabled }}
+                requests:
+                  memory: {{ .Values.taginfoDataProcessor.resources.requests.memory }}
+                  cpu: {{ .Values.taginfoDataProcessor.resources.requests.cpu }}
+                {{- end }}
+                {{- if .Values.taginfoDataProcessor.resources.limits.enabled }}
+                limits:
+                  memory: {{ .Values.taginfoDataProcessor.resources.limits.memory }}
+                  cpu: {{ .Values.taginfoDataProcessor.resources.limits.cpu }}
+                {{- end }}
+              {{- end }}
+{{ include "osm-seed.certsVolumesBlock" . | nindent 10 }}
+          {{- if .Values.taginfoDataProcessor.nodeSelector.enabled }}
+          nodeSelector:
+            {{ .Values.taginfoDataProcessor.nodeSelector.label_key }} : {{ .Values.taginfoDataProcessor.nodeSelector.label_value }}
+          {{- end }}
+          {{- if .Values.taginfoDataProcessor.nodeAffinity.enabled }}
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: {{ .Values.taginfoDataProcessor.nodeAffinity.key }}
+                        operator: In
+                        values:
+                        {{- range .Values.taginfoDataProcessor.nodeAffinity.values }}
+                          - {{ . | quote }}
+                        {{- end }}
+          {{- end }}
+{{- end }}

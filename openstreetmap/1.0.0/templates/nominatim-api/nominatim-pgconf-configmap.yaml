@@ -1,0 +1,23 @@
+{{- if .Values.nominatimApi.enabled }}
+# The nominatim image ships an internal PostgreSQL with `ssl = on` pointing at
+# Ubuntu's snakeoil cert under /etc/ssl/certs. Some PCAI platform flows inject
+# a volume OVER /etc/ssl/certs (EzUA domain-CA injection), hiding that file and
+# FATAL-ing postgres on start. This conf.d override turns SSL off — the internal
+# postgres only serves the local unix socket, so SSL is unnecessary.
+# Mounting this ConfigMap at conf.d masks the image's own conf.d contents (the
+# import-tuning conf), which is acceptable (imports run slightly untuned).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-nominatim-pgconf
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: nominatim-pgconf
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+data:
+  nominatim.conf: |
+    ssl = off
+{{- end }}

@@ -1,0 +1,107 @@
+{{- if and .Values.osmchaApi.enabled (default false .Values.osmchaApi.cronjobsEnabled) -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-osmcha-fetch-changesets
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: osmcha-app-deployment
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  schedule: {{ .Values.osmchaApi.fetch_changesets_cronjob | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 120
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: {{ template "osm-seed.name" . }}
+            release: {{ .Release.Name }}
+            "hpe-ezua/type": vendor-service
+            "hpe-ezua/app": {{ .Chart.Name }}
+        spec:
+{{ include "osm-seed.certsInitBlock" . | nindent 10 }}
+          containers:
+          - name: {{ .Release.Name }}-osmcha-fetch-changesets
+            image: "{{ .Values.osmchaApi.image.name }}:{{ .Values.osmchaApi.image.tag }}"
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/sh
+            - -c
+            - |
+              python manage.py fetchchangesets
+env:
+{{ include "osm-seed.proxyCertsEnv" . | nindent 14 }}
+{{ include "osm-seed.certsVolumeMountsBlock" . | nindent 12 }}
+            envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-osmcha-common-env
+          restartPolicy: Never
+{{ include "osm-seed.certsVolumesBlock" . | nindent 10 }}
+          {{- if .Values.osmchaApi.nodeSelector.enabled }}
+          nodeSelector:
+            {{ .Values.osmchaApi.nodeSelector.label_key }}: {{ .Values.osmchaApi.nodeSelector.label_value }}
+          {{- end }}
+
+---
+apiVersion: batch/v1
+kind: CronJob 
+metadata:
+  name: {{ .Release.Name }}-osmcha-process-changesets
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: osmcha-app-deployment
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  schedule: {{ .Values.osmchaApi.process_changesets_cronjob | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 120
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: {{ template "osm-seed.name" . }}
+            release: {{ .Release.Name }}
+            "hpe-ezua/type": vendor-service
+            "hpe-ezua/app": {{ .Chart.Name }}
+        spec:
+{{ include "osm-seed.certsInitBlock" . | nindent 10 }}
+          containers:
+          - name: {{ .Release.Name }}-osmcha-process-changesets
+            image: "{{ .Values.osmchaApi.image.name }}:{{ .Values.osmchaApi.image.tag }}"
+            imagePullPolicy: IfNotPresent
+            imagePullPolicy: Always
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -x
+              # Note: This is a hack to make sure for ohm
+              python manage.py backfill_changesets_id --start_id=100000
+env:
+{{ include "osm-seed.proxyCertsEnv" . | nindent 14 }}
+{{ include "osm-seed.certsVolumeMountsBlock" . | nindent 12 }}
+            envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-osmcha-common-env
+          restartPolicy: Never
+{{ include "osm-seed.certsVolumesBlock" . | nindent 10 }}
+          {{- if .Values.osmchaApi.nodeSelector.enabled }}
+          nodeSelector:
+            {{ .Values.osmchaApi.nodeSelector.label_key }}: {{ .Values.osmchaApi.nodeSelector.label_value }}
+          {{- end }}
+{{- end }}

@@ -1,0 +1,55 @@
+{{- if eq .Values.s3.provider "minio" -}}
+# CronJob (NOT a helm hook): hook resources are only executed by real
+# `helm install/upgrade` — deployment paths that apply rendered manifests
+# directly (e.g. the PCAI Import-App flow) skip hooks entirely, which left
+# the bucket uncreated on some systems. A CronJob is a regular chart resource
+# that runs under every deployment path and keeps the bucket in existence
+# (idempotent: `mc mb --ignore-existing` never deletes data).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-minio-bucket-init
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: minio-bucket-init
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 6
+      template:
+        metadata:
+          labels:
+            app: {{ template "osm-seed.name" . }}
+            component: minio-bucket-init
+            environment: {{ .Values.environment }}
+            release: {{ .Release.Name }}
+            "hpe-ezua/type": vendor-service
+            "hpe-ezua/app": {{ .Chart.Name }}
+        spec:
+          restartPolicy: OnFailure
+          # In-cluster only: intentionally NO proxy env — the FQDN is covered by
+          # the NO_PROXY ".svc.cluster.local" entry when proxy mode is on.
+          containers:
+            - name: {{ .Chart.Name }}-minio-bucket-init
+              image: "{{ .Values.s3.minio.mcImage.name }}:{{ .Values.s3.minio.mcImage.tag }}"
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  mc alias set local http://{{ .Release.Name }}-minio.{{ .Release.Namespace }}.svc.cluster.local:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" 2>/dev/null || { echo "MinIO not reachable yet"; exit 1; }
+                  mc mb --ignore-existing local/{{ .Values.s3.minio.bucket }}
+                  echo "bucket '{{ .Values.s3.minio.bucket }}' ready"
+              env:
+                - name: MINIO_ROOT_USER
+                  value: {{ .Values.s3.minio.accessKey | quote }}
+                - name: MINIO_ROOT_PASSWORD
+                  value: {{ .Values.s3.minio.secretKey | quote }}
+{{- end }}

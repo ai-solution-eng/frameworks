@@ -1,0 +1,35 @@
+{{- if and .Values.overpassApi.enabled .Values.overpassApi.ingress.enabled }}
+{{- $ing := .Values.overpassApi.ingress -}}
+{{- $hosts := $ing.hosts -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ template "osm-seed.fullname" . }}-ingress-overpass-api
+  {{- with $ing.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ $ing.className | default .Values.ingressClassName }}
+  {{- if $ing.tls.enabled }}
+  tls:
+    - hosts:
+        {{- range $hosts }}
+        - {{ . }}
+        {{- end }}
+      secretName: {{ $ing.tls.secretName | default (printf "%s-secret-overpass" (include "osm-seed.fullname" .)) }}
+  {{- end }}
+  rules:
+    {{- range $hosts }}
+    - host: {{ . }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $.Release.Name }}-overpass-api
+                port:
+                  number: 80
+    {{- end }}
+{{- end }}

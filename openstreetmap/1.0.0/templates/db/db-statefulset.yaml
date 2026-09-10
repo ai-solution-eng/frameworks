@@ -1,0 +1,142 @@
+{{- if .Values.db.enabled -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-db
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: db-statefulset
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ template "osm-seed.name" . }}
+      release: {{ .Release.Name }}
+      run: {{ .Release.Name }}-db
+  serviceName: {{ .Release.Name }}-db
+  template:
+    metadata:
+      labels:
+        app: {{ template "osm-seed.name" . }}
+        release: {{ .Release.Name }}
+        run: {{ .Release.Name }}-db
+        "hpe-ezua/type": vendor-service
+        "hpe-ezua/app": {{ .Chart.Name }}
+    spec:
+      priorityClassName: {{ .Release.Name }}-{{ .Values.db.priorityClass | default "high-priority" }}
+{{ include "osm-seed.certsInitBlock" . | nindent 6 }}
+      containers:
+        - name: {{ .Chart.Name }}-db
+          image: "{{ .Values.db.image.name }}:{{ .Values.db.image.tag }}"
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+{{ include "osm-seed.proxyCertsEnv" . | nindent 12 }}
+            # - name: GET_HOSTS_FROM
+            #   value: dns
+            - name: POSTGRES_HOST
+              value: {{ .Release.Name }}-db
+            - name: POSTGRES_DB
+              value: {{ .Values.db.env.POSTGRES_DB }}
+            - name: POSTGRES_PASSWORD
+              value: {{ quote .Values.db.env.POSTGRES_PASSWORD }}
+            - name: POSTGRES_USER
+              value: {{ default "postgres" .Values.db.env.POSTGRES_USER | quote }}
+            - name: PGUSER
+              value: {{ default "postgres" .Values.db.env.POSTGRES_USER | quote }}
+            - name: ENVIRONMENT
+              value: {{ .Values.environment }}
+            - name: PGDATA
+              value: {{ .Values.db.env.PGDATA }}
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+          {{- if .Values.db.postgresqlConfig.enabled }}
+          command:
+            - "sh"
+            - "-c"
+            - "su postgres -c 'postgres -c config_file=/etc/postgresql/postgresql.conf'"
+           {{- end }}
+          livenessProbe:
+            exec:
+              command:
+              - sh
+              - -c
+              - exec pg_isready --host $POD_IP
+            initialDelaySeconds: 120
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+              - sh
+              - -c
+              - exec pg_isready --host $POD_IP
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+            periodSeconds: 5
+          volumeMounts:
+{{ include "osm-seed.certsVolumeMountsEntry" . | nindent 12 }}
+            - name: postgres-storage
+              mountPath: {{ .Values.db.persistenceDisk.mountPath }}
+              # subPath: {{ .Values.db.persistenceDisk.subPath }}
+            - name: shared-memory
+              mountPath: /dev/shm
+            {{- if .Values.db.postgresqlConfig.enabled }}
+            - name: db-postgresql-config
+              mountPath: /etc/postgresql/
+            {{- end }}
+          {{- if .Values.db.resources.enabled }}
+          resources:
+            {{- if .Values.db.resources.requests.enabled }}
+            requests:
+              memory: {{ .Values.db.resources.requests.memory }}
+              cpu: {{ .Values.db.resources.requests.cpu }}
+            {{- end }}
+            {{- if .Values.db.resources.limits.enabled }}
+            limits:
+              memory: {{ .Values.db.resources.limits.memory }}
+              cpu: {{ .Values.db.resources.limits.cpu }}
+            {{- end }}
+          {{- end }}
+      volumes:
+{{ include "osm-seed.certsVolumesEntry" . | nindent 8 }}
+        - name: postgres-storage
+        {{- if .Values.db.persistenceDisk.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-pv-claim
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+        - name: shared-memory
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.db.sharedMemorySize }}
+        {{- if .Values.db.postgresqlConfig.enabled }}
+        - name: db-postgresql-config
+          configMap:
+            name: {{ .Release.Name }}-db-postgresql-config
+        {{- end }}
+      {{- if .Values.db.nodeSelector.enabled }}
+      nodeSelector:
+        {{ .Values.db.nodeSelector.label_key }} : {{ .Values.db.nodeSelector.label_value }}
+      {{- end }}
+      {{- if .Values.db.nodeAffinity.enabled }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ .Values.db.nodeAffinity.key }}
+                    operator: In
+                    values:
+                    {{- range .Values.db.nodeAffinity.values }}
+                      - {{ . | quote }}
+                    {{- end }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,92 @@
+{{- if .Values.tilerServer.enabled }}
+{{ if eq .Values.tilerServer.env.TILER_CACHE_TYPE "s3" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-tiler-server
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: tiler-server-deployment
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  replicas: {{ .Values.tilerServer.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "osm-seed.name" . }}
+      release: {{ .Release.Name }}
+      run: {{ .Release.Name }}-tiler-server
+  template:
+    metadata:
+      labels:
+        app: {{ template "osm-seed.name" . }}
+        release: {{ .Release.Name }}
+        run: {{ .Release.Name }}-tiler-server
+        "hpe-ezua/type": vendor-service
+        "hpe-ezua/app": {{ .Chart.Name }}
+    spec:
+      priorityClassName: {{ .Release.Name }}-{{ .Values.tilerServer.priorityClass | default "medium-priority" }}
+      {{- if .Values.tilerServer.serviceAccount.enabled }}
+      serviceAccountName: {{ .Values.tilerServer.serviceAccount.name }}
+      automountServiceAccountToken: true
+      {{- end }}
+{{ include "osm-seed.certsInitBlock" . | nindent 6 }}
+      containers:
+        - name: {{ .Chart.Name }}-tiler-server
+{{ include "osm-seed.certsVolumeMountsBlock" . | nindent 10 }}
+          env:
+{{ include "osm-seed.proxyCertsEnv" . | nindent 12 }}
+
+          image: "{{ .Values.tilerServer.image.name }}:{{ .Values.tilerServer.image.tag }}"
+          command: [ {{ .Values.tilerServer.command }} ]
+          ports:
+            - name: http
+              containerPort: {{ .Values.tilerServer.env.TILER_SERVER_PORT }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.tilerServer.env.TILER_SERVER_PORT }}
+            initialDelaySeconds: 1000
+            timeoutSeconds: 30
+          {{- if .Values.tilerServer.resources.enabled }}
+          resources:
+            {{- if .Values.tilerServer.resources.requests.enabled }}
+            requests:
+              memory: {{ .Values.tilerServer.resources.requests.memory }}
+              cpu: {{ .Values.tilerServer.resources.requests.cpu }}
+            {{- end }}
+            {{- if .Values.tilerServer.resources.limits.enabled }}
+            limits:
+              memory: {{ .Values.tilerServer.resources.limits.memory }}
+              cpu: {{ .Values.tilerServer.resources.limits.cpu }}
+            {{- end }}
+          {{- end }}
+          envFrom:
+          - configMapRef:
+              name: {{ .Release.Name }}-tiler-server-cm
+          - configMapRef:
+              name: {{ .Release.Name }}-tiler-db-cm
+{{ include "osm-seed.certsVolumesBlock" . | nindent 6 }}
+      {{- if .Values.tilerServer.nodeSelector.enabled }}
+      nodeSelector:
+        {{ .Values.tilerServer.nodeSelector.label_key }} : {{ .Values.tilerServer.nodeSelector.label_value }}
+      {{- end }}
+      # Affinity settings
+      {{- if .Values.tilerServer.nodeAffinity.enabled }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ .Values.tilerServer.nodeAffinity.key }}
+                    operator: In
+                    values:
+                    {{- range .Values.tilerServer.nodeAffinity.values }}
+                      - {{ . | quote }}
+                    {{- end }}
+      {{- end }}
+{{- end }}
+{{- end }}

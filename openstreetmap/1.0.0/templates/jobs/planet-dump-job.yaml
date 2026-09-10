@@ -1,0 +1,119 @@
+{{- if .Values.planetDump.enabled -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-planet-dump-job
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: planet-dump-job
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  schedule: {{ quote .Values.planetDump.schedule }}
+  startingDeadlineSeconds: 100
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 300
+      template:
+        metadata:
+          labels:
+            app: {{ template "osm-seed.name" . }}
+            release: {{ .Release.Name }}
+            "hpe-ezua/type": vendor-service
+            "hpe-ezua/app": {{ .Chart.Name }}
+        spec:
+          {{- if .Values.planetDump.serviceAccount.enabled }}
+          serviceAccountName: {{ .Values.planetDump.serviceAccount.name }}
+          automountServiceAccountToken: true
+          {{- end }}
+{{ include "osm-seed.certsInitBlock" . | nindent 10 }}
+          containers:
+          - name: {{ .Release.Name }}-planet-dump-job
+            image: {{ .Values.planetDump.image.name }}:{{ .Values.planetDump.image.tag }}
+            command: ['/start.sh']
+            {{- if .Values.planetDump.resources.enabled }}   
+            resources:
+              requests:
+                memory: {{ .Values.planetDump.resources.requests.memory }}
+                cpu: {{ .Values.planetDump.resources.requests.cpu }}
+              limits:
+                memory: {{ .Values.planetDump.resources.limits.memory }}
+                cpu: {{ .Values.planetDump.resources.limits.cpu }}
+            {{- end }}
+            env:
+{{ include "osm-seed.proxyCertsEnv" . | nindent 14 }}
+              - name: POSTGRES_HOST
+                value: {{ .Release.Name }}-db
+              - name: POSTGRES_DB
+                value: {{ .Values.db.env.POSTGRES_DB }}
+              - name: POSTGRES_PASSWORD
+                value: {{ quote .Values.db.env.POSTGRES_PASSWORD }}
+              - name: POSTGRES_USER
+                value: {{ .Values.db.env.POSTGRES_USER }}
+              - name: CLOUDPROVIDER
+                value: {{ .Values.cloudProvider }}
+              - name: OVERWRITE_PLANET_FILE
+                value: {{ .Values.planetDump.env.OVERWRITE_PLANET_FILE | quote}}
+              - name: PLANET_EXPORT_METHOD
+                value: {{ .Values.planetDump.env.PLANET_EXPORT_METHOD | quote}}
+              - name: DUMP_CLOUD_URL
+                value: {{ if eq .Values.s3.provider "minio" }}{{ printf "s3://%s/db.dump" .Values.s3.minio.bucket | quote }}{{ else }}{{ .Values.planetDump.env.DUMP_CLOUD_URL | quote }}{{ end }}
+              - name: PLANET_EPOCH_DATE
+                value: {{ .Values.planetDump.env.PLANET_EPOCH_DATE | quote}}
+              - name: PLANET_DUMP_NG_METADATA_URL
+                value: {{ .Values.planetDump.env.PLANET_DUMP_NG_METADATA_URL | quote}}
+              # MinIO / S3-compatible backend
+              {{- if eq .Values.s3.provider "minio" }}
+{{ include "osm-seed.s3Env" . | nindent 14 }}
+              {{- else if eq .Values.cloudProvider "aws" }}
+              # In case cloudProvider=aws
+              - name: AWS_S3_BUCKET
+                value: {{ .Values.AWS_S3_BUCKET }}
+              {{- end }}
+              # In case cloudProvider=gcp
+              {{- if eq .Values.cloudProvider "gcp" }}
+              - name: GCP_STORAGE_BUCKET
+                value: {{ .Values.GCP_STORAGE_BUCKET }}
+              {{- end }}
+            # In case cloudProvider=azure
+            {{- if eq .Values.cloudProvider "azure" }}
+            - name: AZURE_STORAGE_ACCOUNT
+              value: {{ .Values.AZURE_STORAGE_ACCOUNT }}
+            - name: AZURE_CONTAINER_NAME
+              value: {{ .Values.AZURE_CONTAINER_NAME }}
+            - name: AZURE_STORAGE_CONNECTION_STRING
+              value: {{ .Values.AZURE_STORAGE_CONNECTION_STRING }}
+            {{- end }}
+              # Memory optimization for osmosis
+              {{- if .Values.planetDump.resources.enabled }}   
+              - name: MEMORY_JAVACMD_OPTIONS
+                value: {{ .Values.planetDump.resources.requests.memory | default "2Gi" | quote}}
+              {{- end }}
+{{ include "osm-seed.certsVolumeMountsBlock" . | nindent 12 }}
+          restartPolicy: OnFailure
+{{ include "osm-seed.certsVolumesBlock" . | nindent 10 }}
+          {{- if .Values.planetDump.nodeSelector.enabled }}
+          nodeSelector:
+            {{ .Values.planetDump.nodeSelector.label_key }} : {{ .Values.planetDump.nodeSelector.label_value }}
+          {{- end }}
+          # Affinity settings
+          {{- if .Values.planetDump.nodeAffinity.enabled }}
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: {{ .Values.planetDump.nodeAffinity.key }}
+                        operator: In
+                        values:
+                        {{- range .Values.planetDump.nodeAffinity.values }}
+                          - {{ . | quote }}
+                        {{- end }}
+          {{- end }}
+      backoffLimit: 3
+{{- end }}

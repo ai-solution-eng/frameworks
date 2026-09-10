@@ -1,0 +1,89 @@
+{{- if .Values.tilerServerMartin.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-tiler-server-martin
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: tiler-server-martin-deployment
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  replicas: {{ .Values.tilerServerMartin.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ template "osm-seed.name" . }}
+      release: {{ .Release.Name }}
+      run: {{ .Release.Name }}-tiler-server-martin
+  template:
+    metadata:
+      labels:
+        app: {{ template "osm-seed.name" . }}
+        release: {{ .Release.Name }}
+        run: {{ .Release.Name }}-tiler-server-martin
+        "hpe-ezua/type": vendor-service
+        "hpe-ezua/app": {{ .Chart.Name }}
+    spec:
+      priorityClassName: {{ .Release.Name }}-{{ .Values.tilerServerMartin.priorityClass | default "medium-priority" }}
+{{ include "osm-seed.certsInitBlock" . | nindent 6 }}
+      containers:
+        - name: {{ .Chart.Name }}-tiler-server-martin
+          image: "{{ .Values.tilerServerMartin.image.name }}:{{ .Values.tilerServerMartin.image.tag }}"
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          env:
+{{ include "osm-seed.proxyCertsEnv" . | nindent 12 }}
+            {{- range $k, $v := .Values.tilerServerMartin.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+{{ include "osm-seed.certsVolumeMountsBlock" . | nindent 10 }}
+          envFrom:
+          - configMapRef:
+              name: {{ .Release.Name }}-tiler-db-cm
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          {{- if .Values.tilerServerMartin.resources.enabled }}
+          resources:
+            {{- if .Values.tilerServerMartin.resources.requests.enabled }}
+            requests:
+              memory: {{ .Values.tilerServerMartin.resources.requests.memory }}
+              cpu: {{ .Values.tilerServerMartin.resources.requests.cpu }}
+            {{- end }}
+            {{- if .Values.tilerServerMartin.resources.limits.enabled }}
+            limits:
+              memory: {{ .Values.tilerServerMartin.resources.limits.memory }}
+              cpu: {{ .Values.tilerServerMartin.resources.limits.cpu }}
+            {{- end }}
+          {{- end }}
+{{ include "osm-seed.certsVolumesBlock" . | nindent 6 }}
+      {{- if .Values.tilerServerMartin.nodeSelector.enabled }}
+      nodeSelector:
+        {{ .Values.tilerServerMartin.nodeSelector.label_key }} : {{ .Values.tilerServerMartin.nodeSelector.label_value }}
+      {{- end }}
+      {{- if .Values.tilerServerMartin.nodeAffinity.enabled }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ .Values.tilerServerMartin.nodeAffinity.key }}
+                    operator: In
+                    values:
+                    {{- range .Values.tilerServerMartin.nodeAffinity.values }}
+                      - {{ . | quote }}
+                    {{- end }}
+      {{- end }}
+{{- end }}

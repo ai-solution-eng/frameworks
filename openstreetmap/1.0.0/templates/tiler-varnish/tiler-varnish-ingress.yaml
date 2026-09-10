@@ -1,0 +1,35 @@
+{{- if and .Values.tilerVarnish.enabled .Values.tilerVarnish.ingress.enabled }}
+{{- $ing := .Values.tilerVarnish.ingress -}}
+{{- $hosts := $ing.hosts -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-ingress-tiler-varnish
+  {{- with $ing.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ $ing.className | default .Values.ingressClassName }}
+  {{- if $ing.tls.enabled }}
+  tls:
+    - hosts:
+        {{- range $hosts }}
+        - {{ . }}
+        {{- end }}
+      secretName: {{ $ing.tls.secretName | default (printf "%s-secret-tiler-varnish" .Release.Name) }}
+  {{- end }}
+  rules:
+    {{- range $hosts }}
+    - host: {{ . }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $.Release.Name }}-tiler-varnish
+                port:
+                  number: 6081
+    {{- end }}
+{{- end }}

@@ -1,0 +1,24 @@
+{{- if eq .Values.s3.provider "minio" -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-minio-data
+  annotations:
+    "helm.sh/resource-policy": keep
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: minio-data
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  {{- if .Values.s3.minio.persistenceDisk.storageClassName }}
+  storageClassName: {{ .Values.s3.minio.persistenceDisk.storageClassName | quote }}
+  {{- end }}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.s3.minio.persistenceDisk.size }}
+{{- end }}

@@ -1,0 +1,97 @@
+{{- if .Values.tmApi.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-tasking-manager-api 
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: tasking-manager-api-deployment
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  replicas: {{ .Values.tmApi.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "osm-seed.name" . }}
+      release: {{ .Release.Name }}
+      run: {{ .Release.Name }}-tasking-manager-api
+  template:
+    metadata:
+      labels:
+        app: {{ template "osm-seed.name" . }}
+        release: {{ .Release.Name }}
+        run: {{ .Release.Name }}-tasking-manager-api
+        "hpe-ezua/type": vendor-service
+        "hpe-ezua/app": {{ .Chart.Name }}
+    spec:
+      priorityClassName: {{ .Release.Name }}-{{ .Values.tmApi.priorityClass | default "medium-priority" }}
+      initContainers:
+        - name: db-upgrade
+          image: "{{ .Values.tmApi.image.name }}:{{ .Values.tmApi.image.tag }}"
+          # The image's alembic.ini points at /src/migrations (wrong path) and its
+          # env.py needs a Flask app context — migrate via Flask-Migrate from the
+          # app root instead of raw alembic.
+          command:
+            - /bin/sh
+            - -c
+            - cd /usr/src/app && python3 manage.py db upgrade
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-tm-common-env
+{{ include "osm-seed.certsInitBlock" . | nindent 6 }}
+      containers:
+        - name: {{ .Chart.Name }}-tasking-manager-api
+{{ include "osm-seed.certsVolumeMountsBlock" . | nindent 10 }}
+          env:
+{{ include "osm-seed.proxyCertsEnv" . | nindent 12 }}
+
+          image: "{{ .Values.tmApi.image.name }}:{{ .Values.tmApi.image.tag }}"
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 120
+            timeoutSeconds: 30
+          {{- if .Values.tmApi.resources.enabled }}
+          resources:
+            {{- if .Values.tmApi.resources.requests.enabled }}
+            requests:
+              memory: {{ .Values.tmApi.resources.requests.memory }}
+              cpu: {{ .Values.tmApi.resources.requests.cpu }}
+            {{- end }}
+            {{- if .Values.tmApi.resources.limits.enabled }}
+            limits:
+              memory: {{ .Values.tmApi.resources.limits.memory }}
+              cpu: {{ .Values.tmApi.resources.limits.cpu }}
+            {{- end }}
+          {{- end }}
+          envFrom:
+          - configMapRef:
+              name: {{ .Release.Name }}-tm-common-env
+
+{{ include "osm-seed.certsVolumesBlock" . | nindent 6 }}
+      {{- if .Values.tmApi.nodeSelector.enabled }}
+      nodeSelector:
+        {{ .Values.tmApi.nodeSelector.label_key }} : {{ .Values.tmApi.nodeSelector.label_value }}
+      {{- end }}
+      # Affinity settings
+      {{- if .Values.tmApi.nodeAffinity.enabled }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ .Values.tmApi.nodeAffinity.key }}
+                    operator: In
+                    values:
+                    {{- range .Values.tmApi.nodeAffinity.values }}
+                      - {{ . | quote }}
+                    {{- end }}
+      {{- end }}
+{{- end }}

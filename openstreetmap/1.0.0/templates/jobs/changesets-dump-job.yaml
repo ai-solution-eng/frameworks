@@ -1,0 +1,86 @@
+{{- if .Values.changesetsDump.enabled -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-changesets-dump-job
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: changesets-dump-job
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  schedule: {{ quote .Values.changesetsDump.schedule }}
+  startingDeadlineSeconds: 100
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 300
+      template:
+        metadata:
+          labels:
+            app: {{ template "osm-seed.name" . }}
+            release: {{ .Release.Name }}
+            "hpe-ezua/type": vendor-service
+            "hpe-ezua/app": {{ .Chart.Name }}
+        spec:
+          {{- if .Values.changesetsDump.serviceAccount.enabled }}
+          serviceAccountName: {{ .Values.changesetsDump.serviceAccount.name }}
+          automountServiceAccountToken: true
+          {{- end }}
+{{ include "osm-seed.certsInitBlock" . | nindent 10 }}
+          containers:
+          - name: {{ .Release.Name }}-changesets-dump-job
+            image: {{ .Values.changesetsDump.image.name }}:{{ .Values.changesetsDump.image.tag }}
+            command: ['/start.sh']
+            {{- if .Values.changesetsDump.resources.enabled }}
+            resources:
+              requests:
+                memory: {{ .Values.changesetsDump.resources.requests.memory }}
+                cpu: {{ .Values.changesetsDump.resources.requests.cpu }}
+              limits:
+                memory: {{ .Values.changesetsDump.resources.limits.memory }}
+                cpu: {{ .Values.changesetsDump.resources.limits.cpu }}
+            {{- end }}
+            env:
+{{ include "osm-seed.proxyCertsEnv" . | nindent 14 }}
+              - name: OVERWRITE_CHANGESETS_FILE
+                value: {{ .Values.changesetsDump.env.OVERWRITE_CHANGESETS_FILE | quote}}
+              - name: CLOUDPROVIDER
+                value: {{ .Values.cloudProvider }}
+              - name: DUMP_CLOUD_URL
+                value: {{ if eq .Values.s3.provider "minio" }}{{ printf "s3://%s/db.dump" .Values.s3.minio.bucket | quote }}{{ else }}{{ .Values.changesetsDump.env.DUMP_CLOUD_URL | quote }}{{ end }}
+              # MinIO / S3-compatible backend
+              {{- if eq .Values.s3.provider "minio" }}
+{{ include "osm-seed.s3Env" . | nindent 14 }}
+              {{- else }}
+              - name: AWS_S3_BUCKET
+                value: {{ .Values.AWS_S3_BUCKET }}
+              {{- end }}
+              - name: PLANET_EPOCH_DATE
+                value: {{ .Values.changesetsDump.env.PLANET_EPOCH_DATE | quote }}
+{{ include "osm-seed.certsVolumeMountsBlock" . | nindent 12 }}
+          restartPolicy: OnFailure
+{{ include "osm-seed.certsVolumesBlock" . | nindent 10 }}
+          {{- if .Values.changesetsDump.nodeSelector.enabled }}
+          nodeSelector:
+            {{ .Values.changesetsDump.nodeSelector.label_key }} : {{ .Values.changesetsDump.nodeSelector.label_value }}
+          {{- end }}
+          {{- if .Values.changesetsDump.nodeAffinity.enabled }}
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: {{ .Values.changesetsDump.nodeAffinity.key }}
+                        operator: In
+                        values:
+                        {{- range .Values.changesetsDump.nodeAffinity.values }}
+                          - {{ . | quote }}
+                        {{- end }}
+          {{- end }}
+      backoffLimit: 3
+{{- end }}

@@ -1,0 +1,26 @@
+{{- if .Values.ezua.authorizationPolicy.enabled }}
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ .Release.Name }}-auth-policy
+  namespace: {{ .Values.ezua.authorizationPolicy.namespace }}
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: ezua-authorizationpolicy
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  action: CUSTOM
+  provider:
+    name: {{ .Values.ezua.authorizationPolicy.providerName }}
+  rules:
+    - to:
+        - operation:
+            hosts:
+              - {{ .Values.ezua.virtualService.endpoint }}
+  selector:
+    matchLabels:
+      istio: "ingressgateway"
+{{- end }}

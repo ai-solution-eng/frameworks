@@ -1,0 +1,70 @@
+{{- if .Values.memcached.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-memcached
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: memcached-deployment
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  replicas: {{ .Values.memcached.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "osm-seed.name" . }}
+      release: {{ .Release.Name }}
+      run: {{ .Release.Name }}-memcached
+  template:
+    metadata:
+      labels:
+        app: {{ template "osm-seed.name" . }}
+        release: {{ .Release.Name }}
+        run: {{ .Release.Name }}-memcached
+        "hpe-ezua/type": vendor-service
+        "hpe-ezua/app": {{ .Chart.Name }}
+    spec:
+      priorityClassName: {{ .Release.Name }}-{{ .Values.memcached.priorityClass | default "high-priority" }}
+{{ include "osm-seed.certsInitBlock" . | nindent 6 }}
+      containers:
+        - name: {{ .Chart.Name }}-memcached
+{{ include "osm-seed.certsVolumeMountsBlock" . | nindent 10 }}
+          env:
+{{ include "osm-seed.proxyCertsEnv" . | nindent 12 }}
+
+          image: "memcached"
+          ports:
+            - name: http
+              containerPort: 11211
+              protocol: TCP
+          {{- if .Values.memcached.resources.enabled }}
+          resources:
+            requests:
+              memory: {{ .Values.memcached.resources.requests.memory }}
+              cpu: {{ .Values.memcached.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.memcached.resources.limits.memory }}
+              cpu: {{ .Values.memcached.resources.limits.cpu }}
+          {{- end }}
+{{ include "osm-seed.certsVolumesBlock" . | nindent 6 }}
+      {{- if .Values.memcached.nodeSelector.enabled }}
+      nodeSelector:
+        {{ .Values.memcached.nodeSelector.label_key }} : {{ .Values.memcached.nodeSelector.label_value }}
+      {{- end }}
+      # Affinity settings
+      {{- if .Values.memcached.nodeAffinity.enabled }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ .Values.memcached.nodeAffinity.key }}
+                    operator: In
+                    values:
+                    {{- range .Values.memcached.nodeAffinity.values }}
+                      - {{ . | quote }}
+                    {{- end }}
+      {{- end }}
+{{- end }}

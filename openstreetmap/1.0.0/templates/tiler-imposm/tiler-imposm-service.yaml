@@ -1,0 +1,22 @@
+{{- if .Values.tilerImposm.enabled -}}
+# TODO, delete service for tiler-imposm
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-tiler-imposm
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: tiler-imposm-service
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: {{ .Release.Name }}-tiler-imposm-sts
+    release: {{ .Release.Name }}
+    run: {{ .Release.Name }}-tiler-imposm-sts
+{{- end }}

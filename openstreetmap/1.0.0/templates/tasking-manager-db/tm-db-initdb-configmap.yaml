@@ -1,0 +1,18 @@
+{{- if .Values.tmDb.enabled -}}
+# Runs on FIRST database init only (postgres entrypoint convention).
+# TM's schema uses PostGIS geometry columns — the extension must pre-exist.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-tm-db-initdb
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: tm-db-initdb
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+data:
+  01-create-postgis.sql: |
+    CREATE EXTENSION IF NOT EXISTS postgis;
+{{- end }}

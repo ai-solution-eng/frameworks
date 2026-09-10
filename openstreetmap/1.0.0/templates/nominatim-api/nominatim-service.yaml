@@ -1,0 +1,53 @@
+{{- if .Values.nominatimApi.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-nominatim-api
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: nominatim-api-service
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+  {{- with .Values.nominatimApi.serviceAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.serviceType }}
+  ports:
+    - port: 80
+      protocol: TCP
+      name: http
+      targetPort: api
+  selector:
+    app: {{ template "osm-seed.name" . }}
+    release: {{ .Release.Name }}
+    run: {{ .Release.Name }}-nominatim
+{{- end }}
+---
+{{- if and .Values.nominatimApi.enabled .Values.nominatimUI.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-nominatim-ui
+  labels:
+    app: {{ template "osm-seed.name" . }}
+    component: nominatim-ui-service
+    environment: {{ .Values.environment }}
+    release: {{ .Release.Name }}
+    "hpe-ezua/type": vendor-service
+    "hpe-ezua/app": {{ .Chart.Name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      name: http
+      protocol: TCP
+      targetPort: ui
+  selector:
+    app: {{ template "osm-seed.name" . }}
+    release: {{ .Release.Name }}
+    run: {{ .Release.Name }}-nominatim
+{{- end }}
