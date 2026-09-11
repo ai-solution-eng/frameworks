@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mediamtx.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mediamtx.labels" . | nindent 4 }}
+data:
+  mediamtx.yml: |
+    {{- toYaml .Values.mediamtxConfig | nindent 4 }}
+    {{- if .Values.metrics.enabled }}
+    metrics: yes
+    metricsAddress: ":{{ .Values.metrics.port }}"
+    {{- end }}
+    {{- if .Values.recording.enabled }}
+    playback: yes
+    playbackAddress: ":9996"
+    pathDefaults:
+      recordPath: {{ printf "%s/%%path/%%Y-%%m-%%d_%%H-%%M-%%S-%%f" .Values.recording.recordPath | quote }}
+      recordFormat: {{ .Values.recording.format | quote }}
+      recordSegmentDuration: {{ .Values.recording.segmentDuration | quote }}
+      recordDeleteAfter: {{ .Values.recording.localRetention | quote }}
+      {{- if .Values.recording.recordAll }}
+      record: yes
+      {{- end }}
+    {{- end }}
+    authMethod: internal
+    authInternalUsers:
+      - user: any
+        pass: ""
+        ips: []
+        permissions:
+          - action: read
+          - action: api
+          {{- if .Values.recording.enabled }}
+          # The playback server requires its own permission; the gateway SSO
+          # is the real gate (same rationale as read/api being anonymous).
+          - action: playback
+          {{- end }}
+      - user: {{ .Values.auth.publishUser | quote }}
+        pass: ""
+        ips: []
+        permissions:
+          - action: publish
+          - action: read
+    paths:
+      {{- if .Values.upstreams.enabled }}
+      {{ .Values.upstreams.regex | quote }}:
+        source: {{ printf "%s/$G1" .Values.upstreams.baseUrl | quote }}
+        {{- if .Values.upstreams.onDemand }}
+        sourceOnDemand: true
+        {{- end }}
+      {{- end }}
+      {{- range $name, $cfg := .Values.paths }}
+      {{ $name }}:
+        {{- if and $.Values.recording.enabled $.Values.recording.recordAll (eq $name "all_others") (not (hasKey $cfg "record")) }}
+        record: yes
+        {{- end }}
+        {{- toYaml $cfg | nindent 8 }}
+      {{- end }}
+      {{- if .Values.recording.enabled }}
+      {{- range .Values.recording.paths }}
+      {{- if not (hasKey $.Values.paths .) }}
+      {{ . }}:
+        record: yes
+      {{- end }}
+      {{- end }}
+      {{- end }}

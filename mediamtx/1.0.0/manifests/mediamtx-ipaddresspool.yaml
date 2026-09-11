@@ -1,0 +1,33 @@
+# MetalLB IPAddressPool + L2Advertisement for the MediaMTX external LoadBalancer.
+#
+# ROLE OF THIS FILE:
+#   - Deployed-state record for dc15-0103 (10.17.32.22 is live there).
+#   - Manual-apply variant for other systems: edit <IP> to a free address on
+#     the TARGET cluster's LAN (same L2 segment as its nodes) and apply.
+#   - On new systems, PREFER scripts/create-ipaddresspool.sh — it discovers a
+#     free IP, generates and (optionally) applies the manifest, and prints the
+#     values-pc.yaml snippet. Use its -o flag to refresh this file as the
+#     deployed-state record.
+#
+# `mediamtx-stream` (a LoadBalancer Service from the chart) needs an external IP.
+# The cluster's default MetalLB pool only contains 10.17.32.21 (used by the istio
+# ingress gateway) and is exhausted, so we carve out a dedicated /32 for MediaMTX.
+#
+# Before applying, confirm <IP> is a free address on the lab/VPN network.
+#   kubectl apply -f mediamtx-ipaddresspool.yaml
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: mediamtx-pool
+  namespace: metallb-system
+spec:
+  addresses: ["10.17.32.22/32"]
+  autoAssign: true
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: mediamtx-l2-adv
+  namespace: metallb-system
+spec:
+  ipAddressPools: ["mediamtx-pool"]

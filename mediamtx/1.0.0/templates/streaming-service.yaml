@@ -1,0 +1,74 @@
+{{- if .Values.streamingService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mediamtx.fullname" . }}-stream
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mediamtx.labels" . | nindent 4 }}
+    {{- include "mediamtx.ezuaLabels" . | nindent 4 }}
+  {{- with .Values.streamingService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.streamingService.type }}
+  selector:
+    {{- include "mediamtx.selectorLabels" . | nindent 4 }}
+  {{- with .Values.streamingService.loadBalancerIPs }}
+  loadBalancerIPs:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.streamingService.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  ports:
+    {{- if .Values.streamingService.ports.rtsp }}
+    - name: rtsp
+      port: {{ .Values.streamingService.ports.rtsp }}
+      targetPort: rtsp
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.streamingService.ports.rtp }}
+    - name: rtp
+      port: {{ .Values.streamingService.ports.rtp }}
+      targetPort: rtp
+      protocol: UDP
+    {{- end }}
+    {{- if .Values.streamingService.ports.rtcp }}
+    - name: rtcp
+      port: {{ .Values.streamingService.ports.rtcp }}
+      targetPort: rtcp
+      protocol: UDP
+    {{- end }}
+    {{- if .Values.streamingService.ports.rtmp }}
+    - name: rtmp
+      port: {{ .Values.streamingService.ports.rtmp }}
+      targetPort: rtmp
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.streamingService.ports.srt }}
+    - name: srt
+      port: {{ .Values.streamingService.ports.srt }}
+      targetPort: srt
+      protocol: UDP
+    {{- end }}
+    {{- if .Values.streamingService.ports.hls }}
+    - name: hls
+      port: {{ .Values.streamingService.ports.hls }}
+      targetPort: hls
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.streamingService.ports.webrtc }}
+    - name: webrtc
+      port: {{ .Values.streamingService.ports.webrtc }}
+      targetPort: webrtc
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.streamingService.ports.webrtcUdp }}
+    - name: webrtc-udp
+      port: {{ .Values.streamingService.ports.webrtcUdp }}
+      targetPort: webrtc-udp
+      protocol: UDP
+    {{- end }}
+{{- end }}

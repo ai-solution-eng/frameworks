@@ -1,0 +1,83 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: {{ .Release.Name }}-vs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mediamtx.labels" . | nindent 4 }}
+    {{- include "mediamtx.ezuaLabels" . | nindent 4 }}
+spec:
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint }}
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway }}
+  http:
+    # WebRTC / WHIP-WHEP signaling (port 8889).
+    # MediaMTX URL structure (v1.x):
+    #   initial signaling:  OPTIONS/POST /{path}/whep  (or /{path}/whip to publish)
+    #   session ops:        PATCH/DELETE /{path}/whep/{uuid}
+    # The regex matches any stream path, so a prefix rewrite is not needed here.
+    - match:
+        - uri:
+            regex: "^/[^/]+/(whep|whip)(/.*)?$"
+      route:
+        - destination:
+            host: {{ include "mediamtx.fullname" . }}-svc.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.ports.webrtc }}
+    # MediaMTX built-in WebRTC player page (normally served on :8889).
+    # The page derives its WHEP URL relatively (new URL("whep", location.href)),
+    # so a prefix rewrite keeps page, assets and signaling same-origin over HTTPS.
+    # NOTE: always open with a trailing slash, e.g. /wrtc/cam/ (MediaMTX 302s
+    # slash-less URLs to an absolute path that would drop the /wrtc prefix).
+    - match:
+        - uri:
+            prefix: /wrtc/
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: {{ include "mediamtx.fullname" . }}-svc.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.ports.webrtc }}
+    # MediaMTX playback server (VOD of recorded segments, local window).
+    # Exposed only when recording is enabled; behind SSO like the rest.
+    # The server registers routes at its ROOT (/list, /get — the stream path
+    # is a query param), so rewrite /playback/* onto /. NOTE the trailing
+    # slash in the prefix: without it Envoy produces a double slash
+    # (/playback/get -> //get) which gin answers with 404.
+    {{- if .Values.recording.enabled }}
+    - match:
+        - uri:
+            prefix: /playback/
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: {{ include "mediamtx.fullname" . }}-svc.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 9996
+    {{- end }}
+    # Recordings web UI (browse / download / delete the MinIO archive).
+    # Trailing-slash prefix + rewrite (the double-slash gotcha).
+    {{- if and .Values.recording.enabled .Values.recording.ui.enabled }}
+    - match:
+        - uri:
+            prefix: /recordings/
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: {{ include "mediamtx.fullname" . }}-svc.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.recording.ui.port }}
+    {{- end }}
+    # Everything else -> HLS server (read pages, playlists, segments).
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: {{ include "mediamtx.fullname" . }}-svc.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.ports.hls }}

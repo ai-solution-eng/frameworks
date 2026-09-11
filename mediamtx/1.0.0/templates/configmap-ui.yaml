@@ -1,0 +1,12 @@
+{{- if and .Values.recording.enabled .Values.recording.ui.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mediamtx.fullname" . }}-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mediamtx.labels" . | nindent 4 }}
+data:
+  app.py: |
+{{ .Files.Get "ui/app.py" | indent 4 }}
+{{- end }}

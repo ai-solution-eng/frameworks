@@ -1,0 +1,322 @@
+# ============================================================
+# EZUA / ISTIO exposure
+# ============================================================
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  virtualService:
+    endpoint: "mediamtx.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+
+# The pod's internal hostname / dns used by the portal "Open" button.
+domain: "mediamtx.${DOMAIN_NAME}"
+
+# ============================================================
+# General
+# ============================================================
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+revisionHistoryLimit: 3
+updateStrategy:
+  type: RollingUpdate
+
+image:
+  registry: docker.io
+  repository: bluenviron/mediamtx
+  tag: "1.17.1"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ============================================================
+# MediaMTX base config
+# ============================================================
+# Base MediaMTX settings rendered into /mediamtx.yml. Auth, paths, upstream
+# relay and metrics are applied by the chart (sections below). Keys here are
+# MediaMTX's flat config keys (e.g. logLevel, api). Add any other MediaMTX
+# option here and it will be merged in.
+mediamtxConfig:
+  logLevel: info
+  # Enable the Control API server (web dashboard/player + REST API on api port
+  # 9997). The probes, dashboard and EZUA route all depend on this.
+  api: true
+  # WebRTC: enabled by default in MediaMTX (signaling :8889/TCP, ICE :8189/UDP).
+  # webrtcAdditionalHosts advertises extra IPs as ICE candidates to clients
+  # (the pod's own IPs are usually unreachable from outside the cluster).
+  # Set to your LoadBalancer IP (for in-network viewers) plus the viewing
+  # laptop's LAN IP (for the SSH UDP relay shim) in environment values,
+  # e.g. values-pc.yaml. Do NOT use 127.0.0.1: all major browsers discard
+  # remote loopback ICE candidates as a security policy.
+  webrtcAdditionalHosts: []
+
+# ============================================================
+# Per-path MediaMTX configuration
+# ============================================================
+# Each path can be:
+#   - a local publisher/sink:        source: publisher
+#   - a pull/relay from a URL:       source: "rtsp://<upstream>:8554/<name>"
+#       (also rtmp://, http(s)://.../index.m3u8, srt://, ...)
+paths:
+  all_others:
+    source: publisher
+
+# ============================================================
+# Upstream federation (pull/relay from another MediaMTX)
+# ============================================================
+# When enabled, MediaMTX relays ANY requested path from an upstream server:
+#   rtsp://<our-host>:8554/<name>  ->  rtsp://<baseUrl>/<name>
+# This is the "download media from an upstream MediaMTX based on metadata"
+# use case. Explicit paths defined in `paths` take precedence over this
+# catch-all regex.
+upstreams:
+  enabled: false
+  baseUrl: "rtsp://<upstream-ip>:8554"
+  regex: "~^(.+)$"
+  onDemand: false
+
+# ============================================================
+# Authentication
+# ============================================================
+# Credentials for MediaMTX-native publish/read (RTSP/RTMP/SRT/RTP over the
+# exposed LoadBalancer ports). They are stored in a k8s Secret and injected as
+# env vars, so the password never appears in the ConfigMap. Create the Secret
+# with scripts/create-auth-secret.sh.
+auth:
+  enabled: true
+  # Name of the Secret holding the publish credentials.
+  existingSecret: "mediamtx-secret"
+  # Keys inside that Secret:
+  publishUserKey: "publishUser"
+  publishPasswordKey: "publishPassword"
+  # Publish username (must match the value stored in the Secret).
+  publishUser: "admin"
+
+# ============================================================
+# Prometheus metrics
+# ============================================================
+# Exposes MediaMTX's built-in /metrics endpoint (MediaMTX feature).
+metrics:
+  enabled: false
+  port: 9098
+
+# ============================================================
+# Recording to S3 (MinIO)
+# ============================================================
+# MediaMTX records fMP4 segments to a shared volume; an rclone sidecar moves
+# completed segments to an S3-compatible endpoint (MinIO). MediaMTX's native
+# recordDeleteAfter (= recording.localRetention) deletes aged local segments,
+# which keeps disk usage bounded even if S3 is unreachable.
+recording:
+  enabled: false
+  # Where MediaMTX writes segments (mounted in both MediaMTX and the sidecar).
+  recordPath: /recordings
+  # fMP4 is the efficient default; mpegts also supported.
+  format: fmp4
+  # Close each segment file after this duration -> S3-friendly chunk size.
+  segmentDuration: 1m
+  # Local retention (= MediaMTX recordDeleteAfter). Must be comfortably larger
+  # than the upload interval: segments older than this are deleted locally
+  # whether or not they were uploaded. This is the disk-usage guard.
+  localRetention: 2h
+  # Record ALL live paths (pathDefaults.record=true). When false, only the
+  # paths listed in recording.paths get record: true.
+  recordAll: false
+  # Explicit list of path names to record (used when recordAll: false).
+  paths: []
+  # Local buffer volume: "pvc" (recommended, survives pod restarts) or
+  # "emptyDir" (with a hard sizeLimit as the safety net).
+  volume:
+    type: pvc
+    size: 10Gi
+    storageClass: ""
+  s3:
+    # In-cluster MinIO endpoint (S3 API).
+    endpoint: "http://minio.minio.svc.cluster.local:9000"
+    bucket: "mediamtx-recordings"
+    # Optional key prefix inside the bucket (e.g. "dc15/").
+    prefix: ""
+    # Secret with the MinIO credentials (keys: accessKey, secretKey).
+    # Create it with: scripts/create-s3-secret.sh
+    existingSecret: "mediamtx-s3-creds"
+    syncInterval: 60    # seconds between upload passes
+    minAge: 30          # skip files younger than this (still being written)
+    # true = rclone move (archive-only: local playback window shrinks to the
+    # upload latency, ~1-2 min). false = rclone copy: segments stay local
+    # until recording.localRetention, so the playback server serves the full
+    # window (MediaMTX deletes them locally when it expires). RECOMMENDED: false.
+    deleteLocal: false
+  playback:
+    # MediaMTX playback server: VOD with time-range seek over segments still
+    # on local disk (exposed via the gateway at /playback, SSO-protected).
+    # Older (archived-only) segments must be fetched from MinIO directly.
+    enabled: true
+  ui:
+    # Recordings web UI: list / download / delete archived segments via the
+    # gateway at /recordings/ (SSO-protected). Manages ONLY the
+    # mediamtx-recordings bucket prefix — deletes are PERMANENT.
+    enabled: true
+    port: 8080
+
+# ============================================================
+# MediaMTX container ports (listener ports inside the pod)
+# ============================================================
+# MediaMTX 1.17 defaults:
+#   RTSP 8554/TCP, RTP 8000/UDP, RTCP 8001/UDP, RTMP 1935/TCP, HLS 8888/TCP,
+#   WebRTC signaling 8889/TCP, WebRTC ICE 8189/UDP, SRT 8890/UDP, Control API 9997/TCP.
+ports:
+  rtsp: 8554
+  rtp: 8000
+  rtcp: 8001
+  rtmp: 1935
+  hls: 8888
+  webrtc: 8889
+  webrtcUdp: 8189
+  srt: 8890
+  api: 9997
+  metrics: 9098
+
+# ============================================================
+# External streaming exposure (MetalLB LoadBalancer)
+# ============================================================
+# Exposes MediaMTX's native publish/ingest/read ports (RTSP/RTMP/SRT/RTP/WebRTC)
+# so external clients (e.g. ffmpeg on a laptop) can publish a stream and native
+# readers (RTSP/HLS) can pull it. Set enabled=false to keep the app internal-only
+# (reachable only via the EZUA HTTPS HLS URL).
+streamingService:
+  enabled: true
+  type: LoadBalancer
+  annotations: {}
+  # Optionally request a specific LoadBalancer IP (must exist in a MetalLB pool).
+  loadBalancerIPs: []
+  externalTrafficPolicy: ""
+  ports:
+    rtsp: 8554
+    rtp: 8000
+    rtcp: 8001
+    rtmp: 1935
+    srt: 8890
+    hls: 8888
+    webrtc: 8889
+    webrtcUdp: 8189
+
+# Container port (name) used by liveness/readiness/startup probes.
+# The API port (9997) serves the REST Control API; the probe path is the
+# guaranteed-200 "/v3/info" endpoint. The EZUA route targets the HLS server
+# (8888) where the web player is served per-stream.
+probePort: api
+
+# ============================================================
+# Probes
+# ============================================================
+livenessProbe:
+  enabled: true
+  path: /v3/info
+  initialDelaySeconds: 20
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+readinessProbe:
+  enabled: true
+  path: /v3/info
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+startupProbe:
+  enabled: false
+  path: /v3/info
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+# ============================================================
+# Security
+# ============================================================
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+# ============================================================
+# Resources
+# ============================================================
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# ============================================================
+# Scheduling / misc
+# ============================================================
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podLabels: {}
+
+# ============================================================
+# Host aliases
+# ============================================================
+hostAliases: []
+
+extraEnvVars: []
+extraVolumes: []
+extraVolumeMounts: []
+
+
+# ============================================================
+# Internal CA / proxy injection for air-gapped or proxied clusters
+# (e.g. HPE corporate proxy + internal registry). Override in values_internal.yaml.
+# ============================================================
+# ============================================================
+# Certificate trust injection for HTTPS media sources
+# ============================================================
+# MediaMTX (Go) needs a trusted CA bundle to pull HTTPS sources
+# (e.g. HLS/RTMP over HTTPS). The bluenviron/mediamtx image is scratch-based
+# and ships no CA bundle, so HTTPS source verification fails with
+# "x509: certificate signed by unknown authority". An init container copies
+# a public CA bundle into a shared emptyDir, which the main container mounts
+# and exposes via SSL_CERT_FILE (Go's crypto/x509 reads it).
+# Set enabled: false to disable.
+certificatesPolicy:
+  enabled: false
+  env: []
+    
+  initContainer: {}
+  initVolumeMounts: []
+  volumeMounts: []
+  volumes: []
+
+proxy:
+  enabled: false
+  env: []                 # e.g. HTTP_PROXY / HTTPS_PROXY
+
+no_proxy:
+  enabled: false
+  env: []                 # e.g. NO_PROXY / no_proxy

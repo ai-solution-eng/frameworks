@@ -1,0 +1,317 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mediamtx.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mediamtx.labels" . | nindent 4 }}
+    {{- include "mediamtx.ezuaLabels" . | nindent 4 }}
+  {{- with .Values.podAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  strategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "mediamtx.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mediamtx.selectorLabels" . | nindent 8 }}
+        {{- include "mediamtx.ezuaLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "mediamtx.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.certificatesPolicy.enabled }}
+      initContainers:
+        - name: build-ca-bundle
+          image: {{ .Values.certificatesPolicy.initContainer.image }}
+          {{- with .Values.certificatesPolicy.initContainer.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            {{- toYaml .Values.certificatesPolicy.initVolumeMounts | nindent 12 }}
+      {{- end }}
+      containers:
+        {{- if .Values.recording.enabled }}
+        - name: s3-sync
+          image: "rclone/rclone:1.68"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              REMOTE="s3:{{ .Values.recording.s3.bucket }}{{ with .Values.recording.s3.prefix }}/{{ . }}{{ end }}"
+              echo "[s3-sync] bootstrap: ensure bucket ${REMOTE}"
+              rclone mkdir "${REMOTE}" || true
+              ARGS="--min-age {{ .Values.recording.s3.minAge }}s --transfers 4 --checkers 8 --log-level INFO"
+              {{- if .Values.recording.s3.deleteLocal }}
+              SYNC_CMD="rclone move /recordings ${REMOTE} ${ARGS} --delete-empty-src-dirs"
+              {{- else }}
+              SYNC_CMD="rclone copy /recordings ${REMOTE} ${ARGS}"
+              {{- end }}
+              echo "[s3-sync] loop: ${SYNC_CMD} (every {{ .Values.recording.s3.syncInterval }}s)"
+              while :; do
+                sh -c "${SYNC_CMD}" || echo "[s3-sync] upload failed — will retry (local disk bounded by recordDeleteAfter)"
+                sleep {{ .Values.recording.s3.syncInterval }}
+              done
+          env:
+            - name: RCLONE_CONFIG_S3_TYPE
+              value: s3
+            - name: RCLONE_CONFIG_S3_PROVIDER
+              value: Minio
+            - name: RCLONE_CONFIG_S3_ENDPOINT
+              value: {{ .Values.recording.s3.endpoint | quote }}
+            - name: RCLONE_CONFIG_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.recording.s3.existingSecret }}
+                  key: accessKey
+            - name: RCLONE_CONFIG_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.recording.s3.existingSecret }}
+                  key: secretKey
+          volumeMounts:
+            - name: recordings
+              mountPath: {{ .Values.recording.recordPath }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+        {{- end }}
+        {{- if and .Values.recording.enabled .Values.recording.ui.enabled }}
+        - name: recordings-ui
+          image: "python:3.12-alpine"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command: ["python3", "/app/app.py"]
+          env:
+            - name: MINIO_ENDPOINT
+              value: {{ .Values.recording.s3.endpoint | quote }}
+            - name: MINIO_BUCKET
+              value: {{ .Values.recording.s3.bucket | quote }}
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.recording.s3.existingSecret }}
+                  key: accessKey
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.recording.s3.existingSecret }}
+                  key: secretKey
+            - name: UI_PORT
+              value: {{ .Values.recording.ui.port | quote }}
+          ports:
+            - name: ui
+              containerPort: {{ .Values.recording.ui.port }}
+              protocol: TCP
+          volumeMounts:
+            - name: ui-app
+              mountPath: /app
+            - name: recordings
+              mountPath: {{ .Values.recording.recordPath }}
+              readOnly: false
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+        {{- end }}
+        - name: mediamtx
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: rtsp
+              containerPort: {{ .Values.ports.rtsp }}
+              protocol: TCP
+            - name: rtp
+              containerPort: {{ .Values.ports.rtp }}
+              protocol: UDP
+            - name: rtcp
+              containerPort: {{ .Values.ports.rtcp }}
+              protocol: UDP
+            - name: rtmp
+              containerPort: {{ .Values.ports.rtmp }}
+              protocol: TCP
+            - name: hls
+              containerPort: {{ .Values.ports.hls }}
+              protocol: TCP
+            - name: webrtc
+              containerPort: {{ .Values.ports.webrtc }}
+              protocol: TCP
+            - name: webrtc-udp
+              containerPort: {{ .Values.ports.webrtcUdp }}
+              protocol: UDP
+            - name: srt
+              containerPort: {{ .Values.ports.srt }}
+              protocol: UDP
+            - name: api
+              containerPort: {{ .Values.ports.api }}
+              protocol: TCP
+            {{- if .Values.recording.enabled }}
+            {{- if .Values.recording.playback.enabled }}
+            - name: playback
+              containerPort: 9996
+              protocol: TCP
+            {{- end }}
+            {{- end }}
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.ports.metrics }}
+              protocol: TCP
+            {{- end }}
+          {{- if or .Values.extraEnvVars .Values.auth.enabled .Values.certificatesPolicy.enabled .Values.proxy.enabled .Values.no_proxy.enabled }}
+          env:
+            {{- if .Values.auth.enabled }}
+            - name: MTX_AUTHINTERNALUSERS_1_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: {{ .Values.auth.publishUserKey }}
+            - name: MTX_AUTHINTERNALUSERS_1_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: {{ .Values.auth.publishPasswordKey }}
+            {{- end }}
+            {{- if .Values.certificatesPolicy.enabled }}
+            {{- toYaml .Values.certificatesPolicy.env | nindent 12 }}
+            {{- end }}
+            {{- if .Values.proxy.enabled }}
+            {{- toYaml .Values.proxy.env | nindent 12 }}
+            {{- end }}
+            {{- if .Values.no_proxy.enabled }}
+            {{- toYaml .Values.no_proxy.env | nindent 12 }}
+            {{- end }}
+            {{- if .Values.extraEnvVars }}
+            {{- toYaml .Values.extraEnvVars | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /mediamtx.yml
+              subPath: mediamtx.yml
+            {{- if .Values.recording.enabled }}
+            - name: recordings
+              mountPath: {{ .Values.recording.recordPath }}
+            {{- end }}
+            {{- if and .Values.recording.enabled .Values.recording.ui.enabled }}
+            - name: ui-app
+              mountPath: /app
+            {{- end }}
+            {{- if .Values.certificatesPolicy.enabled }}
+            {{- toYaml .Values.certificatesPolicy.volumeMounts | nindent 12 }}
+            {{- end }}
+            {{- if .Values.extraVolumeMounts }}
+            {{- toYaml .Values.extraVolumeMounts | nindent 12 }}
+            {{- end }}
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.startupProbe.path }}
+              port: {{ .Values.probePort }}
+            initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.path }}
+              port: {{ .Values.probePort }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.path }}
+              port: {{ .Values.probePort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "mediamtx.fullname" . }}-config
+        {{- if .Values.recording.enabled }}
+        - name: recordings
+          {{- if eq .Values.recording.volume.type "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ include "mediamtx.fullname" . }}-recordings
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ .Values.recording.volume.size }}
+          {{- end }}
+        {{- end }}
+        {{- if and .Values.recording.enabled .Values.recording.ui.enabled }}
+        - name: ui-app
+          configMap:
+            name: {{ include "mediamtx.fullname" . }}-ui
+        {{- end }}
+        {{- if .Values.certificatesPolicy.enabled }}
+        {{- toYaml .Values.certificatesPolicy.volumes | nindent 8 }}
+        {{- end }}
+        {{- if .Values.extraVolumes }}
+        {{- toYaml .Values.extraVolumes | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

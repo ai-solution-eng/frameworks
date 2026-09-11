@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mediamtx.fullname" . }}-svc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mediamtx.labels" . | nindent 4 }}
+    {{- include "mediamtx.ezuaLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mediamtx.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: hls
+      port: {{ .Values.ports.hls }}
+      targetPort: hls
+      protocol: TCP
+    - name: rtsp
+      port: {{ .Values.ports.rtsp }}
+      targetPort: rtsp
+      protocol: TCP
+    - name: rtp
+      port: {{ .Values.ports.rtp }}
+      targetPort: rtp
+      protocol: UDP
+    - name: rtcp
+      port: {{ .Values.ports.rtcp }}
+      targetPort: rtcp
+      protocol: UDP
+    - name: rtmp
+      port: {{ .Values.ports.rtmp }}
+      targetPort: rtmp
+      protocol: TCP
+    - name: webrtc
+      port: {{ .Values.ports.webrtc }}
+      targetPort: webrtc
+      protocol: TCP
+    - name: webrtc-udp
+      port: {{ .Values.ports.webrtcUdp }}
+      targetPort: webrtc-udp
+      protocol: UDP
+    - name: srt
+      port: {{ .Values.ports.srt }}
+      targetPort: srt
+      protocol: UDP
+    - name: api
+      port: {{ .Values.ports.api }}
+      targetPort: api
+      protocol: TCP
+    {{- if and .Values.recording.enabled .Values.recording.playback.enabled }}
+    - name: playback
+      port: 9996
+      targetPort: playback
+      protocol: TCP
+    {{- end }}
+    {{- if and .Values.recording.enabled .Values.recording.ui.enabled }}
+    - name: ui
+      port: {{ .Values.recording.ui.port }}
+      targetPort: ui
+      protocol: TCP
+    {{- end }}

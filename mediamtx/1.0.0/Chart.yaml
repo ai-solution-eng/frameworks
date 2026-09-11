@@ -1,0 +1,21 @@
+apiVersion: v2
+name: mediamtx
+description: MediaMTX ready-to-use real-time media server and media proxy for HPE Private Cloud AI
+type: application
+version: 1.0.0
+appVersion: "1.17.1"
+kubeVersion: ">=1.25.0-0"
+keywords:
+  - mediamtx
+  - rtsp
+  - rtmp
+  - hls
+  - webrtc
+  - srt
+  - media
+  - streaming
+home: https://github.com/bluenviron/mediamtx
+sources:
+  - https://github.com/bluenviron/mediamtx
+maintainers:
+  - name: HPE PCAI Team
