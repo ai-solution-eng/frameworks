@@ -1,0 +1,117 @@
+# NemoClaw PCAI Helm chart — pick ONE agent: openclaw (default) or hermes.
+# Mutually exclusive: exactly one agent container per pod.
+# Both agents can use the same Telegram bot token (top-level telegram.* block)
+# and the same LiteLLM endpoint.
+#
+# Backward-compatible: default agent = openclaw (the prior chart behavior).
+
+replicaCount: 1
+
+# ── Agent selector ───────────────────────────────────────────────────────────
+# Exactly one of:
+#   openclaw  — NemoClaw / OpenClaw gateway (dashboard on port 18789, LLM via
+#               litellm, Telegram via openclaw channel).
+#   hermes    — Hermes Agent (Nous Research, OpenAI-compatible API on port
+#               8642 + web dashboard on port 18790, Telegram via hermes
+#               platform). Uses the NemoClaw Hermes sandbox image.
+agent: openclaw
+
+# ── Container image (OpenClaw) ───────────────────────────────────────────────
+image:
+  repository: ghcr.io/nvidia/openshell-community/sandboxes/openclaw
+  tag: latest
+  digest: sha256:b3d832b596ab6b7184a9dcb4ae93337ca32851a4f93b00765cc12de26baa3a9a
+  pullPolicy: IfNotPresent
+
+# ── Gateway (OpenClaw dashboard) ─────────────────────────────────────────────
+gateway:
+  port: 18789
+  bind: lan
+  token: "CHANGE_ME-GATEWAY-TOKEN"
+  dangerouslyDisableDeviceAuth: true
+  allowedOrigins: "*"
+
+litellm:
+  # REQUIRED — the full URL of your OpenAI-compatible LLM endpoint.
+  # Examples:
+  #   litellm proxy:    "http://litellm-helm.<litellm-namespace>.svc.cluster.local:4000/v1"
+  #   direct endpoint:  "https://<model-host>.<your-pcai-domain>/v1"
+  baseUrl: ""
+  model: "qwen3-8-27b-int4-dflash2-r2"
+  contextWindow: 131072
+  maxTokens: 8192
+  apiKey: "CHANGE_ME-litellm-master-key"
+# ── Dashboard UI root (OpenClaw only) ────────────────────────────────────────
+ui:
+  root: "/sandbox/.openclaw/ui"
+
+# ── Telegram (shared by both agents) ─────────────────────────────────────────
+telegram:
+  enabled: true
+  allowAll: true
+  botToken: "CHANGE_ME-telegram-bot-token"
+  testChatId: ""
+  testMessage: "NemoClaw Telegram channel is online (one-off validation)"
+
+# ── Hermes Agent (used when agent: hermes) ───────────────────────────────────
+hermes:
+  image:
+    repository: ghcr.io/nvidia/nemoclaw/hermes-sandbox
+    tag: latest
+    digest: sha256:0d07845fa3b02a0657d28e134eb2e1f4a96cc6260e2538f3d4eafe831c7e5c17
+    pullPolicy: IfNotPresent
+  apiPort: 8642
+  dashboardPort: 18790
+  apiServerKey: "CHANGE_ME-HERMES-API-SERVER-KEY"
+  model: "qwen3-8-27b-int4-dflash2-r2"
+  # Dashboard basic-auth (required: hermes refuses to bind 0.0.0.0 without an
+  # auth provider). Enable by default so the dashboard port is usable; the
+  # password is generated at install unless you pin one here.
+  dashboardAuth:
+    enabled: true
+    username: "admin"
+    password: ""  # empty -> random 24-char password generated at install
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+# ── Service ──────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 18789
+  hermesApiPort: 8642
+
+ingress:
+  enabled: true
+
+ezua:
+  virtualService:
+    endpoint: "${RELEASE_NAME}.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+
+persistence:
+  enabled: true
+  # Empty -> auto-detect the cluster default StorageClass (annotation
+  # storageclass.kubernetes.io/is-default-class=true).
+  storageClassName: ""
+  size: 10Gi
+
+# ── Resources (OpenClaw gateway) ────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+istioInjection: true

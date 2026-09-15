@@ -1,0 +1,18 @@
+apiVersion: v2
+name: nemoclaw
+description: >-
+  NemoClaw (OpenClaw) or Hermes Agent gateway on PCAI. A single
+  litellm.baseUrl input points at either the LiteLLM proxy or a direct
+  OpenAI-compatible LLM endpoint (TLS trust for direct endpoints is
+  built in). Static dashboard URL and static gateway token.
+  Device-auth disabled for all-device pairing. Optional Telegram channel.
+type: application
+version: 0.2.5
+appVersion: "2026.3.11"
+keywords:
+  - nemoclaw
+  - openclaw
+  - gateway
+  - agent
+maintainers:
+  - name: mlyu2000

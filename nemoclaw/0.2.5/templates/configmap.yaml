@@ -1,0 +1,200 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nemoclaw.fullname" . }}-openclaw-config
+  labels:
+    {{- include "nemoclaw.labels" . | nindent 4 }}
+data:
+  {{- if eq .Values.agent "openclaw" }}
+  # ── OpenClaw config (openclaw.json) ────────────────────────────────────
+  openclaw.json: |
+    {
+      "wizard": {
+        "lastRunAt": "2026-09-03T00:00:00Z",
+        "lastRunVersion": "2026.3.11",
+        "lastRunCommand": "onboard",
+        "lastRunMode": "local"
+      },
+      "agents": {
+        "defaults": {
+          "model": { "primary": "inference/{{ .Values.litellm.model }}" },
+          "skipBootstrap": true,
+          "thinkingDefault": "off",
+          "workspace": "/sandbox/.openclaw/workspace"
+        }
+      },
+      "models": {
+        "mode": "merge",
+        "providers": {
+          "inference": {
+            "baseUrl": {{ include "nemoclaw.litellmBaseUrl" . | quote }},
+            "apiKey": {{ .Values.litellm.apiKey | quote }},
+            "api": "openai-completions",
+            "models": [
+              {
+                "id": {{ .Values.litellm.model | quote }},
+                "name": "inference/{{ .Values.litellm.model }}",
+                "reasoning": false,
+                "input": ["text"],
+                "contextWindow": {{ .Values.litellm.contextWindow }},
+                "maxTokens": {{ .Values.litellm.maxTokens }}
+              }
+            ]
+          }
+        }
+      },
+      "channels": {
+        "defaults": {}{{- if .Values.telegram.enabled }}
+        ,
+        "telegram": {
+          "enabled": true,
+          {{- if .Values.telegram.allowAll }}
+          "dmPolicy": "open",
+          "groupPolicy": "open",
+          "allowFrom": ["*"],
+          "accounts": {
+            "default": {
+              "botToken": {{ .Values.telegram.botToken | quote }},
+              "dmPolicy": "open",
+              "groupPolicy": "open",
+              "allowFrom": ["*"]
+            }
+          }
+          {{- else }}
+          "accounts": {
+            "default": { "botToken": {{ .Values.telegram.botToken | quote }} }
+          }
+          {{- end }}
+        }{{- end }}
+      },
+      "update": { "checkOnStart": false },
+      "gateway": {
+        "mode": "local",
+        "bind": "{{ .Values.gateway.bind }}",
+        "port": {{ .Values.gateway.port }},
+        "controlUi": {
+          "allowInsecureAuth": true,
+          "dangerouslyDisableDeviceAuth": {{ .Values.gateway.dangerouslyDisableDeviceAuth }},
+          "allowedOrigins": [{{ .Values.gateway.allowedOrigins | quote }}],
+          "root": "{{ .Values.ui.root }}"
+        },
+        "auth": { "token": {{ .Values.gateway.token | quote }} }
+      }
+    }
+
+  # Boot-time UI patcher: copies the control-ui to a writable dir and injects
+  # a same-origin auto-token.js (CSP `script-src 'self'` blocks inline scripts)
+  # that auto-connects the dashboard from the bare URL (the "Open" button URL).
+  patch-ui.js: |-
+{{ .Files.Get "files/patch-ui.js" | indent 4 }}
+
+  {{- if .Values.telegram.enabled }}
+  # One-off Telegram channel verification (runs once per pod start, BEFORE the
+  # gateway). Reads TELEGRAM_BOT_TOKEN from the environment, runs getMe
+  # (validity + egress), then sends a single test message to a chat id.
+  telegram-verify.js: |-
+{{ .Files.Get "files/telegram-verify.js" | indent 4 }}
+  {{- end }}
+
+  {{- else if eq .Values.agent "hermes" }}
+  # ── Hermes Agent config (written to /sandbox/.hermes/ at pod start) ─────
+  # seed-hermes-config.sh is run by the container command to write
+  # $HERMES_HOME/config.yaml + .env before `hermes gateway run`.
+  #
+  # Key layout
+  # requirements (a wrong shape breaks the agent's OpenAI client):
+  #   * providers.custom MUST carry `name:` + `base_url` + `api_key`.
+  #   * The `api:` key is NOT a hermes field — hermes falls back to it as the
+  #     base URL, producing base_url="openai-completions" and a dead client.
+  #   * api_server port/host come from platforms.api_server.extra.
+  # Secrets (litellm key, api-server key, telegram token) are read from the
+  # mounted Secret files, never stored in this ConfigMap.
+  hermes-config.env: |
+    HERMES_LITELLM_MODEL={{ .Values.litellm.model }}
+    HERMES_LITELLM_BASE_URL={{ include "nemoclaw.litellmBaseUrl" . }}
+
+  # One-off Telegram channel verification (shared by both agents; runs before
+  # the hermes gateway so it doesn't race the gateway's own long-poll).
+  telegram-verify.js: |-
+{{ .Files.Get "files/telegram-verify.js" | indent 4 }}
+
+  # Seed script: generates $HERMES_HOME/config.yaml + .env + merged CA bundle.
+  seed-hermes-config.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    HERMES_HOME="${HERMES_HOME:-/sandbox/.hermes}"
+    mkdir -p "$HERMES_HOME"
+    CONFIG="$HERMES_HOME/config.yaml"
+    ENV_FILE="$HERMES_HOME/.env"
+    BUNDLE="$HERMES_HOME/ca-bundle.pem"
+
+    if [ -f /etc/openclaw-config/hermes-config.env ]; then
+      set -a
+      . /etc/openclaw-config/hermes-config.env
+      set +a
+    fi
+
+    # Secrets from the mounted Secret files (subPath mounts of the gateway
+    # token Secret).
+    HERMES_API_SERVER_KEY="$(cat /etc/hermes-api-key)"
+    HERMES_LITELLM_API_KEY="$(cat /etc/litellm-api-key)"
+    HERMES_API_PORT="${HERMES_API_PORT:-8642}"
+    HERMES_TELEGRAM_ENABLED="${HERMES_TELEGRAM_ENABLED:-false}"
+    HERMES_TELEGRAM_DM_POLICY="${HERMES_TELEGRAM_DM_POLICY:-pairing}"
+    HERMES_TELEGRAM_GROUP_POLICY="${HERMES_TELEGRAM_GROUP_POLICY:-pairing}"
+
+    # Quoted heredoc: the only expansion we want is the $(cat ...) command
+    # substitutions, which run when the file is written (secrets are read from
+    # the mounted Secret files at that moment).
+    # API_SERVER_KEY is intentionally NOT written here: it is provided as a
+    # container env var (Secret-mounted) and hermes reads os.getenv
+    # ("API_SERVER_KEY"). Keeping it out of the file avoids any secret
+    # landing in $HERMES_HOME.
+    cat > "$ENV_FILE" <<ENVEOF
+    API_SERVER_PORT=${HERMES_API_PORT}
+    API_SERVER_HOST=0.0.0.0
+    ENVEOF
+    chmod 600 "$ENV_FILE"
+
+    # Merged CA bundle: system CA + ezua/istio domain CA. The system bundle
+    # has NO trailing newline — always emit one between PEM files or openssl
+    # fails with "PEM routines: bad end line" and every TLS client errors.
+    { cat /etc/ssl/certs/ca-certificates.crt; echo; } > "$BUNDLE"
+    if [ -f /etc/ezua-domain-ca-certs/ezua-domain-ca-cert.crt ]; then
+      { cat /etc/ezua-domain-ca-certs/ezua-domain-ca-cert.crt; echo; } >> "$BUNDLE"
+    fi
+    chmod 644 "$BUNDLE"
+
+    cat > "$CONFIG" <<CFGEOF
+    _config_version: 33
+    model:
+      default: ${HERMES_LITELLM_MODEL}
+      provider: custom
+      base_url: "${HERMES_LITELLM_BASE_URL}"
+    providers:
+      custom:
+        name: custom
+        base_url: "${HERMES_LITELLM_BASE_URL}"
+        api_key: $(cat /etc/litellm-api-key)
+        default_model: ${HERMES_LITELLM_MODEL}
+        discover_models: true
+    custom_providers:
+      - name: custom
+        provider: custom
+        base_url: "${HERMES_LITELLM_BASE_URL}"
+        api_key: $(cat /etc/litellm-api-key)
+        discover_models: true
+    platforms:
+      api_server:
+        enabled: true
+        extra:
+          port: ${HERMES_API_PORT}
+          host: 0.0.0.0
+      telegram:
+        enabled: ${HERMES_TELEGRAM_ENABLED}
+        dm_policy: ${HERMES_TELEGRAM_DM_POLICY}
+        group_policy: ${HERMES_TELEGRAM_GROUP_POLICY}
+    CFGEOF
+    chmod 600 "$CONFIG"
+    echo "[seed] Wrote $CONFIG and $ENV_FILE"
+  {{- end }}

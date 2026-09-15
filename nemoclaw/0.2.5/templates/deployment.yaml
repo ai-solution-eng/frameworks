@@ -1,0 +1,297 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nemoclaw.fullname" . }}
+  labels:
+    {{- include "nemoclaw.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nemoclaw.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nemoclaw.selectorLabels" . | nindent 8 }}
+        {{- if not .Values.istioInjection }}
+        sidecar.istio.io/inject: "false"
+        {{- end }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 998
+        runAsGroup: 998
+        fsGroup: 998
+      {{- if eq .Values.agent "openclaw" }}
+      containers:
+        - name: nemoclaw
+          image: {{ include "nemoclaw.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              STATE=/sandbox/.openclaw
+              mkdir -p "$STATE/agents/main/agent" "$STATE/workspace"
+              cp /etc/openclaw-config/openclaw.json "$STATE/openclaw.json"
+              chmod 600 "$STATE/openclaw.json"
+              UI=/usr/lib/node_modules/openclaw/dist/control-ui
+              mkdir -p "{{ .Values.ui.root }}"
+              cp -r "$UI/." "{{ .Values.ui.root }}/"
+              node /etc/openclaw-config/patch-ui.js "{{ .Values.ui.root }}" "$(cat /etc/gateway-token)"
+              {{- if .Values.telegram.enabled }}
+              node /etc/openclaw-config/telegram-verify.js >> /sandbox/.openclaw/telegram-verify.log 2>&1 || true
+              {{- end }}
+              exec openclaw gateway run                 --bind {{ .Values.gateway.bind }}                 --port {{ .Values.gateway.port }}                 --token "$(cat /etc/gateway-token)"
+          env:
+            - name: HOME
+              value: /sandbox
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nemoclaw.fullname" . }}-gateway-token
+                  key: token
+            # The OpenClaw Node gateway TLS stack (undici fetch) IGNORES
+            # SSL_CERT_FILE and only honors NODE_EXTRA_CA_CERTS for extra CAs.
+            # Without it, calls to PCAI *.serving.* internal LLM endpoints fail
+            # with UNABLE_TO_VERIFY_LEAF_SIGNATURE. Point at the platform-mounted
+            # ezua domain CA so direct LLM endpoints are trusted.
+            - name: NODE_EXTRA_CA_CERTS
+              value: /etc/ezua-domain-ca-certs/ezua-domain-ca-cert.crt
+            {{- if .Values.telegram.enabled }}
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nemoclaw.fullname" . }}-gateway-token
+                  key: telegram-bot-token
+            {{- with .Values.telegram.testChatId }}
+            - name: TELEGRAM_TEST_CHAT_ID
+              value: {{ . | quote }}
+            {{- end }}
+            - name: TELEGRAM_TEST_MESSAGE
+              value: {{ .Values.telegram.testMessage | quote }}
+            {{- end }}
+          ports:
+            - name: dashboard
+              containerPort: {{ .Values.gateway.port }}
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.gateway.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.gateway.port }}
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: openclaw-config
+              mountPath: /etc/openclaw-config
+              readOnly: true
+            - name: gateway-token
+              mountPath: /etc/gateway-token
+              subPath: token
+              readOnly: true
+            - name: agent-state
+              mountPath: /sandbox/.openclaw
+      {{- else if eq .Values.agent "hermes" }}
+      containers:
+        - name: hermes
+          image: {{ include "hermes.image" . }}
+          imagePullPolicy: {{ .Values.hermes.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 998
+            runAsGroup: 998
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              HERMES_HOME=/sandbox/.hermes
+              mkdir -p "$HERMES_HOME"
+              # Seed config.yaml + .env + merged CA bundle (secrets from the
+              # mounted Secret files).
+              bash /etc/openclaw-config/seed-hermes-config.sh
+              # certifi's cacert.pem is a dangling symlink to
+              # /etc/openshell-tls/ca-bundle.pem in bare-pod mode (that path is
+              # only created by the NemoClaw-managed entrypoint, which we do
+              # not use). Point hermes + all TLS clients at the merged bundle
+              # and disable hermes's startup ssl_guard (which would otherwise
+              # reject the dangling certifi path).
+              BUNDLE="$HERMES_HOME/ca-bundle.pem"
+              export HERMES_CA_BUNDLE="$BUNDLE"
+              export SSL_CERT_FILE="$BUNDLE"
+              export REQUESTS_CA_BUNDLE="$BUNDLE"
+              export CURL_CA_BUNDLE="$BUNDLE"
+              export HERMES_SKIP_SSL_GUARD=1
+              {{- if .Values.telegram.enabled }}
+              # One-off Telegram channel validation (bounded, non-fatal, BEFORE
+              # the gateway so it doesn't race the gateway's own long-poll):
+              # getMe proves the token + egress, then one test message proves
+              # delivery.
+              node /etc/openclaw-config/telegram-verify.js >> /sandbox/.hermes/telegram-verify.log 2>&1 || true
+              {{- end }}
+              # Web dashboard (separate process, own port; login required via
+              # basic_auth so a 0.0.0.0 bind is allowed).
+              /opt/hermes/.venv/bin/hermes dashboard \
+                --host 0.0.0.0 \
+                --port {{ .Values.hermes.dashboardPort }} \
+                --skip-build --no-open >> /sandbox/.hermes/dashboard.log 2>&1 &
+              # Gateway (foreground; only real flags: --force --accept-hooks;
+              # ports/keys come from $HERMES_HOME/config.yaml + .env).
+              exec /opt/hermes/.venv/bin/hermes gateway run --force --accept-hooks
+          env:                {{- if .Values.telegram.enabled }}
+                --telegram \
+                --telegram-bot-token "$(cat /etc/telegram-bot-token)" \
+                {{- end }}
+          env:
+            - name: HOME
+              value: /sandbox
+            - name: HERMES_HOME
+              value: /sandbox/.hermes
+            {{- if .Values.telegram.enabled }}
+            - name: HERMES_TELEGRAM_ENABLED
+              value: "true"
+            {{- if .Values.telegram.allowAll }}
+            - name: GATEWAY_ALLOW_ALL_USERS
+              value: "true"
+            - name: HERMES_TELEGRAM_DM_POLICY
+              value: "open"
+            - name: HERMES_TELEGRAM_GROUP_POLICY
+              value: "open"
+            {{- else }}
+            - name: HERMES_TELEGRAM_DM_POLICY
+              value: "pairing"
+            - name: HERMES_TELEGRAM_GROUP_POLICY
+              value: "pairing"
+            {{- end }}
+            {{- end }}
+            {{- if .Values.hermes.dashboardAuth.enabled }}
+            - name: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+              value: {{ .Values.hermes.dashboardAuth.username | quote }}
+            - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nemoclaw.fullname" . }}-gateway-token
+                  key: hermes-dashboard-password
+            {{- end }}
+            - name: API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nemoclaw.fullname" . }}-gateway-token
+                  key: hermes-api-key
+            - name: HERMES_MODEL
+              value: {{ .Values.hermes.model | quote }}
+            - name: NEMOCLAW_INFERENCE_BASE_URL
+              value: {{ include "nemoclaw.litellmBaseUrl" . | quote }}
+            - name: NEMOCLAW_MODEL
+              value: {{ .Values.litellm.model | quote }}
+            - name: NEMOCLAW_INFERENCE_PROVIDER_ID
+              value: "custom"
+            {{- if .Values.telegram.enabled }}
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nemoclaw.fullname" . }}-gateway-token
+                  key: telegram-bot-token
+            {{- with .Values.telegram.testChatId }}
+            - name: TELEGRAM_TEST_CHAT_ID
+              value: {{ . | quote }}
+            {{- end }}
+            - name: TELEGRAM_TEST_MESSAGE
+              value: {{ .Values.telegram.testMessage | quote }}
+            {{- end }}
+          ports:
+            - name: hermes-api
+              containerPort: {{ .Values.hermes.apiPort }}
+              protocol: TCP
+            - name: hermes-dash
+              containerPort: {{ .Values.hermes.dashboardPort }}
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  set -euo pipefail
+                  CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 2 \
+                    "http://127.0.0.1:{{ .Values.hermes.apiPort }}/health" 2>/dev/null || echo 000)
+                  [ "$CODE" = "200" ] || [ "$CODE" = "401" ] || exit 1
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  set -euo pipefail
+                  CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 2 \
+                    "http://127.0.0.1:{{ .Values.hermes.apiPort }}/health" 2>/dev/null || echo 000)
+                  [ "$CODE" = "200" ] || [ "$CODE" = "401" ] || exit 1
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.hermes.resources | nindent 12 }}
+          volumeMounts:
+            - name: openclaw-config
+              mountPath: /etc/openclaw-config
+              readOnly: true
+            - name: gateway-token
+              mountPath: /etc/hermes-api-key
+              subPath: hermes-api-key
+              readOnly: true
+            - name: gateway-token
+              mountPath: /etc/litellm-api-key
+              subPath: litellm-api-key
+              readOnly: true
+            - name: gateway-token
+              mountPath: /etc/telegram-bot-token
+              subPath: telegram-bot-token
+              readOnly: true
+            - name: agent-state
+              mountPath: /sandbox/.hermes
+              subPath: hermes
+      {{- end }}
+      volumes:
+        - name: openclaw-config
+          configMap:
+            name: {{ include "nemoclaw.fullname" . }}-openclaw-config
+        - name: gateway-token
+          secret:
+            secretName: {{ include "nemoclaw.fullname" . }}-gateway-token
+        - name: agent-state
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "nemoclaw.fullname" . }}-agent-state
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

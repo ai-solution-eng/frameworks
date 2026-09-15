@@ -1,0 +1,27 @@
+NemoClaw deployed (release {{ .Release.Name }} in namespace {{ .Release.Namespace }}).
+
+Agent:           {{ .Values.agent }} (openclaw = NemoClaw gateway, hermes = Hermes Agent)
+Dashboard URL:   {{ include "nemoclaw.dashboardUrl" . }}
+{{- if eq .Values.agent "openclaw" }}
+Gateway:         bind={{ .Values.gateway.bind }}, port {{ .Values.gateway.port }}, static token
+                 (Secret {{ include "nemoclaw.fullname" . }}-gateway-token)
+LLM:             {{ .Values.litellm.model }} via {{ include "nemoclaw.litellmBaseUrl" . }}
+{{- else if eq .Values.agent "hermes" }}
+API:             OpenAI-compatible on port {{ .Values.hermes.apiPort }}
+Dashboard:       port {{ .Values.hermes.dashboardPort }} (basic-auth login)
+API Key:         (Secret {{ include "nemoclaw.fullname" . }}-gateway-token, key: hermes-api-key)
+{{- if .Values.hermes.dashboardAuth.enabled }}
+Dashboard PW:    (Secret {{ include "nemoclaw.fullname" . }}-gateway-token,
+                 key: hermes-dashboard-password — `helm get values {{ .Release.Name }} -n {{ .Release.Namespace }} -o yaml`)
+{{- end }}
+LLM:             {{ .Values.litellm.model }} via {{ include "nemoclaw.litellmBaseUrl" . }}
+{{- end }}
+
+Verify (via the PCAI portal — no kubectl):
+  1. PCAI portal > Applications > {{ include "nemoclaw.fullname" . }} -> status should be "ready / ok".
+     Open the app's "Logs" tab for the agent logs.
+  2. Click the "Open" button (or {{ include "nemoclaw.dashboardUrl" . }}) ->
+     - OpenClaw: "Health OK" + working Chat section
+     - Hermes: web dashboard with model routing + chat
+  3. Telegram channel (if enabled): the bot sends a one-off test message on
+     first deploy; afterwards it replies to DMs / group messages.

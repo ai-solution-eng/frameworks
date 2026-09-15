@@ -1,0 +1,46 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ include "nemoclaw.fullname" . }}-vs
+  labels:
+    {{- include "nemoclaw.labels" . | nindent 4 }}
+  annotations:
+    hpe-ezua/created-by: ezua
+spec:
+  hosts:
+    # Single source of truth: ezua.virtualService.endpoint (the host the user
+    # types once). nemoclaw.domain derives the host from that endpoint
+    # (falling back to <appPrefix>.<base> if the endpoint is empty).
+    - {{ include "nemoclaw.domain" . }}
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway | default "istio-system/ezaf-gateway" }}
+  http:
+    {{- if eq .Values.agent "openclaw" }}
+    - name: dashboard
+      route:
+        - destination:
+            host: {{ include "nemoclaw.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.service.port }}
+    {{- else if eq .Values.agent "hermes" }}
+    # Route OpenAI-compatible API calls (/v1/*) to the API port; everything
+    # else (the web dashboard, /login, /api/auth/*, static assets) to the
+    # dashboard port.
+    - name: hermes-api
+      match:
+        - uri:
+            prefix: /v1/
+      route:
+        - destination:
+            host: {{ include "nemoclaw.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.service.hermesApiPort }}
+    - name: hermes-dashboard
+      route:
+        - destination:
+            host: {{ include "nemoclaw.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.service.port }}
+    {{- end }}
+{{- end }}
