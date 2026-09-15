@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "clamav.fullname" . }}-server
+  labels:
+    {{- include "clamav.server.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.clamavServer.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "clamav.server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "clamav.server.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "clamav.serviceAccountName" . }}
+      containers:
+        - name: clamav-server
+          image: "{{ .Values.clamavServer.image.repository }}:{{ .Values.clamavServer.image.tag }}"
+          imagePullPolicy: {{ .Values.clamavServer.image.pullPolicy }}
+          ports:
+            - name: clamd
+              containerPort: 3310
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.clamavServer.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.clamavServer.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.clamavServer.resources | nindent 12 }}
+          volumeMounts:
+            - name: clamav-db
+              mountPath: /var/lib/clamav
+      volumes:
+        - name: clamav-db
+          {{- if .Values.clamavServer.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "clamav.fullname" . }}-db
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.clamavServer.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.clamavServer.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.clamavServer.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

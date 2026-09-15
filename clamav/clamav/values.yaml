@@ -1,0 +1,126 @@
+# Global settings
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  virtualService:
+    endpoint: "clamav.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ────────────────────────────────────────────
+# ClamAV Server (clamd)
+# ────────────────────────────────────────────
+clamavServer:
+  image:
+    repository: clamav/clamav
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  service:
+    type: ClusterIP
+    port: 3310
+
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+  persistence:
+    enabled: true
+    storageClass: ""   # ← StorageClass 이름 변경
+    accessMode: ReadWriteOnce
+    size: 2Gi
+
+  livenessProbe:
+    tcpSocket:
+      port: 3310
+    initialDelaySeconds: 120
+    periodSeconds: 30
+    failureThreshold: 5
+
+  readinessProbe:
+    tcpSocket:
+      port: 3310
+    initialDelaySeconds: 120
+    periodSeconds: 30
+    failureThreshold: 5
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ────────────────────────────────────────────
+# ClamAV REST API
+# ────────────────────────────────────────────
+clamavApi:
+  image:
+    repository: lokori/clamav-rest
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  env:
+    clamdHost: ""          # 비워두면 _helpers.tpl 에서 자동 생성
+    clamdPort: "3310"
+    maxSize: "100000"
+    timeout: "5000"
+
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 15
+
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 15
+
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Ingress (선택)
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: clamav.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
