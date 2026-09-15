@@ -1,7 +1,7 @@
-# deployed by francesco.caliva@hpe.com
-# name: admin
-# username: admin@localhost.com
-# password: password
+# deployed by: 
+# name: 
+# username: 
+# password: 
 #
 # yaml-language-server: $schema=values.schema.json
 ## Default values for Penpot
@@ -1174,10 +1174,10 @@ certificatesPolicy:
 # ============================================================
 # Set proxy.enabled to true to enable proxy settings for the user container. The init container will also inherit these settings.
 proxy:
-  enabled: true # Set to false if the cluster is not behind a corporate proxy (e.g. HT evironments)
+  enabled: false # Set to false if the cluster is not behind a corporate proxy (e.g. HT evironments)
   env: []
 
 # ============================================================
 no_proxy:
-  enabled: true # Set to false if the cluster is not behind a corporate proxy (e.g. HT evironments)
+  enabled: false # Set to false if the cluster is not behind a corporate proxy (e.g. HT evironments)
   env: []
