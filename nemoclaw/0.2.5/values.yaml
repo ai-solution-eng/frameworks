@@ -27,7 +27,7 @@ image:
 gateway:
   port: 18789
   bind: lan
-  token: "CHANGE_ME-GATEWAY-TOKEN"
+  token: "2ce72907d71e7888fa14ec36065f1b56e36282922acbe4caab7a1f6831f5af19"
   dangerouslyDisableDeviceAuth: true
   allowedOrigins: "*"
 
@@ -62,7 +62,7 @@ hermes:
     pullPolicy: IfNotPresent
   apiPort: 8642
   dashboardPort: 18790
-  apiServerKey: "CHANGE_ME-HERMES-API-SERVER-KEY"
+  apiServerKey: "3b0e2d1e493fd23540d01cc40b56f1b63e05bf8da223035fb1732f902087c817"
   model: "qwen3-8-27b-int4-dflash2-r2"
   # Dashboard basic-auth (required: hermes refuses to bind 0.0.0.0 without an
   # auth provider). Enable by default so the dashboard port is usable; the
