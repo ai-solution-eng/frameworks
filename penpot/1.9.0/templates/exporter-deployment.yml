@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "penpot.fullname" . }}-exporter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "penpot.labels" . | nindent 4 }}
+  {{- with .Values.exporter.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.exporter.autoscaling.hpa.enabled }}
+  replicas: {{ .Values.exporter.replicaCount }}
+  {{- end }}
+  strategy:
+    {{- toYaml .Values.exporter.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "penpot.exporterSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: penpot-exporter
+        {{- include "penpot.exporterSelectorLabels" . | nindent 8 }}
+        {{- with .Values.exporter.podLabels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.exporter.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "penpot.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (include "penpot.podSecurityContext" (dict "ctx" . "values" .Values.exporter.podSecurityContext)) }}
+      securityContext:
+        {{- . | nindent 8 }}
+      {{- end }}
+      {{ include "penpot.certsInitBlock" . | nindent 6 }}
+      containers:
+        - name: {{ .Chart.Name }}-exporter
+          image: "{{ .Values.exporter.image.repository }}:{{ .Values.exporter.image.tag }}"
+          imagePullPolicy: {{ .Values.exporter.image.pullPolicy | default .Values.exporter.image.imagePullPolicy }}
+          {{- with (include "penpot.containerSecurityContext" (dict "ctx" . "values" .Values.exporter.containerSecurityContext)) }}
+          securityContext:
+            {{- . | nindent 12 }}
+          {{- end }}
+          env:
+{{ include "penpot.proxyCertsEnv" . | nindent 12 }}
+            - name: PENPOT_PUBLIC_URI
+              value: {{ .Values.config.publicUri | quote }}
+            - name: PENPOT_INTERNAL_URI
+              value: {{ print "http://" (include "penpot.fullname" .) ":" .Values.frontend.service.port }}
+            - name: PENPOT_SECRET_KEY
+              {{- if not .Values.config.secretKeys.apiSecretKey }}
+              value: {{ .Values.config.apiSecretKey | quote }}
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.existingSecret }}
+                  key: {{ .Values.config.secretKeys.apiSecretKey }}
+              {{- end }}
+            - name: PENPOT_REDIS_URI
+              {{- if not .Values.config.redis.secretKeys.redisUriKey }}
+              value: "redis://{{ .Values.config.redis.host }}:{{ .Values.config.redis.port }}/{{ .Values.config.redis.database }}"
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.redis.existingSecret }}
+                  key: {{ .Values.config.redis.secretKeys.redisUriKey }}
+              {{- end }}
+            - name: PENPOT_TEMPDIR
+              value: "/tmp/penpot-exporter"
+            # Extra environments
+          {{- with .Values.config.extraEnvs }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.exporter.extraEnvs }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+{{ include "penpot.certsVolumeMountsEntry" . | nindent 12 }}
+            {{- with .Values.exporter.volumeMounts }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.exporter.service.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.exporter.resources | nindent 12 }}
+      {{- with .Values.exporter.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.exporter.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.exporter.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+{{ include "penpot.certsVolumesEntry" . | nindent 6 }}
+      {{- with .Values.exporter.volumes }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}

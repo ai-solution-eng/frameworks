@@ -1,0 +1,58 @@
+---
+apiVersion: v2
+version: 1.9.0 # Chart version
+appVersion: "2.17.2"  # Penpot version
+type: application
+name: penpot
+description: Helm chart for Penpot, the Open Source design and prototyping platform.
+dependencies:
+  - name: postgresql
+    version: 11.9.5
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: 16.11.2
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+maintainers:
+  - name: KALEIDOS INC Sucursal en España SL
+    url: https://kaleidos.net
+home: https://penpot.app
+icon: https://avatars.githubusercontent.com/u/30179644?s=200&v=4
+sources:
+  - https://github.com/penpot/penpot/tree/main
+  - https://github.com/penpot/penpot-helm/tree/main
+keywords:
+  - kubernetes
+  - penpot
+  - penpotapp
+  - design
+  - designsystem
+  - opensource
+  - ux
+  - ui
+annotations:
+  artifacthub.io/signKey: |
+    fingerprint: F0B526DC641A6DCBD94A2B2BA11A82757E9E6942
+    url: https://helm.penpot.app/pubkey.asc
+  artifacthub.io/links: |
+    - name: support
+      url: https://github.com/penpot/penpot-helm/issues
+    - name: community
+      url: https://community.penpot.app
+    - name: documentation
+      url: https://help.penpot.app
+    - name: tutorials
+      url: https://www.youtube.com/playlist?list=PLgcCPfOv5v54WpXhHmNO7T-YC7AE-SRsr
+    - name: dev-diaries
+      url: https://penpot.app/dev-diaries.html
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/changes: |
+    - kind: changed
+      description: Bump Penpot to 2.17.2
+    - kind: changed
+      description: Default mcp.autoscaling.hpa.maxReplicas raised to 5, matching the other components
+    - kind: added
+      description: Accept image.pullPolicy on the exporter and mcp components, aligning them with the backend and frontend
+    - kind: deprecated
+      description: image.imagePullPolicy on the exporter and mcp components, superseded by image.pullPolicy

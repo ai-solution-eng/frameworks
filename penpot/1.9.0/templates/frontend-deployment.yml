@@ -1,0 +1,134 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "penpot.fullname" . }}-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "penpot.labels" . | nindent 4 }}
+  {{- with .Values.frontend.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "penpot.frontendSelectorLabels" . | nindent 6 }}
+  {{- if not .Values.frontend.autoscaling.hpa.enabled }}
+  replicas: {{ .Values.frontend.replicaCount }}
+  {{- end }}
+  strategy:
+    {{- toYaml .Values.frontend.updateStrategy | nindent 4 }}
+  template:
+    metadata:
+      labels:
+        app: penpot-frontend
+        {{- include "penpot.frontendSelectorLabels" . | nindent 8 }}
+        {{- with .Values.frontend.podLabels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.frontend.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "penpot.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (include "penpot.podSecurityContext" (dict "ctx" . "values" .Values.frontend.podSecurityContext)) }}
+      securityContext:
+        {{- . | nindent 8 }}
+      {{- end }}
+      {{ include "penpot.certsInitBlock" . | nindent 6 }}
+      containers:
+        - name: {{ .Chart.Name }}-frontend
+          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          {{- with .Values.frontend.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.frontend.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with (include "penpot.containerSecurityContext" (dict "ctx" . "values" .Values.frontend.containerSecurityContext)) }}
+          securityContext:
+            {{- . | nindent 12 }}
+          {{- end }}
+          env:
+{{ include "penpot.proxyCertsEnv" . | nindent 12 }}
+            - name: PENPOT_FLAGS
+              value: "$PENPOT_FLAGS {{ .Values.config.flags }}"
+            - name: PENPOT_PUBLIC_URI
+              value: {{ .Values.config.publicUri | quote }}
+            - name: PENPOT_BACKEND_URI
+              value: {{ print "http://" (include "penpot.fullname" .) "-backend:" .Values.backend.service.port }}
+            - name: PENPOT_EXPORTER_URI
+              value: {{ print "http://" (include "penpot.fullname" .) "-exporter:" .Values.exporter.service.port }}
+            {{- if eq (include "penpot.mcpEnabled" .) "true" }}
+            - name: PENPOT_MCP_URI
+              value: {{ print "http://" (include "penpot.fullname" .) "-mcp:" .Values.mcp.service.httpPort }}
+            - name: PENPOT_MCP_URI_WS
+              value: {{ print "http://" (include "penpot.fullname" .) "-mcp:" .Values.mcp.service.wsPort }}
+            {{- end }}
+            - name: PENPOT_INTERNAL_RESOLVER
+              {{- if not .Values.config.internalResolver }}
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+              {{- else }}
+              value: {{ .Values.config.internalResolver | quote }}
+              {{- end }}
+            - name: PENPOT_TERMS_OF_SERVICE_URI
+              value: {{ .Values.config.termsOfServicesUri | quote }}
+            - name: PENPOT_PRIVACY_POLICY_URI
+              value: {{ .Values.config.privacyPolicyUri | quote }}
+            - name: PENPOT_HTTP_SERVER_MAX_BODY_SIZE
+              value: {{ .Values.config.httpServerMaxBodySize | quote  }}
+            # Extra environments
+          {{- with .Values.config.extraEnvs }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.frontend.extraEnvs }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+{{ include "penpot.certsVolumeMountsEntry" . | nindent 12 }}
+            - mountPath: /opt/data/assets
+              name: app-data
+              readOnly: false
+            {{- with .Values.frontend.volumeMounts }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.service.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+      {{- with .Values.frontend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+{{ include "penpot.certsVolumesEntry" . | nindent 6 }}
+      - name: app-data
+        {{- if .Values.persistence.assets.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.persistence.assets.existingClaim | default ( printf "%s-%s" ( include "penpot.fullname" . ) "data-assets" ) }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      {{- with .Values.frontend.volumes }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}

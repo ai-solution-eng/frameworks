@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "penpot.fullname" . }}-exporter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "penpot.labels" . | nindent 4 }}
+  {{- if .Values.exporter.service.annotations }}
+  annotations:
+    {{- .Values.exporter.service.annotations | toYaml | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.exporter.service.type }}
+  ports:
+    - port: {{ .Values.exporter.service.port }}
+      targetPort: {{ .Values.exporter.service.port }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "penpot.exporterSelectorLabels" . | nindent 4 }}
+
