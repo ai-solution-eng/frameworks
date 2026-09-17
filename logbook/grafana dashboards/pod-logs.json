@@ -1,0 +1,84 @@
+{
+  "title": "Pod Logs (Logbook)",
+  "uid": "logbook-pod-logs",
+  "tags": ["logbook", "logs"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "name": "namespace", "type": "query", "label": "Namespace",
+        "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+        "query": { "label": "namespace", "type": 1 },
+        "refresh": 2, "sort": 1, "current": { "text": "logbook", "value": "logbook" }
+      },
+      {
+        "name": "pod", "type": "query", "label": "Pod",
+        "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+        "query": { "label": "pod", "stream": "{namespace=\"$namespace\"}", "type": 1 },
+        "refresh": 2, "sort": 1, "includeAll": true, "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "search", "type": "textbox", "label": "Search (regex)",
+        "current": { "text": "", "value": "" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "Log volume (lines/s) by pod",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 7 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [{ "refId": "A", "expr": "sum by (pod) (rate({namespace=\"$namespace\", pod=~\"$pod\"}[1m]))", "legendFormat": "{{pod}}" }],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "Error-like lines (5m) by pod",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 7 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [{ "refId": "A", "expr": "sum by (pod) (count_over_time({namespace=\"$namespace\", pod=~\"$pod\"} |~ \"(?i)error|exception|fail|panic\" [5m]))", "legendFormat": "{{pod}}" }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "palette-classic" } }, "overrides": [] }
+    },
+    {
+      "id": 3, "type": "stat", "title": "Pods seen in range",
+      "gridPos": { "x": 0, "y": 7, "w": 6, "h": 4 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [{ "refId": "A", "expr": "count(sum by (pod) (count_over_time({namespace=\"$namespace\"}[$__range])))", "instant": true }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Total lines in range",
+      "gridPos": { "x": 6, "y": 7, "w": 6, "h": 4 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [{ "refId": "A", "expr": "sum(count_over_time({namespace=\"$namespace\", pod=~\"$pod\"}[$__range]))", "instant": true }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 5, "type": "stat", "title": "Retention",
+      "gridPos": { "x": 12, "y": 7, "w": 12, "h": 4 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "name", "colorMode": "none", "graphMode": "none", "text": { "titleSize": 14 } },
+      "description": "Logs are retained for 30 days in MinIO (bucket: loki) and survive pod restarts and deletion."
+    },
+    {
+      "id": 6, "type": "logs", "title": "Logs",
+      "gridPos": { "x": 0, "y": 11, "w": 24, "h": 18 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [{ "refId": "A", "expr": "{namespace=\"$namespace\", pod=~\"$pod\"} |~ \"$search\"" }],
+      "options": {
+        "showTime": true, "wrapLogMessage": true, "prettifyLogMessage": false,
+        "enableLogDetails": true, "dedupStrategy": "none", "sortOrder": "Descending",
+        "showLabels": false, "showCommonLabels": false
+      }
+    }
+  ],
+  "__inputs": [
+    { "name": "DS_LOKI", "label": "Loki", "type": "datasource", "pluginId": "loki", "pluginName": "Loki" }
+  ]
+}

@@ -1,0 +1,255 @@
+# =============================================================================
+# logbook — Alloy (DaemonSet) -> Loki (single-binary, MinIO) -> Grafana
+#
+# Fill in the "REQUIRED" values before import. Everything else has working defaults.
+# =============================================================================
+
+# ── Platform (HPE AI Essentials) ─────────────────────────────────────────────
+ezua:
+  autoHelm: false
+  domainName: "${DOMAIN_NAME}"
+  # The tile's Open button: logbook.<domain> redirects to the platform Grafana (grafana.host).
+  # Loki itself stays cluster-internal.
+  virtualService:
+    enabled: true
+    endpoint: "logbook.${DOMAIN_NAME}"   # fixed: Logbook is installed once per cluster
+    istioGateway: "istio-system/ezaf-gateway"
+  authorizationPolicy:
+    enabled: false                 # plain redirect; Grafana enforces login itself
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    matchLabels:
+      istio: "ingressgateway"
+
+# ── MinIO (object storage for Loki chunks + index) ───────────────────────────
+minio:
+  endpoint: "http://minio.minio.svc.cluster.local:9000"   # REQUIRED — S3 API svc, port 9000
+  bucket: "loki"                                          # create it first: mc mb pcai/loki
+  insecure: true                                          # false + https:// if MinIO has TLS
+  # Preferred: create the Secret out of band and set createSecret: false, so credentials
+  # never land in EzAppConfig.Spec.Values:
+  #   kubectl -n <ns> create secret generic loki-s3 \
+  #     --from-literal=AWS_ACCESS_KEY_ID=loki-user --from-literal=AWS_SECRET_ACCESS_KEY=<secret>
+  createSecret: true
+  secretName: "loki-s3"
+  accessKey: ""                                           # REQUIRED if createSecret=true
+  secretKey: ""                                           # REQUIRED if createSecret=true
+
+# ── Network policy: only Alloy, the gateway, Grafana and Prometheus may reach Loki ──
+networkPolicy:
+  enabled: true
+  prometheusNamespace: "monitoring"
+
+# ── Platform Grafana data source ─────────────────────────────────────────────
+grafana:
+  namespace: "grafana"          # REQUIRED: namespace of the PCAI Grafana deployment
+  host: "grafana.${DOMAIN_NAME}"   # external Grafana hostname the tile redirects to
+  datasource:
+    enabled: true
+    name: "Loki"
+    uid: "pcai-loki"
+  dashboard:
+    enabled: true                  # ships dashboards/pod-logs.json via the dashboard sidecar
+
+# ── Retention / sizing knobs (surfaced here, pushed into loki.* below) ───────
+retentionHours: 720                # 30 days
+storageClass: ""                   # "" = cluster default
+
+# =============================================================================
+# Subchart: Loki  (grafana/loki)
+# =============================================================================
+loki:
+  fullnameOverride: logbook          # fixes service names (logbook, logbook-gateway) regardless of release name
+  deploymentMode: SingleBinary
+
+  loki:
+    auth_enabled: false
+    podLabels: &ezuaLabels
+      hpe-ezua/app: "${RELEASE_NAME}"
+      hpe-ezua/type: vendor-service
+      hpe-ezua/component: logbook
+    podAnnotations: &noSidecar
+      sidecar.istio.io/inject: "false"
+    commonConfig:
+      replication_factor: 1
+    storage:
+      type: s3
+      bucketNames:
+        chunks: loki
+        ruler: loki
+        admin: loki
+      s3:
+        endpoint: "http://minio.minio.svc.cluster.local:9000"   # keep in sync with minio.endpoint
+        region: us-east-1
+        s3ForcePathStyle: true
+        insecure: true                                          # keep in sync with minio.insecure
+    schemaConfig:
+      configs:
+        - from: "2024-04-01"
+          store: tsdb
+          object_store: s3
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+    limits_config:
+      retention_period: 720h                                    # keep in sync with retentionHours
+      ingestion_rate_mb: 20
+      ingestion_burst_size_mb: 40
+      max_query_series: 5000
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+    compactor:
+      retention_enabled: true
+      delete_request_store: s3
+      working_directory: /var/loki/compactor
+    ruler:
+      enable_api: true
+
+  singleBinary:
+    replicas: 1
+    persistence:
+      enabled: true
+      size: 20Gi                   # WAL + index cache only; chunks live in MinIO
+      storageClass: ""
+    extraEnvFrom:
+      - secretRef:
+          name: loki-s3            # keep in sync with minio.secretName
+    resources:
+      requests: { cpu: 500m, memory: 1Gi }
+      limits:   { cpu: "2",  memory: 4Gi }
+
+  # scalable-mode components off
+  read:    { replicas: 0 }
+  write:   { replicas: 0 }
+  backend: { replicas: 0 }
+
+  # extras that don't earn their memory on a single-node install
+  chunksCache:  { enabled: false }
+  resultsCache: { enabled: false }
+  lokiCanary:   { enabled: false }
+  test:         { enabled: false }
+  minio:        { enabled: false }   # do NOT let the chart deploy its own MinIO
+  sidecar:
+    rules: { enabled: false }
+
+  monitoring:
+    selfMonitoring: { enabled: false, grafanaAgent: { installOperator: false } }
+    serviceMonitor: { enabled: true }   # PCAI Prometheus scrapes Loki itself
+
+  gateway:
+    enabled: true                       # nginx front door -> <release>-gateway svc :80
+    replicas: 1
+    podLabels: *ezuaLabels
+    podAnnotations: *noSidecar
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits:   { cpu: 500m, memory: 256Mi }
+
+# =============================================================================
+# Subchart: Alloy  (grafana/alloy) — one pod per node, tails via kubelet API
+# =============================================================================
+alloy:
+  fullnameOverride: logbook-alloy    # fixes DaemonSet/SA names regardless of release name
+  controller:
+    type: daemonset
+    podLabels: *ezuaLabels
+    podAnnotations: *noSidecar
+    tolerations:                        # collect from GPU / tainted nodes too
+      - operator: Exists
+    updateStrategy:
+      type: RollingUpdate
+    volumes:
+      extra:
+        - name: alloy-data              # writable scratch for WAL/positions (root FS is read-only)
+          emptyDir: { sizeLimit: 1Gi }   # bounded; pod is evicted rather than filling node disk
+
+  rbac:
+    create: true                        # ClusterRole includes pods, pods/log, nodes/proxy
+
+  alloy:
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 473
+      runAsGroup: 473
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities: { drop: ["ALL"] }
+      seccompProfile: { type: RuntimeDefault }
+    storagePath: /tmp/alloy          # must be a writable mount — see mounts.extra below
+    mounts:
+      extra:
+        - name: alloy-data
+          mountPath: /tmp/alloy
+    extraEnv:
+      - name: NODE_NAME
+        valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+      # Loki push target — service name is fixed by loki.fullnameOverride, so only the
+      # namespace varies. ${NAMESPACE} is substituted on tile import; for a direct
+      # `helm install` pass --set alloy.alloy.extraEnv[1].value=logbook-gateway.<ns>.svc.cluster.local
+      - name: LOKI_GATEWAY
+        value: "logbook-gateway.${NAMESPACE}.svc.cluster.local"
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits:   { cpu: 500m, memory: 512Mi }
+    configMap:
+      create: true
+      content: |
+        // ---- discover pods scheduled on THIS node ----
+        discovery.kubernetes "pods" {
+          role = "pod"
+          selectors {
+            role  = "pod"
+            field = "spec.nodeName=" + sys.env("NODE_NAME")
+          }
+        }
+
+        // ---- k8s metadata -> Loki labels (keep cardinality low) ----
+        discovery.relabel "pods" {
+          targets = discovery.kubernetes.pods.targets
+
+          // skip pods that are not running (no logs to tail)
+          rule {
+            source_labels = ["__meta_kubernetes_pod_phase"]
+            regex         = "Pending|Succeeded|Failed|Unknown"
+            action        = "drop"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_namespace"]
+            target_label  = "namespace"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_name"]
+            target_label  = "pod"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_container_name"]
+            target_label  = "container"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_node_name"]
+            target_label  = "node"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
+            separator     = ""
+            regex         = "(.+)"
+            target_label  = "app"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_label_hpe_ezua_app"]
+            target_label  = "framework"
+          }
+        }
+
+        // ---- tail through the kubelet API: no hostPath, no privileged pod ----
+        loki.source.kubernetes "pods" {
+          targets    = discovery.relabel.pods.output
+          forward_to = [loki.write.default.receiver]
+        }
+
+        loki.write "default" {
+          endpoint {
+            url = "http://" + sys.env("LOKI_GATEWAY") + "/loki/api/v1/push"
+          }
+        }
