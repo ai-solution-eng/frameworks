@@ -40,11 +40,12 @@ s3:
   provider: minio
   minio: # the bundled MinIO server (deployed when provider=minio)
     image:
-      name: "minio/minio"
+      name: "quay.io/minio/minio"
       tag: "RELEASE.2025-07-23T15-54-02Z"
-    mcImage: # used by the bucket-creation hook job
-      name: "minio/mc"
-      tag: "RELEASE.2025-08-13T08-35-41Z"
+    mcImage:
+      name: "quay.io/minio/mc"
+      tag: "RELEASE.2025-08-13T08-35-41Z"  
+  
     bucket: "openstreetmap"
     region: "us-east-1"
     # Also used as MINIO_ROOT_USER / MINIO_ROOT_PASSWORD of the bundled server,
