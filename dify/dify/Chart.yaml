@@ -1,0 +1,26 @@
+apiVersion: v2
+appVersion: 1.17.0
+dependencies:
+- condition: postgresql.enabled
+  name: postgresql
+  repository: https://charts.bitnami.com/bitnami
+  tags:
+  - postgres
+  version: 12.5.6
+- condition: redis.enabled
+  name: redis
+  repository: https://charts.bitnami.com/bitnami
+  tags:
+  - redis
+  version: 16.13.2
+- condition: weaviate.enabled
+  name: weaviate
+  repository: https://weaviate.github.io/weaviate-helm
+  tags:
+  - vector
+  - search
+  version: 17.3.3
+description: Instant cloud deployment for https://github.com/langgenius/dify.
+name: dify
+type: application
+version: 0.39.0-pcai
