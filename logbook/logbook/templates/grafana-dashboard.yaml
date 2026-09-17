@@ -1,0 +1,15 @@
+{{- if .Values.grafana.dashboard.enabled }}
+# Picked up by the Grafana dashboard sidecar (label grafana_dashboard) if the platform
+# Grafana runs one. Otherwise import dashboards/pod-logs.json by hand.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-pod-logs-dashboard
+  namespace: {{ .Values.grafana.namespace }}
+  labels:
+    grafana_dashboard: "1"
+    {{- include "hpe-ezua.labels" . | nindent 4 }}
+data:
+  logbook-pod-logs.json: |-
+{{ .Files.Get "dashboards/pod-logs.json" | replace "${DS_LOKI}" .Values.grafana.datasource.uid | indent 4 }}
+{{- end }}
