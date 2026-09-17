@@ -1,10 +1,10 @@
-# Porting Dify to HPE Private Cloud AI (PCAI / AIE 1.12.x) — BYOA
+# Porting Dify to HPE Private Cloud AI 
 
 Ports the upstream **BorisPolonsky/dify-helm** chart to PCAI via the BYOA / Import Framework
 **Manual** method (Dify is multi-service, so AutoHelm does not apply). Self-contained middleware
 (built-in PostgreSQL, Redis, Weaviate). The local LLM (Qwen3-30B on MLIS) is wired post-deploy.
 
-**Package:** `dify-0.39.0-pcai2.tgz` (chart 0.39.0-pcai2, Dify appVersion 1.17.0)
+**Package:** `dify-0.39.0-pcai.tgz` (chart 0.39.0-pcai, Dify appVersion 1.17.0)
 **Status of this guide:** reflects a validated deployment — Dify running (all pods), OpenAI-API-compatible
 provider installed, Qwen3-30B wired, chat app validated via UI and API. Durable S3 object storage is
 **not** usable on this cluster (see Storage); the validated default is PVC + emptyDir.
@@ -19,6 +19,7 @@ provider installed, Qwen3-30B wired, chat app validated via UI and API. Durable 
 
 ## 2. Prerequisites
 
+- AIE version: 1.12.x
 - Target namespace: `dify`
 - MLIS Qwen endpoint URL (`.../v1`) + its **per-deployment** API key
 - Cluster Istio ext-authz provider name (for the AuthorizationPolicy)
