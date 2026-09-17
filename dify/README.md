@@ -10,6 +10,7 @@ provider installed, Qwen3-30B wired, chat app validated via UI and API. Durable 
 **not** usable on this cluster (see Storage); the validated default is PVC + emptyDir.
 
 ## 1. What the overlay adds (PCAI-specific)
+
 - `templates/ezua/virtualService.yaml` — exposes Dify's nginx proxy (chart fullname service, port 80) as the tile endpoint
 - `templates/ezua/authorizationPolicy.yaml` — platform ext-authz (CUSTOM) on the proxy service
 - `templates/_hpe-ezua.tpl` + `.Values.labels` — `hpe-ezua` labels on all workloads (via `dify.ud.labels`)
@@ -17,6 +18,7 @@ provider installed, Qwen3-30B wired, chat app validated via UI and API. Durable 
 - `values-pcai.yaml` — the overlay applied with `-f` (ezua, storage, CA mounts)
 
 ## 2. Prerequisites
+
 - Target namespace: `dify`
 - MLIS Qwen endpoint URL (`.../v1`) + its **per-deployment** API key
 - Cluster Istio ext-authz provider name (for the AuthorizationPolicy)
@@ -55,20 +57,25 @@ AND point `externalS3.endpoint` at a **`*.vastdata.com`** hostname the VAST S3 a
 this option is not achievable — use Option 2.
 
 Retrieve S3 keys / CA (admin-namespace; may be Forbidden on a scoped account):
+```sh
       kubectl -n ezdata-system get secret local-s3-secret -o jsonpath='{.data.access-key}' | base64 -d; echo
       kubectl -n ezdata-system get secret local-s3-secret -o jsonpath='{.data.secret-key}' | base64 -d; echo
+```
 CA (recommended: kubectl ConfigMap, leave vastCA.pem empty in values):
+```sh
       # extract from a healthy pod (api may be crashing):
       kubectl -n dify run certgrab --rm -it --image=alpine/openssl --restart=Never -- \
         s_client -connect <vast-host>:443 -showcerts </dev/null 2>/dev/null \
         | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' > vast-ca.pem
       kubectl -n dify create configmap vast-ca --from-file=vast-ca.pem=vast-ca.pem \
         --dry-run=client -o yaml | kubectl -n dify apply -f -
+```
 
 ## 4. Build the package (vendor subcharts)
+
 The shipped tgz declares postgresql/redis/weaviate as subcharts but may not vendor them (build-env limits).
 A chart with declared-but-unvendored deps FAILS at import. Vendor + repackage:
-
+```sh
       tar -xzf dify-0.39.0-pcai.tgz            # -> ./dify
       helm repo add bitnami  https://charts.bitnami.com/bitnami
       helm repo add weaviate https://weaviate.github.io/weaviate-helm
@@ -76,13 +83,15 @@ A chart with declared-but-unvendored deps FAILS at import. Vendor + repackage:
       helm dependency update ./dify             # regenerates Chart.lock + charts/  (use 'update', not 'build')
       helm package ./dify --dependency-update    # -> dify-0.39.0-pcai.tgz WITH charts/ vendored
       tar -tzf dify-0.39.0-pcai.tgz | grep 'dify/charts/'   # must list postgresql, redis, weaviate
-
+```
 ## 5. Import
+
 - Tools & Frameworks -> Import Framework -> upload the vendored tgz + a logo -> namespace `dify`.
 - Fill values (or paste `values-pcai.yaml`). `${DOMAIN_NAME}` is substituted at import.
 - Confirm `ezua.authorizationPolicy.providerName` = the cluster's ext-authz provider.
 
 ## 6. Post-deploy bring-up (validated sequence)
+
 1. Wait for pods Ready. DB migration runs automatically (`api.migration: true`).
 2. **Log in:** Dify uses its **own** email/password auth (separate from PCAI SSO). First access ->
    **create the admin account**.
@@ -102,11 +111,13 @@ A chart with declared-but-unvendored deps FAILS at import. Vendor + repackage:
 6. **Validate = a message returns an answer via Qwen** (UI and/or API).
 
 ## 7. Validate via API
+
 Use `d1_dify_smoketest_notebook.py`. Fill:
 - `DIFY_API_BASE = https://dify.<domain>/v1`  (**https** — http returns 404)
 - `DIFY_APP_KEY  = app-...`  (the per-APP key from the app's **API Access** page; not the console login)
 
 ## 8. Known issues / caveats (consolidated)
+
 - **Plugin storage vs NFS colons** -> emptyDir default (Option 2). Ephemeral: reinstall provider on daemon restart.
 - **S3 unusable** -> VAST cert hostname mismatch (see Storage). Production needs a fixed cert or covered hostname.
 - **API scheme** -> the Dify app API only answers over **https**; http 404s.
@@ -118,6 +129,7 @@ Use `d1_dify_smoketest_notebook.py`. Fill:
 - **Subcharts must be vendored** before import (see Build).
 
 ## 9. values.yaml — what changes
+
 New keys (add): `ezua`, `labels`, `vastCA`.
 Modify existing: `externalS3` (default: `enabled: false`), and for Option 1 only, `api`/`worker`/`beat`
 `extraEnv`+`extraVolumes`+`extraVolumeMounts` (AWS_CA_BUNDLE mount). Leave built-in postgres/redis/weaviate
