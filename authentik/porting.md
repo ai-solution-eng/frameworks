@@ -46,8 +46,22 @@ spec:
               number: {{ .Values.server.service.servicePortHttp }}
 ```
 
+## Authentik-specific changes in values.yaml
+
+Without these changes, the application may not deploy successfully or be unstable.
+
+Most of these changes are listed in the "Example values to get started" section of the [official authentik helm repo Readme](https://github.com/goauthentik/helm/blob/main/charts/authentik/README.md#example-values-to-get-started).
+
+The following values were provided (as of 2026.8.3 release):
+ * `authentik.secret_key` (line 168) has been set to `password`
+ * `authentik.postgresql.password` (line 222) has been set to `password`
+ * `postgresql.enabled` (line 1099) has been set to `true`
+ * `postgresql.auth.password` (line 1107) has been set to `password`
+
+Additionally, `worker.resources.limits.memory` has been increased to 5120Mi, 10 times its original value (see line 808 - 813).
+
 ## Initialize admin account
-After the installation is complete, access authentik at `https://authentik.[PCAI Domain name]/if/flow/initial-setup/`. Here, you can set a password for the default akadmin user.
+After the installation is complete, access authentik at `https://authentik.[PCAI Domain name]/if/flow/initial-setup/`. Here, you can set a password for the default akadmin user. You should automatically be redirected to this page using the 2026.8.3 release.
 
 ## For Separate Postgresql Instance
 The PostgreSQL database is created by default during installation. To use separate PostgreSQL Instance, User must deploy postgresql separately and create User/Database for Authentik at first.

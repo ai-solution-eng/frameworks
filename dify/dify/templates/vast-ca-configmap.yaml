@@ -1,0 +1,11 @@
+{{- if .Values.vastCA.pem }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vast-ca
+  labels:
+    {{- include "dify.labels" . | nindent 4 }}
+data:
+  vast-ca.pem: |-
+{{ .Values.vastCA.pem | indent 4 }}
+{{- end }}

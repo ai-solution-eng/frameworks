@@ -1,0 +1,14 @@
+apiVersion: v2
+name: logbook
+description: Logbook — centralised pod log retention for HPE AI Essentials. Grafana Alloy (DaemonSet) ships every container log to Loki on MinIO, searchable in the platform Grafana.
+type: application
+version: 0.1.0
+appVersion: "1.0"
+icon: https://grafana.com/static/img/menu/grafana2.svg
+dependencies:
+  - name: loki
+    version: "^6.0.0"
+    repository: https://grafana.github.io/helm-charts
+  - name: alloy
+    version: "^1.0.0"
+    repository: https://grafana.github.io/helm-charts

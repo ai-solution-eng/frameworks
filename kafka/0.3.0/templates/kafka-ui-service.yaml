@@ -1,0 +1,16 @@
+{{- if .Values.kafkaUi.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kafka.fullname" . }}-ui
+  labels:
+    {{- include "kafka.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "kafka.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+{{- end }}

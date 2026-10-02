@@ -1,0 +1,45 @@
+{{- if .Values.kafkaUi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kafka.fullname" . }}-ui
+  labels:
+    {{- include "kafka.labels" . | nindent 4 }}
+    {{- include "hpe-ezua.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kafka.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ui
+  template:
+    metadata:
+      labels:
+        {{- include "kafka.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ui
+        {{- include "hpe-ezua.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: kafka-ui
+          image: {{ .Values.kafkaUi.image }}
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: KAFKA_CLUSTERS_0_NAME
+              value: {{ .Values.cluster.name | quote }}
+            - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+              value: {{ printf "%s-kafka-bootstrap:9092" .Values.cluster.name | quote }}
+            - name: DYNAMIC_CONFIG_ENABLED
+              value: {{ .Values.kafkaUi.dynamicConfig | quote }}
+          resources:
+            {{- toYaml .Values.kafkaUi.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /actuator/health, port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health, port: 8080 }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+{{- end }}

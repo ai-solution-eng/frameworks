@@ -1,0 +1,23 @@
+{{- if .Values.ezua.virtualService.enabled }}
+# Logbook's UI is the platform Grafana. The tile's Open button lands on logbook.<domain>,
+# which redirects to Grafana. Users authenticate there with their existing Keycloak session.
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ printf "%s-%s-virtual-service" .Release.Name .Chart.Name }}
+  labels:
+    {{- include "hpe-ezua.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway | required ".Values.ezua.virtualService.istioGateway is required !\n" }}
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint | required ".Values.ezua.virtualService.endpoint is required !\n" }}
+  http:
+    - match:
+        - uri:
+            prefix: /
+      redirect:
+        authority: {{ .Values.grafana.host | required ".Values.grafana.host is required for the redirect !\n" }}
+        uri: /
+        redirectCode: 302
+{{- end }}

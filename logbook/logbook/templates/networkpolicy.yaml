@@ -1,0 +1,28 @@
+{{- if .Values.networkPolicy.enabled }}
+# Loki runs with auth_enabled=false; this policy is what stops arbitrary pods from
+# querying, pushing, or deleting logs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-loki-ingress
+  labels:
+    {{- include "hpe-ezua.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  policyTypes: [Ingress]
+  ingress:
+    # collector -> gateway/loki (push), gateway -> loki (proxy)
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: alloy }
+        - podSelector:
+            matchLabels: { app.kubernetes.io/component: gateway }
+    # platform Grafana (query) and Prometheus (scrape)
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: {{ .Values.grafana.namespace }} }
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: {{ .Values.networkPolicy.prometheusNamespace }} }
+{{- end }}

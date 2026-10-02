@@ -1,0 +1,26 @@
+{{- if .Values.grafana.datasource.enabled }}
+# Picked up by the Grafana datasource sidecar (label grafana_datasource) if the platform
+# Grafana runs one. If it doesn't, add the data source once by hand:
+#   Connections -> Data sources -> Loki -> URL http://<release>-gateway.<ns>.svc.cluster.local
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-loki-datasource
+  namespace: {{ .Values.grafana.namespace }}
+  labels:
+    grafana_datasource: "1"
+    {{- include "hpe-ezua.labels" . | nindent 4 }}
+data:
+  loki.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: {{ .Values.grafana.datasource.name }}
+        type: loki
+        uid: {{ .Values.grafana.datasource.uid }}
+        access: proxy
+        url: http://logbook-gateway.{{ .Release.Namespace }}.svc.cluster.local
+        isDefault: false
+        editable: false
+        jsonData:
+          maxLines: 1000
+{{- end }}
