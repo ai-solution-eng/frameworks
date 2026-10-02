@@ -1,0 +1,30 @@
+Kafka (KRaft via Strimzi) deployed as "{{ .Values.cluster.name }}".
+
+PREREQUISITE CHECK: this chart needs the Strimzi Cluster Operator running in
+namespace {{ .Release.Namespace }}. If the Kafka/KafkaNodePool CRs stay Pending,
+the operator is not installed — see porting.md.
+
+In-cluster bootstrap (for the replay producer / scoring consumer):
+  {{ .Values.cluster.name }}-kafka-bootstrap.{{ .Release.Namespace }}.svc.cluster.local:9092
+{{- if .Values.listeners.scramInternal }}
+SCRAM-SHA-512 listener on :9094{{- if .Values.user.enabled }} with KafkaUser "{{ .Values.user.name }}"
+(credential secret: {{ .Values.user.name }}){{- else }} — set user.enabled=true to create a KafkaUser{{- end }}.
+{{- else if .Values.user.enabled }}
+WARNING: user.enabled=true but listeners.scramInternal=false — the SCRAM KafkaUser
+cannot authenticate against the PLAINTEXT listener. Enable listeners.scramInternal.
+{{- end }}
+{{- if .Values.topic.enabled }}
+Topic: {{ .Values.topic.name }} ({{ .Values.topic.partitions }} partitions)
+{{- end }}
+{{- if .Values.kafkaUi.enabled }}
+kafka-ui: https://{{ .Values.ezua.virtualService.endpoint }}
+{{- if .Values.ezua.authorizationPolicy }}
+(protected by the {{ .Values.ezua.authorizationPolicy.providerName }} AuthorizationPolicy in
+namespace {{ .Values.ezua.authorizationPolicy.namespace }})
+{{- else }}
+WARNING: kafka-ui is exposed through the gateway with NO AuthorizationPolicy.
+{{- end }}
+{{- end }}
+
+Reminder: this feed is ADVISORY only. Safety trips remain in the DCS/PLC SIS
+(IEC 61511), independent of this analytics path.

@@ -1,0 +1,51 @@
+# EzAppConfig CR template for the kafka framework (EZUA BYOA import).
+# Deploy after pushing the chart tarball to the internal Chartmuseum, e.g.:
+#   sed -e 's/${NAMESPACE}/kafka/g' ezappconfig-kafka-template.yaml | kubectl apply -f -
+# Placeholders below (${...}) are substituted by the EzApp controller during LCM
+# actions. IMPORTANT: any placeholder used by the chart must appear here in
+# Spec.Values, otherwise substitution is skipped (see byoa-tutorials tutorial).
+apiVersion: ezconfig.hpe.ezaf.com/v1alpha1
+kind: EzAppConfig
+metadata:
+  name: ezappconfig-kafka
+  labels:
+    # Required to mark this App as an imported application on the UI.
+    hpe-ezua/imported-app: "true"
+spec:
+  # Must equal the chart name in Chart.yaml.
+  name: kafka
+  releaseName: kafka
+  install: true
+  # Must equal the chart version in Chart.yaml.
+  chartVersion: 0.3.0
+  description: Apache Kafka (KRaft) via the Strimzi operator, adapted BYOA for HPE Private Cloud AI
+  label: Kafka
+  # Base64-encoded PNG — see kafka_logo.png.
+  logoImage: ""
+  category: dataEngineering
+  backoffLimit: 2
+  retry: false
+  options:
+    namespace: kafka
+    create-namespace: "true"
+    wait: "true"
+    timeout: 15m
+    debug: "true"
+  values: |-
+    # Platform related options
+    ezua:
+      domainName: "${DOMAIN_NAME}"
+      virtualService:
+        endpoint: "${RELEASE_NAME}-${NAMESPACE}.${DOMAIN_NAME}"
+        istioGateway: "istio-system/ezaf-gateway"
+      authorizationPolicy:
+        namespace: "istio-system"
+        providerName: "oauth2-proxy"
+        matchLabels:
+          istio: "ingressgateway"
+    kafkaUi:
+      enabled: true
+      # On air-gapped clusters, replace with the mirrored image, e.g.
+      # "${AIRGAP_REGISTRY}/provectuslabs/kafka-ui:v0.7.2" — see porting.md
+      # (egress-restricted image pull is a known rollback trap).
+      image: provectuslabs/kafka-ui:v0.7.2
