@@ -1,15 +1,14 @@
-# Kafka — HPE Private Cloud AI / AI Essentials (BYOA)
+# Kafka - HPE Private Cloud AI / AI Essentials (BYOA)
 
 Apache Kafka in **KRaft mode** (no ZooKeeper) packaged the EZUA **BYOA** way: the chart
 deploys the **Strimzi custom resources** (`Kafka`, `KafkaNodePool`, `KafkaTopic`, optional
 `KafkaUser`) plus an optional **kafka-ui** visibility tile. The **Strimzi Cluster
-Operator is a one-time per-namespace prerequisite** — it is intentionally *not* bundled
+Operator is a one-time per-namespace prerequisite** - it is intentionally *not* bundled
 (operators are cluster infrastructure; keeping it out keeps the BYOA package small and
 idempotent). See [porting.md](porting.md) for the full porting story, known issues, and
 troubleshooting.
 
 ```
-0.2.0/  -> kafka-0.2.0.tar.gz   (initial BYOA port)
 0.3.0/  -> kafka-0.3.0.tar.gz   (BYOA guidance compliance: AuthorizationPolicy,
                                  hpe-ezua labels via _hpe-ezua.tpl + Kyverno policy,
                                  EzAppConfig template, SCRAM listener fix)
@@ -23,7 +22,6 @@ troubleshooting.
 | `kafka-0.3.0.tar.gz` | Packaged chart for the EZUA import process |
 | `kafka_logo.png` | Logo for the Tools & Frameworks tile |
 | `porting.md` | PCAI porting notes, verify-list, troubleshooting |
-| `ezappconfig-kafka-template.yaml` | `EzAppConfig` CR template for the BYOA import (per [byoa-tutorials](https://github.com/HPEEzmeral/byoa-tutorials/tree/main/tutorial)) |
 
 ## Prerequisites
 
@@ -37,31 +35,7 @@ troubleshooting.
 2. A **default StorageClass** on the cluster (leave `cluster.storage.class` blank — see
    porting.md Troubleshooting #5).
 3. If `kafkaUi.enabled: true`: the `istio-system/ezaf-gateway` must exist (standard on
-   EZUA) and the `oauth2-proxy` extension provider configured for SSO.
-
-## Install (EZUA import)
-
-1. Push the chart tarball to the internal Chartmuseum and apply the EzAppConfig CR
-   template:
-   ```bash
-   kubectl apply -f ezappconfig-kafka-template.yaml
-   kubectl get ezappconfigs ezappconfig-kafka -w
-   ```
-   The `${RELEASE_NAME}`, `${NAMESPACE}`, `${DOMAIN_NAME}` placeholders in
-   `spec.values` are substituted by the EzApp controller during LCM actions.
-2. The UI tile routes `https://<release>-<namespace>.${DOMAIN_NAME}` through the EZUA
-   gateway; SSO is enforced by the `AuthorizationPolicy` (oauth2-proxy).
-
-## Install (direct kubectl, import bypass)
-
-If the AIE import Job OOMs (known platform issue, see porting.md), apply the rendered
-reference directly:
-
-```bash
-kubectl apply -f 0.3.0/examples/rendered-default.yaml -n kafka
-```
-
-The Strimzi operator must be running in `kafka` first.
+   EZUA) and the `oauth2-proxy` extension provider configured for SSO
 
 ## Client access
 

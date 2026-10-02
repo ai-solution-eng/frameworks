@@ -2,9 +2,7 @@
 
 Kafka packaged the BYOA way for HPE Private Cloud AI, using the **Strimzi** operator in
 **KRaft** mode (no ZooKeeper). This file records how the chart was adapted to PCAI and
-the things to verify on the target cluster. Companion analysis:
-`../streaming_kafka-vs-pulsar.md`. Kafka is BYOA here — Pulsar is the validated
-framework fallback.
+the things to verify on the target cluster. 
 
 > **Strimzi 1.x / CRD API `kafka.strimzi.io/v1` (chart 0.2.0).** This chart targets
 > Strimzi **1.x**, which serves the CRDs **only at `v1`** (`v1beta2` was removed at the
@@ -17,9 +15,7 @@ framework fallback.
 > install Job in `ezapp-system` capped at `memory: 128Mi`, which is too little for Helm —
 > the Job is `OOMKilled` and the log shows only "Installing it now." before dying. Fixes:
 > raise the ezapp install-Job memory limit (platform-side; no LimitRange to edit, it is
-> the ezapp controller default — may need cluster-admin / HPE support), **or** bypass the
-> import and apply the CRs directly (see `examples/rendered-default.yaml`), which is how
-> this engagement brought Kafka up.
+> the ezapp controller default — may need cluster-admin / HPE support).
 
 ## How it was ported
 
@@ -203,12 +199,6 @@ tripped over several of them.**
 **Net for the next engagement:** install a pinned operator (not `latest`), import with
 `kafkaUi.enabled=false` and `storage.class` blank, and prefer direct `kubectl apply` over
 the AIE import for the CRs.
-
-## Fallback (contingency X1)
-
-If operator + cluster bring-up overruns the W0 prep window, import the validated
-**Pulsar** framework chart instead and keep the producer/consumer logic (swap the
-client). Pulsar is the safety net precisely because it is a one-click validated import.
 
 ## References
 
