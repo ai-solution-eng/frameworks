@@ -1,0 +1,175 @@
+# Default values for ai-toolkit.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+ezua:
+  virtualService:
+    endpoint: "ai-toolkit.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+
+clusterDomain: cluster.local
+annotations: {}
+
+# Persistent storage for AI Toolkit.
+# AI Toolkit keeps all of its state on disk. Without persistence a pod restart
+# loses the job database, uploaded datasets, trained models, configs and the
+# downloaded base-model cache. Each volume below is an independent PVC that can
+# be resized or disabled. See https://github.com/ostris/ai-toolkit docker-compose.yml.
+persistence:
+  # SQLite database (aitk_db.db) holding jobs, the training queue and settings.
+  # This is a single file, so it is seeded from the image and mounted via subPath.
+  # Keep this ReadWriteOnce: SQLite must only ever be written by one pod.
+  data:
+    enabled: true
+    size: 2Gi
+    accessMode: ReadWriteOnce
+    # storageClass: ""
+  # Training datasets uploaded through the UI.
+  datasets:
+    enabled: true
+    size: 50Gi
+    accessMode: ReadWriteMany
+    # storageClass: ""
+  # Training outputs: checkpoints, LoRAs and samples. This grows the most.
+  output:
+    enabled: true
+    size: 100Gi
+    accessMode: ReadWriteMany
+    # storageClass: ""
+  # Training job configuration files (also seeded with the bundled examples).
+  config:
+    enabled: true
+    size: 1Gi
+    accessMode: ReadWriteMany
+    # storageClass: ""
+  # Hugging Face cache for downloaded base models. These are large (tens of GB
+  # each), so persisting this avoids re-downloading them after every restart.
+  huggingface:
+    enabled: true
+    size: 300Gi
+    accessMode: ReadWriteMany
+    # storageClass: ""
+
+# Deployment update strategy. "Recreate" fully stops the old pod before the new
+# one starts, which prevents two pods writing the SQLite database at once and
+# avoids ReadWriteOnce volume mount conflicts during upgrades.
+updateStrategy:
+  type: Recreate
+
+# This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+replicaCount: 1
+
+# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+image:
+  repository: osdn/ai-toolkit
+  # This sets the pull policy for images.
+  pullPolicy: Always
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: latest
+
+# This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+imagePullSecrets: []
+# This is to override the chart name.
+nameOverride: ""
+fullnameOverride: ""
+
+# This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# This is for setting Kubernetes Annotations to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+podAnnotations: {}
+# This is for setting Kubernetes Labels to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+podLabels: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+service:
+  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+  type: ClusterIP
+  # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+  port: 8675
+  containerPort: 8675
+  nodePort: ""
+  labels: {}
+  loadBalancerClass: ""
+
+# This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+
+
+resources:
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  limits:
+    cpu: 8
+    memory: 24Gi
+    nvidia.com/gpu: 1
+  requests:
+    cpu: 4
+    memory: 8Gi
+    nvidia.com/gpu: 1
+
+# Environment variables injected into the container.
+#env:
+#  - name: HTTP_PROXY
+#    value: "http://hpeproxy.its.hpecorp.net:8080"
+#  - name: HTTPS_PROXY
+#    value: "http://hpeproxy.its.hpecorp.net:8080"
+#  - name: NO_PROXY
+#    value: "localhost,127.0.0.1,.svc,.cluster.local,10.0.0.0/8"
+
+# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+
+# This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Extra volumes on the Deployment, in addition to the managed persistence PVCs
+# above. Useful for mounting secrets, configmaps or pre-existing claims.
+volumes: []
+# - name: foo
+#   secret:
+#     secretName: mysecret
+#     optional: false
+
+# Extra volumeMounts on the container, in addition to the managed persistence
+# PVCs above.
+volumeMounts: []
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
