@@ -62,3 +62,40 @@ spec:
 ```
 
 Thats it now you can request GPU resources as normal in previous AIE versions.
+
+## For the version 0.1.5
+Added persistent storage. Before this, AI Toolkit stored everything on the
+container filesystem, so a pod restart/reschedule lost the job database, uploaded
+datasets, trained models, configs and the downloaded base-model cache.
+
+### How AI Toolkit stores data
+Based on the upstream `docker-compose.yml`
+(https://github.com/ostris/ai-toolkit), these paths hold all of the state:
+
+| Path | Contents |
+| ---- | -------- |
+| `/app/ai-toolkit/aitk_db.db` | SQLite DB: jobs, training queue and settings (single file) |
+| `/app/ai-toolkit/datasets` | Datasets uploaded through the UI |
+| `/app/ai-toolkit/output` | Checkpoints, LoRAs and samples (grows the most) |
+| `/app/ai-toolkit/config` | Job config files (plus the bundled `examples/`) |
+| `/root/.cache/huggingface/hub` | Downloaded base models (large) |
+
+### What was implemented
+- One PVC per path, each toggleable under `persistence.*` in `values.yaml`
+  (`data`, `datasets`, `output`, `config`, `huggingface`) with `enabled`, `size`,
+  `accessMode` and optional `storageClass`.
+- The database is a single file whose schema is applied at image **build** time
+  (`prisma db push`); the runtime start command never creates it. An empty volume
+  would therefore leave the app with no tables. An `init-persistence` init
+  container seeds `aitk_db.db` (and the example configs) from the image into the
+  volumes on first start only, then the DB is mounted into the container with
+  `subPath: aitk_db.db`. `persistence.data` is `ReadWriteOnce` because SQLite must
+  only ever be written by one pod.
+- `updateStrategy.type: Recreate` is set so the old pod fully releases the volumes
+  before the new pod starts — this avoids two pods writing the SQLite database and
+  avoids ReadWriteOnce mount conflicts during upgrades.
+
+Disabling any `persistence.<name>.enabled` removes that PVC, its mount and (for
+`data`/`config`) the matching seeding step. To use ReadWriteOnce storage for the
+large volumes too, set each `accessMode` to `ReadWriteOnce` — `Recreate` keeps
+that working across node reschedules.
