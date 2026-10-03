@@ -6,16 +6,16 @@ type: application
 
 version: 1.33.0
 
-appVersion: "0.12.9"
+appVersion: "0.17.6"
 
 annotations:
   artifacthub.io/category: ai-machine-learning
   artifacthub.io/changes: |
     - kind: changed
-      description: upgrade app version to 0.12.9
+      description: upgrade app version to 0.17.6
       links:
-        - name: Ollama release v0.12.9
-          url: https://github.com/ollama/ollama/releases/tag/v0.12.9
+        - name: Ollama release v0.17.6
+          url: https://github.com/ollama/ollama/releases/tag/v0.17.6
 
 kubeVersion: "^1.16.0-0"
 home: https://ollama.ai/

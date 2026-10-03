@@ -1,0 +1,1028 @@
+## Supabase Helm Chart Configuration
+##
+## Supabase is composed of multiple services running together
+## to provide a full backend platform. This chart deploys and
+## configures the following components:
+##
+## - Kong (API Gateway)
+## - Studio (Admin UI)
+## - Postgres (Database)
+## - PostgREST (REST API)
+## - Realtime (WebSocket server)
+## - Storage API
+## - Postgres Meta
+## - GoTrue (Authentication)
+## - Edge Functions (Deno runtime)
+## - Logflare (Analytics)
+## - Vector (Logs pipeline)
+## - Imgproxy (Image transformation)
+## - MinIO (S3-compatible storage)
+##
+## This chart mirrors the official Supabase
+## Docker setup, adapted for Kubernetes.
+##
+## Reference:
+## https://github.com/supabase/supabase/tree/master/docker
+##
+## Configuration is grouped by domain rather than by component.
+## Each section contains per-component blocks where applicable.
+##
+##  1. secret         - All credentials and sensitive values
+##  2. deployment     - Pod configuration per component
+##  3. image          - Container image settings per component
+##  4. environment    - Environment variables per component
+##  5. persistence    - PVC configuration per component
+##  6. service        - Kubernetes Service configuration per component
+##  7. autoscaling    - HPA configuration per component
+##  8. ingress        - External access configuration
+##  9. serviceAccount - ServiceAccount configuration per component
+## 10. migration      - Optional SQL migration scripts
+## 11. bigQuery       - Optional BigQuery backend configuration
+
+ezua:
+  virtualService:
+    endpoint: "supabase.${DOMAIN_NAME}"
+
+secret:
+  ## JSON Web Tokens
+  ## Used to sign and validate access tokens across all Supabase services
+  ## Docs: https://supabase.com/docs/guides/self-hosting/docker#generate-and-configure-api-keys
+  ##
+  jwt:
+    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzczMTAwODAwLCJleHAiOjE5MzA4NjcyMDB9.rOO1bC4FrobaQlV3h3ZBM9xEKuh-d3sFzUwKIkjgRUY"
+    serviceKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3NzMxMDA4MDAsImV4cCI6MTkzMDg2NzIwMH0.bKgQzy_G-2rfqIsSJMRWE5eaKPiWkYfC59PmW8_YCkw"
+    secret: "b0kLZRHA6PjFOSmEU8JlqmSTFAlhPBesjujCALyw"
+
+    ## Reference to existing secret
+    # secretRef: ""
+
+    ## Map to actual keys inside secretRef if they differ
+    # secretRefKey:
+    #   anonKey: anonKey
+    #   serviceKey: serviceKey
+    #   secret: secret
+
+  ## PostgreSQL credentials
+  ## Required even when using an external database
+  ##
+  db:
+    password: "Admin123."
+    database: "postgres"
+
+    ## Reference to existing secret
+    # secretRef: ""
+
+    ## Map to actual keys inside secretRef if they differ
+    # secretRefKey:
+    #   password: password
+    #   database: database
+
+  ## Logflare credentials
+  ##
+  analytics:
+    publicAccessToken: "RixHSRnOVu6bUWPYnEHuEO+tEzTH/+BL"
+    privateAccessToken: "gR8RwQN3PK3v7DEh7TsdRCcWz7MTnK9g"
+
+    ## Reference to existing secret
+    # secretRef: ""
+
+    ## Map to actual keys inside secretRef if they differ
+    # secretRefKey:
+    #   publicAccessToken: publicAccessToken
+    #   privateAccessToken: privateAccessToken
+
+  ## SMTP credentials
+  ##
+  smtp:
+    username: "dba@mycompany.co.uk"
+    password: "Admin123."
+
+    ## Reference to existing secret
+    # secretRef: ""
+
+    ## Map to actual keys inside secretRef if they differ
+    # secretRefKey:
+    #   username: username
+    #   password: password
+
+  ## Studio dashboard credentials
+  ##
+  dashboard:
+    username: "supabase"
+    password: "Admin123."
+    openAiApiKey: "key_super_secret"
+
+    ## Reference to existing secret
+    # secretRef: ""
+
+    ## Map to actual keys inside secretRef if they differ
+    # secretRefKey:
+    #   username: username
+    #   password: password
+    #   openAiApiKey: openAiApiKey
+
+  ## S3-compatible credentials
+  ##
+  s3:
+    keyId: "625729a08b95bf1b7ff351a663f3a23c"
+    accessKey: "850181e4652dd023b7a98c58ae0d2d34bd487ee0cc3254aed6eda37307425907"
+
+    ## Reference to existing secret
+    # secretRef: ""
+
+    ## Map to actual keys inside secretRef if they differ
+    # secretRefKey:
+    #   keyId: keyId
+    #   accessKey: accessKey
+
+  ## Realtime service
+  ## Docs: https://supabase.com/docs/guides/realtime
+  ##
+  realtime:
+    ## Used by Supabase Realtime (Phoenix) to sign and encrypt internal data,
+    ## sessions and tokens. Equivalent to Phoenix SECRET_KEY_BASE.
+    ## Generate with: openssl rand -base64 64
+    secretKeyBase: "0R7dOgmqy51G6kyXAKwGIM6HnHXWGjFCwp2f5W6aILZumf/blUD5EXMiCy6PRtbw"
+
+    ## Reference to existing secret
+    # secretRef: ""
+
+    ## Map to actual keys inside secretRef if they differ
+    # secretRefKey:
+    #   secretKeyBase: secretKeyBase
+
+  ## Meta service
+  ## Docs: https://github.com/supabase/postgres-meta
+  ##
+  meta:
+    ## Used to encrypt sensitive metadata at rest.
+    ## Generate with: openssl rand -hex 32
+    cryptoKey: "2e3ff2f3318f2c116fa1f1dc5d8d802b8ee5b49472e16fb31d54dd2f0071a71e"
+
+    ## Reference to existing secret
+    # secretRef: ""
+
+    ## Map to actual keys inside secretRef if they differ
+    # secretRefKey:
+    #   cryptoKey: cryptoKey
+
+  minio:
+    user: supa-storage
+    password: secret1234
+
+    ## Reference to existing secret
+    # secretRef: ""
+
+    ## Map to actual keys inside secretRef if they differ
+    # secretRefKey:
+    #   user: user
+    #   password: password
+
+deployment:
+  analytics:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  auth:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  db:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  functions:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  imgproxy:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  kong:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  meta:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  minio:
+    enabled: false
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  realtime:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  rest:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  storage:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  studio:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+  vector:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    livenessProbe: {}
+    readinessProbe: {}
+    podAnnotations: {}
+    podSecurityContext:
+    securityContext: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    volumeMounts: {}
+    volumes: {}
+    resources: {}
+
+image:
+  analytics:
+    repository: supabase/logflare
+    pullPolicy: IfNotPresent
+    tag: "1.31.2"
+    pullSecrets: []
+
+  auth:
+    repository: supabase/gotrue
+    pullPolicy: IfNotPresent
+    tag: "v2.186.0"
+    pullSecrets: []
+
+  db:
+    repository: supabase/postgres
+    pullPolicy: IfNotPresent
+    tag: "15.8.1.085"
+    pullSecrets: []
+
+  functions:
+    repository: supabase/edge-runtime
+    pullPolicy: IfNotPresent
+    tag: "v1.70.3"
+    pullSecrets: []
+
+  imgproxy:
+    repository: darthsim/imgproxy
+    pullPolicy: IfNotPresent
+    tag: "v3.30.1"
+    pullSecrets: []
+
+  kong:
+    repository: kong
+    pullPolicy: IfNotPresent
+    tag: "2.8.1"
+    pullSecrets: []
+
+  meta:
+    repository: supabase/postgres-meta
+    pullPolicy: IfNotPresent
+    tag: "v0.95.2"
+    pullSecrets: []
+
+  minio:
+    repository: cgr.dev/chainguard/minio
+    pullPolicy: IfNotPresent
+    tag: "latest"
+    pullSecrets: []
+
+  realtime:
+    repository: supabase/realtime
+    pullPolicy: IfNotPresent
+    tag: "v2.76.5"
+    pullSecrets: []
+
+  rest:
+    repository: postgrest/postgrest
+    pullPolicy: IfNotPresent
+    tag: "v14.5"
+    pullSecrets: []
+
+  storage:
+    repository: supabase/storage-api
+    pullPolicy: IfNotPresent
+    tag: "v1.37.8"
+    pullSecrets: []
+
+  studio:
+    repository: supabase/studio
+    pullPolicy: IfNotPresent
+    tag: "2026.02.16-sha-26c615c"
+    pullSecrets: []
+
+  vector:
+    repository: timberio/vector
+    pullPolicy: IfNotPresent
+    tag: "0.53.0-alpine"
+    pullSecrets: []
+
+environment:
+  analytics:
+    LOGFLARE_NODE_HOST: 127.0.0.1
+    DB_USERNAME: supabase_admin
+    DB_DATABASE: _supabase
+    DB_PORT: 5432
+    DB_DRIVER: postgresql
+    DB_SCHEMA: _analytics
+    POSTGRES_BACKEND_SCHEMA: _analytics
+    LOGFLARE_SINGLE_TENANT: "true"
+    LOGFLARE_SUPABASE_MODE: "true"
+    LOGFLARE_FEATURE_FLAG_OVERRIDE: multibackend=true
+
+  auth:
+    DB_USER: supabase_auth_admin
+    DB_PORT: 5432
+    DB_DRIVER: postgres
+    ## SSL mode options: disable, allow, prefer, require, verify-ca, verify-full
+    DB_SSL: disable
+    API_EXTERNAL_URL: https://supabase.${DOMAIN_NAME}/auth
+    GOTRUE_API_HOST: "0.0.0.0"
+    GOTRUE_API_PORT: "9999"
+    GOTRUE_SITE_URL: https://supabase.${DOMAIN_NAME}
+    GOTRUE_URI_ALLOW_LIST: "*"
+    GOTRUE_DISABLE_SIGNUP: "false"
+    GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+    GOTRUE_JWT_ADMIN_ROLES: service_role
+    GOTRUE_JWT_AUD: authenticated
+    GOTRUE_JWT_EXP: "3600"
+    GOTRUE_EXTERNAL_EMAIL_ENABLED: "false"
+    GOTRUE_MAILER_AUTOCONFIRM: "true"
+    GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+    GOTRUE_EXTERNAL_KEYCLOAK_ENABLED: "true"
+    GOTRUE_EXTERNAL_KEYCLOAK_CLIENT_ID: "${OIDC_CLIENT_ID}"
+    GOTRUE_EXTERNAL_KEYCLOAK_SECRET: "${OIDC_CLIENT_SECRET}"
+    GOTRUE_EXTERNAL_KEYCLOAK_URL: "https://keycloak.${DOMAIN_NAME}/realms/UA"
+    GOTRUE_EXTERNAL_KEYCLOAK_REDIRECT_URI: "https://supabase.${DOMAIN_NAME}/auth/v1/callback"
+    # GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED: true
+    # GOTRUE_SMTP_MAX_FREQUENCY: 1s
+    GOTRUE_SMTP_ADMIN_EMAIL: "SMTP_ADMIN_MAIL"
+    GOTRUE_SMTP_HOST: "SMTP_HOST"
+    GOTRUE_SMTP_PORT: "123"
+    GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+    GOTRUE_SMS_AUTOCONFIRM: "false"
+    GOTRUE_SMTP_SENDER_NAME: "SMTP_SENDER_NAME"
+    GOTRUE_MAILER_URLPATHS_INVITE: "/auth/v1/verify"
+    GOTRUE_MAILER_URLPATHS_CONFIRMATION: "/auth/v1/verify"
+    GOTRUE_MAILER_URLPATHS_RECOVERY: "/auth/v1/verify"
+    GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: "/auth/v1/verify"
+    ## Uncomment to enable custom access token hook. Please see: https://supabase.com/docs/guides/auth/auth-hooks
+    ## for full list of hooks and additional details about custom_access_token_hook
+    # GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_ENABLED: "true"
+    # GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_URI: "pg-functions://postgres/public/custom_access_token_hook"
+    # GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_SECRETS: "<standard-base64-secret>"
+    # GOTRUE_HOOK_MFA_VERIFICATION_ATTEMPT_ENABLED: "true"
+    # GOTRUE_HOOK_MFA_VERIFICATION_ATTEMPT_URI: "pg-functions://postgres/public/mfa_verification_attempt"
+    # GOTRUE_HOOK_PASSWORD_VERIFICATION_ATTEMPT_ENABLED: "true"
+    # GOTRUE_HOOK_PASSWORD_VERIFICATION_ATTEMPT_URI: "pg-functions://postgres/public/password_verification_attempt"
+    # GOTRUE_HOOK_SEND_SMS_ENABLED: "false"
+    # GOTRUE_HOOK_SEND_SMS_URI: "pg-functions://postgres/public/custom_access_token_hook"
+    # GOTRUE_HOOK_SEND_SMS_SECRETS: "v1,whsec_VGhpcyBpcyBhbiBleGFtcGxlIG9mIGEgc2hvcnRlciBCYXNlNjQgc3RyaW5n"
+    # GOTRUE_HOOK_SEND_EMAIL_ENABLED: "false"
+    # GOTRUE_HOOK_SEND_EMAIL_URI: "http://host.docker.internal:54321/functions/v1/email_sender"
+    # GOTRUE_HOOK_SEND_EMAIL_SECRETS: "v1,whsec_VGhpcyBpcyBhbiBleGFtcGxlIG9mIGEgc2hvcnRlciBCYXNlNjQgc3RyaW5n"
+
+  db:
+    POSTGRES_HOST: /var/run/postgresql
+    PGPORT: "5432"
+    POSTGRES_PORT: "5432"
+    JWT_EXP: 3600
+    # POSTGRES_HOST_AUTH_METHOD: md5
+    ## Enable SSL for postgres by specifying paths for mounted certificate key pair
+    # POSTGRES_SSL_CERT: /path/to/ssl/server.crt
+    # POSTGRES_SSL_KEY: /path/to/ssl/server.key
+
+  functions:
+    DB_USERNAME: postgres
+    DB_PORT: 5432
+    DB_DRIVER: postgresql
+    ## SSL mode options: disable, allow, prefer, require, verify-ca, verify-full
+    DB_SSL: disable
+    VERIFY_JWT: false
+
+  imgproxy:
+    IMGPROXY_BIND: ":5001"
+    IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+    IMGPROXY_USE_ETAG: "true"
+    IMGPROXY_ENABLE_WEBP_DETECTION: "true"
+
+  kong:
+    KONG_DATABASE: "off"
+    KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
+    ## https://github.com/supabase/cli/issues/14
+    KONG_DNS_ORDER: LAST,A,CNAME
+    KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+    KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+    KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+    KONG_LOG_LEVEL: warn
+
+  meta:
+    DB_USER: supabase_admin
+    DB_PORT: 5432
+    DB_DRIVER: postgres
+    ## SSL mode options: disable, allow, prefer, require, verify-ca, verify-full
+    DB_SSL: disable
+    PG_META_PORT: "8080"
+
+  minio: {}
+
+  realtime:
+    DB_USER: supabase_admin
+    DB_PORT: 5432
+    ## Set to true to enforce TLS connections to Postgres
+    DB_SSL: false
+    PORT: "4000"
+    FLY_ALLOC_ID: fly123
+    FLY_APP_NAME: realtime
+    ENABLE_TAILSCALE: "false"
+    DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
+    DB_ENC_KEY: supabaserealtime
+    ERL_AFLAGS: -proto_dist inet_tcp
+    DNS_NODES: "''"
+    RLIMIT_NOFILE: "10000"
+    APP_NAME: realtime
+    SEED_SELF_HOST: true
+    RUN_JANITOR: true
+
+  rest:
+    DB_USER: authenticator
+    DB_PORT: 5432
+    DB_DRIVER: postgres
+    ## SSL mode options: disable, allow, prefer, require, verify-ca, verify-full
+    DB_SSL: disable
+    PGRST_DB_SCHEMAS: public,storage,graphql_public,nexus
+    PGRST_DB_ANON_ROLE: anon
+    PGRST_DB_USE_LEGACY_GUCS: false
+    PGRST_APP_SETTINGS_JWT_EXP: 3600
+
+  storage:
+    DB_USER: supabase_storage_admin
+    DB_PORT: 5432
+    DB_DRIVER: postgres
+    ## SSL mode options: disable, allow, prefer, require, verify-ca, verify-full
+    DB_SSL: disable
+    REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+    FILE_SIZE_LIMIT: "52428800"
+    FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+    TENANT_ID: stub
+    REGION: eu-west-2
+    ENABLE_IMAGE_TRANSFORMATION: "true"
+
+  studio:
+    HOSTNAME: "::"
+    STUDIO_PORT: "3000"
+    POSTGRES_PORT: 5432
+    DEFAULT_ORGANIZATION_NAME: HPE
+    DEFAULT_PROJECT_NAME: PCAI
+    SUPABASE_PUBLIC_URL: https://supabase.${DOMAIN_NAME}
+    NEXT_PUBLIC_ENABLE_LOGS: true
+    ## Set value to bigquery to use Big Query backend for analytics (postgres or bigquery)
+    NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
+
+  vector: {}
+
+persistence:
+  db:
+    enabled: true
+    storageClassName: ""
+    # existingClaim: ""
+    annotations: {}
+    size: 10Gi
+    accessModes:
+      - ReadWriteOnce
+
+  functions:
+    enabled: true
+    storageClassName: ""
+    # existingClaim: ""
+    annotations: {}
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+  imgproxy:
+    enabled: true
+    storageClassName: ""
+    # existingClaim: ""
+    annotations: {}
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+  minio:
+    enabled: true
+    storageClassName: ""
+    # existingClaim: ""
+    annotations: {}
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+  snippets:
+    enabled: true
+    storageClassName: ""
+    # existingClaim: ""
+    annotations: {}
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+  storage:
+    enabled: true
+    storageClassName: ""
+    # existingClaim: ""
+    annotations: {}
+    size: 10Gi
+    accessModes:
+      - ReadWriteOnce
+
+  deno:
+    enabled: true
+    storageClassName: ""
+    # existingClaim: ""
+    annotations: {}
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+service:
+  analytics:
+    type: ClusterIP
+    port: 4000
+    targetPort: 4000
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  auth:
+    type: ClusterIP
+    port: 9999
+    targetPort: 9999
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  db:
+    type: ClusterIP
+    port: 5432
+    targetPort: 5432
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  functions:
+    type: ClusterIP
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  imgproxy:
+    type: ClusterIP
+    port: 5001
+    targetPort: 5001
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  kong:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  meta:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  minio:
+    type: ClusterIP
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  realtime:
+    type: ClusterIP
+    port: 4000
+    targetPort: 4000
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  rest:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  storage:
+    type: ClusterIP
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  studio:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+  vector:
+    type: ClusterIP
+    port: 9001
+    targetPort: 9001
+    protocol: TCP
+    annotations: {}
+    labels: {}
+    portName: http
+
+autoscaling:
+  analytics:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  auth:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  db:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  functions:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  imgproxy:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  kong:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  meta:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  minio:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  realtime:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  rest:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  storage:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  studio:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  vector:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    # cert-manager.io/cluster-issuer: "letsencrypt-staging"
+    # kubernetes.io/tls-acme: "true"
+  tls: []
+    ## Define TLS secret for SSL termination.
+    ## This section can be left blank if using cluster certificate manager.
+    ## Otherwise, setting this in tandem with certificate manager will overwrite the secret name.
+    # - secretName: example-com-tls
+    #   hosts:
+    #     - example.com
+  hosts:
+    - host: supabase.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+serviceAccount:
+  analytics:
+    create: true
+    annotations: {}
+    name: ""
+
+  auth:
+    create: true
+    annotations: {}
+    name: ""
+
+  db:
+    create: true
+    annotations: {}
+    name: ""
+
+  functions:
+    create: true
+    annotations: {}
+    name: ""
+
+  imgproxy:
+    create: true
+    annotations: {}
+    name: ""
+
+  kong:
+    create: true
+    annotations: {}
+    name: ""
+
+  meta:
+    create: true
+    annotations: {}
+    name: ""
+
+  minio:
+    create: true
+    annotations: {}
+    name: ""
+
+  realtime:
+    create: true
+    annotations: {}
+    name: ""
+
+  rest:
+    create: true
+    annotations: {}
+    name: ""
+
+  storage:
+    create: true
+    annotations: {}
+    name: ""
+
+  studio:
+    create: true
+    annotations: {}
+    name: ""
+
+  vector:
+    create: true
+    annotations: {}
+    name: ""
+
+migration:
+  # example.sql: |
+  #   \set pguser `echo "$POSTGRES_USER"`
+
+  #   -- Create schema
+  #   create schema if not exists nexus;
+  #   alter schema nexus owner to :pguser;
+
+  #   -- Create example table
+  #   create table if not exists nexus.version (
+  #     id   serial primary key,
+  #     name text not null,
+  #     description text
+  #   );
+
+  #   -- Set table owner
+  #   alter table nexus.version owner to :pguser;
+
+bigQuery:
+  enabled: false
+  projectId: google-project-id
+  projectNumber: google-project-number
+  gcloudJson: ""
