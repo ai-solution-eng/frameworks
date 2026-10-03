@@ -1,0 +1,12 @@
+apiVersion: v2
+name: clamav
+description: A Helm chart for ClamAV antivirus server with REST API
+type: application
+version: 0.1.3
+appVersion: "latest"
+keywords:
+  - clamav
+  - antivirus
+  - security
+maintainers:
+  - name: admin
