@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "pgvector.fullname" . }}
+  namespace: {{ include "pgvector.namespace" . }}
+  labels:
+    {{- include "pgvector.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  # PostgreSQL admin credentials
+  POSTGRES_USER: {{ .Values.postgresql.username | quote }}
+  POSTGRES_PASSWORD: {{ .Values.postgresql.password | quote }}

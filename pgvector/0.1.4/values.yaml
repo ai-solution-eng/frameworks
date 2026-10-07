@@ -1,0 +1,61 @@
+# Optional override for resource names.
+# If empty, Helm will use: <release-name>-pgvector
+fullnameOverride: ""
+
+# Optional namespace override.
+# If empty, Helm uses .Release.Namespace.
+namespaceOverride: ""
+
+# Optional override for the base name of the application (chart name).
+# If empty, Helm uses .Chart.Name (pgvector).
+nameOverride: ""
+
+image:
+  repository: pgvector/pgvector
+  tag: "pg18"
+  pullPolicy: IfNotPresent
+
+postgresql:
+  username: postgres
+  password: postgres
+  database: postgres
+  port: 5432
+
+pgvector:
+  enabled: true
+
+service:
+  type: ClusterIP
+  port: 5432
+
+persistence:
+  enabled: true
+  size: 50Gi
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+
+resources:
+  requests:
+    cpu: "1"
+    memory: "1Gi"
+  limits:
+    cpu: "4"
+    memory: "4Gi"
+
+podSecurityContext:
+  enabled: true
+  fsGroup: 1001
+
+containerSecurityContext:
+  enabled: true
+  runAsUser: 1001
+  runAsNonRoot: true
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+extraEnv: []
