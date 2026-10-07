@@ -120,9 +120,9 @@ The target Kubernetes cluster must provide a compatible `StorageClass` and dynam
 ## Requirements
 
 - HPE Private Cloud AI - AI Essentials v. >= 0.10.x (Kubernetes cluster)
-- Persistent storage (default configuration in values.yaml: 50GB)
+- Persistent storage (default configuration in `values.yaml`: 10GB)
 - Available `StorageClass` or manually provisioned persistent volume
-- Sufficient CPU, memory (default limits configuration in values.yaml: CPU: 1-4 , Memory: 1-4GB)
+- Sufficient CPU, memory (default limits configuration in `values.yaml`: CPU: 1-4 , Memory: 1-4GB)
 - PostgreSQL client tools for command-line administration, if required
 
 ## Version Information
