@@ -1,0 +1,2 @@
+External PCAI endpoint: https://{{ .Values.ezua.virtualService.endpoint }}
+Internal service: {{ include "docling.fullname" . }}.{{ include "docling.namespace" . }}.svc.cluster.local

@@ -1,0 +1,18 @@
+{{- if and .Values.storage.enabled (not .Values.storage.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "docling.fullname" . }}-pvc
+  namespace: {{ include "docling.namespace" . }}
+  labels:
+    {{- include "docling.selectorLabels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.storage.accessModes | nindent 4 }}
+  {{- with .Values.storage.storageClassName }}
+  storageClassName: {{ tpl . $ | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}
+{{- end }}
