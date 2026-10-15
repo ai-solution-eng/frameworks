@@ -1,0 +1,17 @@
+{{- if .Values.persistence.huggingface.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ai-toolkit.fullname" . }}-huggingface
+  labels:
+    {{- include "ai-toolkit.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.huggingface.accessMode }}
+  {{- with .Values.persistence.huggingface.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.huggingface.size }}
+{{- end }}

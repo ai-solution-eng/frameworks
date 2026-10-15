@@ -1,0 +1,35 @@
+{{- if .Values.kafkaUi.enabled }}
+# Repo/BYOA convention: mutate Pods / Deployments / Services in the release
+# namespace with the hpe-ezua labels used by EZUA Resource Management and Pod
+# Health monitoring. This also catches the Strimzi operator-created broker and
+# entity-operator pods, which Helm does not template directly.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ printf "add-vendor-app-labels-%s-%s" .Release.Name .Chart.Name }}
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+  labels:
+    {{- include "kafka.labels" . | nindent 4 }}
+spec:
+  background: false
+  rules:
+  - name: add-vendor-app-labels
+    match:
+      any:
+      - resources:
+          namespaces:
+          - {{ .Release.Namespace }}
+          kinds:
+          - Pod
+          - Deployment
+          - Service
+    mutate:
+      patchStrategicMerge:
+        metadata:
+          labels:
+            "hpe-ezua/type": vendor-service
+            "hpe-ezua/app": {{ .Chart.Name }}
+{{- end }}

@@ -1,0 +1,12 @@
+apiVersion: v2
+name: kafka
+description: Apache Kafka (KRaft) packaged via the Strimzi operator, adapted BYOA for HPE Private Cloud AI / AI Essentials
+type: application
+version: 0.3.0
+appVersion: "0.0.0"  # Kafka version chosen by the Strimzi 1.x operator
+home: https://kafka.apache.org
+keywords: [kafka, streaming, strimzi, kraft, pcai, aie, byoa]
+maintainers:
+  - name: HPE AI Solution Engineering
+annotations:
+  hpe-ezua/framework: "true"

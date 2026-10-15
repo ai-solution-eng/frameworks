@@ -1,0 +1,6 @@
+apiVersion: v2
+name: docling
+version: 0.0.3
+appVersion: "1.36.0-gpu"
+type: application
+description: Docling Serve framework for PCAI AIE (GPU Enabled)

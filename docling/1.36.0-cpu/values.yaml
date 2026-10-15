@@ -1,0 +1,87 @@
+replicaCount: 1
+nameOverride: ""
+fullnameOverride: ""
+namespaceOverride: ""
+
+image:
+  repository: ghcr.io/docling-project/docling-serve-cpu
+  tag: "v1.36.0"
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+service:
+  type: ClusterIP
+  port: 5001
+  containerPort: 5001
+
+env:
+  # Force CPU processing
+  - name: DOCLING_DEVICE
+    value: "cpu"
+
+  # Enable the built-in docling web UI; the service is used as an API only.
+  - name: DOCLING_SERVE_ENABLE_UI
+    value: "true"
+
+  # Maximum time (seconds) to wait synchronously for a conversion to
+  # finish — 1800s (30 min) for large documents, uniform across the
+  # versions.
+  - name: DOCLING_SERVE_MAX_SYNC_WAIT
+    value: "1800"
+
+  # Preload the default models at boot
+  - name: DOCLING_SERVE_LOAD_MODELS_AT_BOOT
+    value: "false"
+
+  # Required by API-based picture description (OpenAI-compatible endpoint,
+  # local or cloud): the only remote service this container may call.
+  - name: DOCLING_SERVE_ENABLE_REMOTE_SERVICES
+    value: "true"
+
+  # Docling Picture description configuration
+  #- name: DOCLING_SERVE_CUSTOM_PICTURE_DESCRIPTION_PRESETS
+  #  value: "{ \"image_desc_p1\": { \"model_spec\": { \"name\": \"Image description profile 1\", \"default_repo_id\": \"<model name>\", \"prompt\": \"Using the document language, describe this image in great detail, focusing on information relevant to the document. Output the description as a paragraph between two: --- separators.\", \"response_format\": \"plaintext\", \"supported_engines\": [\"api_openai\"] }, \"engine_options\": { \"engine_type\": \"api_openai\", \"url\": \"<model endpoint url<\", \"headers\": {\"Authorization\": \"Bearer <model API Key>\"}, \"params\": { \"model\": \"<model name>\", \"max_tokens\": 400}, \"timeout\": 300, \"concurrency\": 2 }, \"prompt\": \"Using the document language, describe this image in great detail, focusing on information relevant to the document. Output the description as a paragraph between two: --- separators.\", \"generation_config\": { \"max_new_tokens\": 400, \"do_sample\": false } } }"
+
+
+envFrom: []
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 4Gi
+  limits:
+    cpu: "4"
+    memory: 8Gi
+
+storage:
+  enabled: true
+  existingClaim: ""
+  size: 50Gi
+  storageClassName: ""
+  accessModes:
+    - ReadWriteMany
+  mountPath: /data
+
+probes:
+  path: /docs
+  startup:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 60
+  readiness:
+    periodSeconds: 10
+    failureThreshold: 6
+  liveness:
+    periodSeconds: 20
+    failureThreshold: 6
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+ezua:
+  virtualService:
+    enabled: true
+    endpoint: "docling.${DOMAIN_NAME}"
+    istioGateway: istio-system/ezaf-gateway

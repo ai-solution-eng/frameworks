@@ -1,0 +1,17 @@
+{{- if .Values.persistence.datasets.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ai-toolkit.fullname" . }}-datasets
+  labels:
+    {{- include "ai-toolkit.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.datasets.accessMode }}
+  {{- with .Values.persistence.datasets.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.datasets.size }}
+{{- end }}

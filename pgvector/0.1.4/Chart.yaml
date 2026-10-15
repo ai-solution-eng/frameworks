@@ -1,0 +1,6 @@
+apiVersion: v2
+name: pgvector
+description: PostgreSQL with pgvector extension for PCAI Framework deployment
+type: application
+version: 0.1.4
+appVersion: "pg18"

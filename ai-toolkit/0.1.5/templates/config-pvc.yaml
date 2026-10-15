@@ -1,0 +1,17 @@
+{{- if .Values.persistence.config.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ai-toolkit.fullname" . }}-config
+  labels:
+    {{- include "ai-toolkit.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.config.accessMode }}
+  {{- with .Values.persistence.config.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.config.size }}
+{{- end }}

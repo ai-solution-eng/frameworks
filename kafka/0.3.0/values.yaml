@@ -1,0 +1,82 @@
+# ---------------------------------------------------------------------------
+# Kafka (KRaft, via Strimzi 1.x / CRD API kafka.strimzi.io/v1) — BYOA values for PCAI / AIE
+# PREREQUISITE: the Strimzi Cluster Operator must be installed in this
+# namespace first (see porting.md / README.md). This chart deploys the Kafka
+# custom resources + an optional kafka-ui tile, not the operator itself.
+# ---------------------------------------------------------------------------
+
+nameOverride: ""
+fullnameOverride: ""
+
+cluster:
+  name: plant-kafka
+  # Leave blank so the Strimzi 1.x operator picks a supported Kafka version.
+  # Pin both only to versions the installed operator lists as supported.
+  kafkaVersion: ""
+  metadataVersion: ""
+  replicas: 1                    # single dual-role node for the trial (set 3 for an HA demo)
+  storage:
+    size: 50Gi
+    # LEAVE BLANK when the cluster has a default StorageClass (kubectl get sc). Setting an
+    # explicit class trips a 1.x operator bug that hangs reconcile — see porting.md
+    # Troubleshooting #5. Only set this if there is NO default SC.
+    class: ""
+    deleteClaim: false
+  resources:
+    requests: { cpu: "1", memory: 2Gi }
+    limits:   { cpu: "2", memory: 4Gi }
+  # Trial-scale replication (single broker). Raise with replicas for HA.
+  config:
+    offsets.topic.replication.factor: 1
+    transaction.state.log.replication.factor: 1
+    transaction.state.log.min.isr: 1
+    default.replication.factor: 1
+    min.insync.replicas: 1
+
+listeners:
+  plainInternal: true            # PLAINTEXT in-cluster listener on :9092 (sandbox default)
+  tlsInternal: false             # TLS in-cluster listener on :9093 (needs ezaf CA trust; see porting.md)
+  # SCRAM-SHA-512 listener on :9094. REQUIRED when user.enabled=true — a SCRAM
+  # KafkaUser cannot authenticate against the PLAINTEXT listener.
+  scramInternal: false
+
+topic:
+  enabled: true
+  name: plant-telemetry
+  partitions: 6                  # key producer per plant tag-group to preserve per-tag order
+  replicas: 1
+  config:
+    retention.ms: 604800000      # 7 days
+    segment.bytes: 1073741824
+
+user:
+  enabled: false                 # true -> create a SCRAM-SHA-512 KafkaUser (requires listeners.scramInternal: true)
+  name: plant-app
+
+kafkaUi:
+  enabled: true                  # EzUA-registered visibility tile
+  image: provectuslabs/kafka-ui:v0.7.2   # maintained fork: ghcr.io/kafbat/kafka-ui:<tag>
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: "1", memory: 1Gi }
+  # Runtime config changes from the UI. Keep false in shared/production clusters:
+  # combined with an unauthenticated UI it lets any visitor alter broker settings.
+  dynamicConfig: false
+
+# Platform related options (EZUA BYOA).
+# ${...} placeholders are substituted by the EzApp controller at LCM time — they
+# must also appear in the EzAppConfig.Spec.Values section (see
+# ezappconfig-kafka-template.yaml), otherwise substitution is skipped.
+ezua:
+  # Application endpoint exposed through the EZUI tile. Use the
+  # ${RELEASE_NAME}-${NAMESPACE} prefix so concurrent releases don't fight over
+  # the same gateway host.
+  virtualService:
+    endpoint: "${RELEASE_NAME}-${NAMESPACE}.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  # SSO / authorization for the kafka-ui tile (istio oauth2-proxy at the gateway).
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    matchLabels:
+      istio: "ingressgateway"

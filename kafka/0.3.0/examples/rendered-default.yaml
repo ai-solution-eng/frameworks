@@ -1,0 +1,166 @@
+# Rendered reference — `helm template plant-kafka ./0.2.0 -n kafka --set cluster.storage.class=gl4f-filesystem`
+# Strimzi 1.x (CRD API kafka.strimzi.io/v1). spec.kafka.version omitted -> operator default.
+# Apply-ready reference (operator must be running in the namespace).
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual-role
+  labels:
+    strimzi.io/cluster: plant-kafka
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: plant-kafka
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kafka-0.2.0
+spec:
+  replicas: 1
+  roles:
+    - controller
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 50Gi
+        class: gl4f-filesystem
+        deleteClaim: false
+        kraftMetadata: shared
+  resources:
+    requests: { cpu: "1", memory: 2Gi }
+    limits:   { cpu: "2", memory: 4Gi }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: plant-kafka
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: plant-kafka
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kafka-0.2.0
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+    config:
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: plant-telemetry
+  labels:
+    strimzi.io/cluster: plant-kafka
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: plant-kafka
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kafka-0.2.0
+spec:
+  partitions: 6
+  replicas: 1
+  config:
+    retention.ms: 604800000
+    segment.bytes: 1073741824
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: plant-kafka
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kafka-0.2.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+      app.kubernetes.io/instance: plant-kafka
+      app.kubernetes.io/component: ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka
+        app.kubernetes.io/instance: plant-kafka
+        app.kubernetes.io/component: ui
+        hpe-ezua/app: "kafka"
+        hpe-ezua/type: "vendor-service"
+    spec:
+      containers:
+        - name: kafka-ui
+          image: provectuslabs/kafka-ui:v0.7.2
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: KAFKA_CLUSTERS_0_NAME
+              value: "plant-kafka"
+            - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+              value: "plant-kafka-kafka-bootstrap:9092"
+            - name: DYNAMIC_CONFIG_ENABLED
+              value: "true"
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: "1", memory: 1Gi }
+          readinessProbe:
+            httpGet: { path: /actuator/health, port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: plant-kafka
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kafka-0.2.0
+spec:
+  selector:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: plant-kafka
+    app.kubernetes.io/component: ui
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: kafka-ui
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: plant-kafka
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: kafka-0.2.0
+spec:
+  gateways:
+    - istio-system/ezaf-gateway
+  hosts:
+    - kafka-ui.${DOMAIN_NAME}
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: kafka-ui.kafka.svc.cluster.local
+            port:
+              number: 80
