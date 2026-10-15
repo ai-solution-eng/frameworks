@@ -1,0 +1,10 @@
+apiVersion: v2
+appVersion: 0.0.116
+description: runtime environment for autonomous agents
+name: openshell
+type: application
+version: 0.0.116
+dependencies:
+  - name: agent-sandbox
+    version: "0.1.0"
+    condition: agent-sandbox.enabled
