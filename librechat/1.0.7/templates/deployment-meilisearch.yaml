@@ -1,0 +1,91 @@
+{{- if .Values.meilisearch.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "librechat.fullname" . }}-meilisearch
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: meilisearch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "librechat.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: meilisearch
+  template:
+    metadata:
+      labels:
+        {{- include "librechat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: meilisearch
+    spec:
+      {{- with .Values.meilisearch.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: meilisearch
+          image: "{{ include "librechat.registry" . }}{{ .Values.meilisearch.image }}"
+          ports:
+            - name: meilisearch
+              containerPort: {{ .Values.meilisearch.port }}
+              protocol: TCP
+          env:
+            - name: MEILI_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "librechat.fullname" . }}-credentials
+                  key: MEILI_MASTER_KEY
+            - name: MEILI_NO_ANALYTICS
+              value: "true"
+            - name: MEILI_ENV
+              value: "production"
+          volumeMounts:
+            - name: meilidata
+              mountPath: /meili_data
+          resources:
+            {{- toYaml .Values.meilisearch.resources | nindent 12 }}
+      volumes:
+        - name: meilidata
+          {{- if .Values.meilisearch.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "librechat.fullname" . }}-meilisearch
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "librechat.fullname" . }}-meilisearch
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: meilisearch
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.meilisearch.port }}
+      targetPort: meilisearch
+      protocol: TCP
+      name: meilisearch
+  selector:
+    {{- include "librechat.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: meilisearch
+{{- if .Values.meilisearch.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "librechat.fullname" . }}-meilisearch
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.meilisearch.persistence.storageClass }}
+  storageClassName: {{ .Values.meilisearch.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.meilisearch.persistence.size }}
+{{- end }}
+{{- end }}

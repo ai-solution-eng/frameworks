@@ -1,0 +1,301 @@
+# ==============================================================================
+# LibreChat for HPE Private Cloud AI (PCAI) - Helm Configuration Values
+# (LibreChat + MongoDB + pgVector + Meilisearch + SearXNG)
+#
+# Secrets: JWT/credential secrets are auto-generated into a Kubernetes Secret
+# (templates/secret-librechat.yaml) unless overridden via librechat.security.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Global options
+# ------------------------------------------------------------------------------
+global:
+  # Optional air-gap / private registry prefix applied to EVERY image in this
+  # chart (see templates/_helpers.tpl "librechat.registry"). Leave empty to
+  # pull upstream images directly. For an air-gapped PCAI, point this at the
+  # local mirror that preserves the upstream path, e.g. "harbor.<DOMAIN_NAME>"
+  # so "ghcr.io/danny-avila/librechat" resolves to
+  # "harbor.<DOMAIN_NAME>/ghcr.io/danny-avila/librechat".
+  # In the EzAppConfig this can be wired to the ${AIRGAP_REGISTRY} placeholder.
+  imageRegistry: ""
+
+# ------------------------------------------------------------------------------
+# 0. HPE EZUA / BYOA platform integration
+#    These values are consumed by templates/ezua/* and the EzAppConfig CR.
+#    The ${...} placeholders are substituted by the EzApp controller during
+#    LCM actions when set in EzAppConfig.Spec.Values.
+# ------------------------------------------------------------------------------
+ezua:
+  # Application endpoint exposed through the Istio gateway.
+  # The UI tile "open" button points to this endpoint.
+  virtualService:
+    endpoint: "librechat.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+
+  # SSO / authorization via the platform oauth2-proxy provider (gateway SSO).
+  # enabled=true applies an Istio AuthorizationPolicy so users authenticate at
+  # the gateway before reaching LibreChat. This is the default, simplest trial
+  # posture. Set enabled=false ONLY if you instead use LibreChat native OIDC
+  # (librechat.oidc) as the sole auth, to avoid a double login.
+  authorizationPolicy:
+    enabled: true
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    matchLabels:
+      istio: "ingressgateway"
+
+# ------------------------------------------------------------------------------
+# 1. HPE Model Endpoint Configuration (OpenAI-compatible)
+#    RECOMMENDED: point this at LiteLLM as a single OpenAI-compatible gateway
+#    in front of MLIS, so model discovery (fetchModels) returns every deployed
+#    model and you manage one virtual key instead of per-MLIS-endpoint keys.
+#
+#    baseURL MUST end at "/v1" with NO trailing slash.
+#      - LiteLLM gateway (recommended):  http://<litellm-svc>.<ns>.svc.cluster.local:4000/v1
+#      - MLIS endpoint direct:           http://<mlis-svc>.<ns>.svc.cluster.local:8080/v1
+#        (MLIS serves on 8080, NOT 8000)
+#    apiKey:  a LiteLLM virtual key, or the per-deployment MLIS key.
+#    defaultModel: MUST match a model id the endpoint actually serves
+#                  (e.g. gpt-oss-20b, Qwen3-30B-A3B-Instruct-2507).
+# ------------------------------------------------------------------------------
+hpeModel:
+  enabled: true
+  displayName: "HPE Private Cloud AI"
+  # REQUIRED - CHANGE ME: in-cluster endpoint of LiteLLM (preferred) or MLIS.
+  # The placeholder below will NOT resolve on your cluster. Find the real
+  # service with: kubectl get svc -A | grep -iE 'litellm|mlis'
+  baseURL: "http://REPLACE-ME-litellm.<namespace>.svc.cluster.local:4000/v1"
+  # REQUIRED - CHANGE ME: LiteLLM virtual key or MLIS per-deployment key.
+  # In 1.0.5 this is rendered into the credentials Secret (HPE_MODEL_API_KEY) and
+  # injected via env - it is NOT written into the ConfigMap in plaintext.
+  apiKey: "CHANGEME-litellm-virtual-key"
+  # REQUIRED - CHANGE ME: must EXACTLY match a model id the endpoint serves.
+  # List them: curl -H "Authorization: Bearer <key>" <baseURL>/models
+  defaultModel: "REPLACE-ME-model-id"
+  fetchModels: true
+  contextWindow: 32768
+
+# ------------------------------------------------------------------------------
+# 2. LibreChat Core Application & Gateway Settings
+# ------------------------------------------------------------------------------
+librechat:
+  replicaCount: 1
+  image:
+    repository: "ghcr.io/danny-avila/librechat"
+    # Pinned for reproducibility and air-gap mirroring. Do not use "latest".
+    # NOTE: v0.8.8 was never published to ghcr (only rc tags); v0.8.7 is the
+    # newest stable image on ghcr.io/danny-avila/librechat.
+    tag: "v0.8.7"
+    pullPolicy: "IfNotPresent"
+
+  service:
+    type: "ClusterIP"
+    port: 3080
+    targetPort: 3080
+
+  # Open self-service registration. First registered account becomes ADMIN.
+  # SECURITY: behind gateway SSO this still means "first person to open the app
+  # becomes admin". Register the intended admin immediately after deploy, then
+  # set this to false and upgrade.
+  allowRegistration: true
+
+  # Native OIDC SSO against the platform Keycloak.
+  # Default OFF: the gateway oauth2-proxy (ezua.authorizationPolicy) handles SSO.
+  # Enable this ONLY as an alternative to gateway SSO (then set
+  # ezua.authorizationPolicy.enabled=false to avoid a double login), OR keep
+  # both and register BOTH redirect URIs in Keycloak:
+  #   https://<endpoint>/oauth2/callback        (gateway oauth2-proxy)
+  #   https://<endpoint>/oauth/openid/callback   (LibreChat native OIDC)
+  # Issuer example: https://keycloak.<DOMAIN_NAME>/realms/ua
+  # When enabled, OPENID_SESSION_SECRET is auto-generated into the credentials
+  # Secret - LibreChat requires it (alongside issuer/clientId/clientSecret) to
+  # register the OpenID strategy and render the SSO button. issuer/clientId/
+  # clientSecret are REQUIRED when enabled. The issuer realm segment is
+  # case-sensitive (e.g. /realms/UA). The Keycloak client must live in that same
+  # realm with redirect URI https://<endpoint>/oauth/openid/callback registered.
+  oidc:
+    enabled: false
+    issuer: ""
+    clientId: ""
+    clientSecret: ""
+    scope: "openid profile email"
+    callbackUrl: "/oauth/openid/callback"
+    buttonLabel: "HPE SSO"
+    # Optional: URL to an icon for the SSO button (a default glyph shows if unset).
+    imageUrl: ""
+
+  # Extra environment variables passthrough, e.g. for runtime tuning:
+  # extraEnv:
+  #   - name: REFRESH_TOKEN_EXPIRY
+  #     value: "604800000"
+  extraEnv: []
+
+  # Pod-level security context. fsGroup is required on PCAI: namespaces run
+  # containers under a restricted security context (arbitrary non-root UIDs),
+  # and the image's /app/logs directory is owned by UID 1000. Without
+  # fsGroup=1000 the app crashes with:
+  #   EACCES: permission denied, open '/app/logs/error-*.log'
+  podSecurityContext:
+    fsGroup: 1000
+
+  resources:
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+
+  # Leave blank to auto-generate random secrets at install time
+  # (rendered into a Kubernetes Secret, templates/secret-librechat.yaml).
+  security:
+    jwtSecret: ""
+    jwtRefreshSecret: ""
+    credsKey: ""
+    credsIv: ""
+
+  imagePullSecrets: []
+
+# ------------------------------------------------------------------------------
+# 3. Persistence & Database Microservices
+#    fsGroup is set on each stateful pod for the SAME reason as LibreChat:
+#    under PCAI's restricted SCC the data dirs on fresh PVCs are not writable
+#    by the (arbitrary) runtime UID without a group-writable mount.
+# ------------------------------------------------------------------------------
+mongodb:
+  enabled: true
+  image: "mongo:6.0"
+  port: 27017
+  podSecurityContext:
+    fsGroup: 1000
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+  persistence:
+    enabled: true
+    size: "10Gi"
+    storageClass: ""
+
+pgvector:
+  enabled: false
+  image: "pgvector/pgvector:pg16"
+  port: 5432
+  database: "rag_vectors"
+  user: "librechat_rag"
+  # Leave blank to auto-generate (stored in the chart Secret).
+  password: ""
+  podSecurityContext:
+    fsGroup: 1000
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+  persistence:
+    enabled: true
+    size: "10Gi"
+    storageClass: ""
+
+meilisearch:
+  enabled: false
+  image: "getmeili/meilisearch:v1.7.3"
+  port: 7700
+  # Leave blank to auto-generate (stored in the chart Secret).
+  masterKey: ""
+  podSecurityContext:
+    fsGroup: 1000
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+  persistence:
+    enabled: true
+    size: "5Gi"
+    storageClass: ""
+
+# ------------------------------------------------------------------------------
+# 4. Intelligence Extensions (RAG & Web Search) - OPTIONAL, disabled by default
+#    When enabled, the chart wires RAG_API_URL (api) and the embeddings env
+#    (rag) automatically. RAG requires pgvector.enabled=true (enforced below).
+#
+#    EMBEDDINGS - IMPORTANT (hard-won lessons, do not remove):
+#    - provider must be "openai" for an OpenAI-compatible gateway (LiteLLM).
+#      NIM-specific providers (e.g. "nvidia_nim") are NOT valid values of
+#      EMBEDDINGS_PROVIDER in the rag-api (ValueError at startup).
+#    - model must be a SYMMETRIC embedding model (e.g. BAAI/bge-m3) served by
+#      the gateway. Asymmetric NIM models (nv-embedqa-*) require an
+#      "input_type" parameter that rag-api's OpenAI-style client never sends,
+#      and the call fails with 400 "input_type parameter is required".
+#    - model id must EXACTLY match a route in the gateway:
+#      curl -H "Authorization: Bearer <key>" <baseURL>/models | grep -i embed
+#    - after changing ANY credential/model env: restart BOTH deployments
+#      (librechat-api and librechat-rag) - env is baked in at container start.
+#    NOTE: rag/searxng images are tagged :latest upstream (no stable tag).
+#    Pin to a verified digest before mirroring for air-gap.
+# ------------------------------------------------------------------------------
+ragApi:
+  enabled: false
+  image: "ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest"
+  port: 8000
+  # Embeddings backend for the RAG API (rendered into the rag deployment env).
+  # For LiteLLM: provider "openai", baseURL <litellm>/v1, model a symmetric
+  # embedding model the gateway serves (e.g. BAAI/bge-m3).
+  embeddings:
+    provider: "openai"        # EMBEDDINGS_PROVIDER
+    baseURL: ""               # RAG_OPENAI_BASEURL; blank reuses hpeModel.baseURL
+    model: ""                 # EMBEDDINGS_MODEL; REQUIRED when ragApi.enabled
+    # RAG_OPENAI_API_KEY; blank reuses hpeModel.apiKey (rendered into the Secret).
+    apiKey: ""
+
+searxng:
+  enabled: false
+  image: "searxng/searxng:latest"
+  port: 8080
+  # Rendered into a ConfigMap mounted at /etc/searxng/settings.yml.
+  # REQUIRED for LibreChat integration:
+  #   - limiter: false          (SearXNG's bot detection 403s server-to-server
+  #                              calls that lack browser/proxy headers)
+  #   - search.formats: json    (JSON must be explicitly enabled; it 403s
+  #                              otherwise - note formats lives under "search"!)
+  # secret_key must be a fixed non-empty string (stable across restarts).
+  settings:
+    use_default_settings: true
+    server:
+      secret_key: "CHANGE-ME-searxng-secret-key"
+      image_proxy: true
+      limiter: false
+    search:
+      formats:
+        - html
+        - json
+    engines:
+      - name: ahmia
+        disabled: true
+      - name: torch
+        disabled: true
+
+# ------------------------------------------------------------------------------
+# 5. Web Search (LibreChat config). AUTO-CONFIGURED when searxng.enabled=true.
+#    IMPORTANT: librechat.yaml only accepts an ENV-VAR REFERENCE for
+#    searxngInstanceUrl - a literal URL is rejected at startup with
+#    "searxngInstanceUrl contains an actual value instead of an environment
+#    variable reference". The chart sets SEARXNG_INSTANCE_URL on the api pod.
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+# 5. Ingress (disabled on PCAI - routing goes through the Istio VirtualService)
+# ------------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []

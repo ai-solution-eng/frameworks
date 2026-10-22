@@ -1,0 +1,14 @@
+{{- if .Values.searxng.enabled }}
+{{- if not .Values.searxng.settings.server.secret_key }}
+{{- fail "searxng.settings.server.secret_key is required when searxng.enabled=true (must be a fixed non-empty string)" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "librechat.fullname" . }}-searxng-settings
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+data:
+  settings.yml: |
+{{ .Values.searxng.settings | toYaml | indent 4 }}
+{{- end }}

@@ -1,0 +1,93 @@
+{{- if .Values.pgvector.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "librechat.fullname" . }}-pgvector
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgvector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "librechat.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: pgvector
+  template:
+    metadata:
+      labels:
+        {{- include "librechat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: pgvector
+    spec:
+      {{- with .Values.pgvector.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: pgvector
+          image: "{{ include "librechat.registry" . }}{{ .Values.pgvector.image }}"
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.pgvector.port }}
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: "{{ .Values.pgvector.database }}"
+            - name: POSTGRES_USER
+              value: "{{ .Values.pgvector.user }}"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "librechat.fullname" . }}-credentials
+                  key: PGVECTOR_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+          resources:
+            {{- toYaml .Values.pgvector.resources | nindent 12 }}
+      volumes:
+        - name: pgdata
+          {{- if .Values.pgvector.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "librechat.fullname" . }}-pgvector
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "librechat.fullname" . }}-pgvector
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgvector
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.pgvector.port }}
+      targetPort: postgres
+      protocol: TCP
+      name: postgres
+  selector:
+    {{- include "librechat.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: pgvector
+{{- if .Values.pgvector.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "librechat.fullname" . }}-pgvector
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.pgvector.persistence.storageClass }}
+  storageClassName: {{ .Values.pgvector.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.pgvector.persistence.size }}
+{{- end }}
+{{- end }}

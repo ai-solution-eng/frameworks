@@ -1,0 +1,70 @@
+{{- if .Values.searxng.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "librechat.fullname" . }}-searxng
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: searxng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "librechat.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: searxng
+  template:
+    metadata:
+      labels:
+        {{- include "librechat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: searxng
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: searxng
+          image: "{{ include "librechat.registry" . }}{{ .Values.searxng.image }}"
+          ports:
+            - name: searxng
+              containerPort: {{ .Values.searxng.port }}
+              protocol: TCP
+          env:
+            - name: SEARXNG_BASE_URL
+              value: "http://{{ include "librechat.fullname" . }}-searxng:{{ .Values.searxng.port }}/"
+          volumeMounts:
+            # settings.yml from ConfigMap: disables the bot-detection limiter
+            # (it 403s server-to-server calls) and enables JSON output under
+            # search.formats (required by LibreChat; 403s otherwise).
+            # NOTE: formats lives under the "search:" key, NOT at top level.
+            - name: settings
+              mountPath: /etc/searxng
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.searxng.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: settings
+          configMap:
+            name: {{ include "librechat.fullname" . }}-searxng-settings
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "librechat.fullname" . }}-searxng
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: searxng
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.searxng.port }}
+      targetPort: searxng
+      protocol: TCP
+      name: searxng
+  selector:
+    {{- include "librechat.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: searxng
+{{- end }}

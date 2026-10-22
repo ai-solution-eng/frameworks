@@ -1,0 +1,126 @@
+{{- $endpoint := .Values.ezua.virtualService.endpoint -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "librechat.fullname" . }}-api
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.librechat.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "librechat.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "librechat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      {{- with .Values.librechat.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.librechat.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: librechat
+          image: "{{ include "librechat.registry" . }}{{ .Values.librechat.image.repository }}:{{ .Values.librechat.image.tag }}"
+          imagePullPolicy: {{ .Values.librechat.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3080
+              protocol: TCP
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3080"
+            - name: MONGO_URI
+              value: "mongodb://{{ include "librechat.fullname" . }}-mongodb:27017/LibreChat"
+            - name: DOMAIN_CLIENT
+              value: "https://{{ $endpoint }}"
+            - name: DOMAIN_SERVER
+              value: "https://{{ $endpoint }}"
+            - name: CONFIG_PATH
+              value: "/app/librechat.yaml"
+            - name: CONFIG_BYPASS_VALIDATION
+              value: "true"
+            - name: ALLOW_REGISTRATION
+              value: {{ .Values.librechat.allowRegistration | default false | quote }}
+            {{- if .Values.librechat.oidc.enabled }}
+            - name: ALLOW_SOCIAL_LOGIN
+              value: "true"
+            - name: OPENID_ISSUER
+              value: {{ required "librechat.oidc.issuer is required when oidc.enabled" .Values.librechat.oidc.issuer | quote }}
+            - name: OPENID_CLIENT_ID
+              value: {{ required "librechat.oidc.clientId is required when oidc.enabled" .Values.librechat.oidc.clientId | quote }}
+            - name: OPENID_CLIENT_SECRET
+              value: {{ required "librechat.oidc.clientSecret is required when oidc.enabled" .Values.librechat.oidc.clientSecret | quote }}
+            - name: OPENID_SCOPE
+              value: {{ .Values.librechat.oidc.scope | default "openid profile email" | quote }}
+            - name: OPENID_CALLBACK_URL
+              value: {{ .Values.librechat.oidc.callbackUrl | default "/oauth/openid/callback" | quote }}
+            - name: OPENID_BUTTON_LABEL
+              value: {{ .Values.librechat.oidc.buttonLabel | default "SSO" | quote }}
+            {{- with .Values.librechat.oidc.imageUrl }}
+            - name: OPENID_IMAGE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.ragApi.enabled }}
+            - name: RAG_API_URL
+              value: "http://{{ include "librechat.fullname" . }}-rag:{{ .Values.ragApi.port }}"
+            {{- end }}
+            {{- if .Values.meilisearch.enabled }}
+            - name: SEARCH
+              value: "true"
+            - name: MEILI_HOST
+              value: "http://{{ include "librechat.fullname" . }}-meilisearch:{{ .Values.meilisearch.port }}"
+            {{- end }}
+            {{- if .Values.searxng.enabled }}
+            # Referenced by webSearch.searxngInstanceUrl in the ConfigMap
+            # (LibreChat requires an env-var reference, not a literal URL).
+            - name: SEARXNG_INSTANCE_URL
+              value: "http://{{ include "librechat.fullname" . }}-searxng:{{ .Values.searxng.port }}"
+            {{- end }}
+            {{- range .Values.librechat.extraEnv }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "librechat.fullname" . }}-credentials
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 12
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/librechat.yaml
+              subPath: librechat.yaml
+            - name: app-logs
+              mountPath: /app/logs
+          resources:
+            {{- toYaml .Values.librechat.resources | nindent 12 }}
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "librechat.fullname" . }}-config
+        - name: app-logs
+          emptyDir: {}

@@ -1,0 +1,81 @@
+# EzAppConfig CR template for LibreChat on HPE Private Cloud AI (BYOA).
+# The ${...} placeholders are substituted by the EzApp controller from
+# EzAppConfig.Spec.Values during LCM actions (see byoa-tutorials README).
+apiVersion: ezconfig.hpe.ezaf.com/v1alpha1
+kind: EzAppConfig
+metadata:
+  name: ezappconfig-librechat
+  annotations:
+    # Remove the chart's resources when the app tile is deleted.
+    hpe-ezua/cleanup-chart-on-delete: "true"
+    # Resource-request gate shown/validated by the UI before deploy.
+    # Covers LibreChat (0.5 CPU / 1Gi) + MongoDB (0.25 CPU / 0.5Gi) requests.
+    hpe-ezua/minimal-cpu-request: '1'
+    hpe-ezua/minimal-mem-request: 2G
+    hpe-ezua/minimal-cpu-per-node-request: '1'
+    hpe-ezua/minimal-mem-per-node-request: 2G
+    hpe-ezua/minimal-nodes-request: '1'
+    hpe-ezua/minimal-request-skip-validation: 'false'
+  labels:
+    # Required so the UI treats this as an imported application.
+    hpe-ezua/imported-app: "true"
+spec:
+  # Must match Chart.yaml `name`
+  name: librechat
+  releaseName: librechat
+  install: true
+  # Must match Chart.yaml `version`
+  chartVersion: 1.0.7
+  description: LibreChat - open-source AI chat framework for HPE Private Cloud AI
+  label: LibreChat
+  # Optional: base64-encoded png. Pushed automatically by the api/tooling bootstrap flow.
+  logoImage: ""
+  category: dataScience
+  backoffLimit: 2
+  retry: false
+  options:
+    namespace: librechat-ns
+    create-namespace: "true"
+    wait: "true"
+    timeout: 15m
+    debug: "true"
+  values: |-
+    #Platform related options
+    global:
+      # Air-gapped clusters: uncomment to pull all images from the local mirror.
+      # imageRegistry: "${AIRGAP_REGISTRY}"
+      imageRegistry: ""
+
+    ezua:
+      virtualService:
+        endpoint: "${RELEASE_NAME}-${NAMESPACE}.${DOMAIN_NAME}"
+        istioGateway: "istio-system/ezaf-gateway"
+      # Gateway SSO (oauth2-proxy) is ON by default - simplest trial posture.
+      # If you switch to LibreChat native OIDC as the sole auth, set this false
+      # and enable librechat.oidc below (otherwise users get two logins).
+      authorizationPolicy:
+        enabled: true
+
+    librechat:
+      # Native OIDC is OFF by default (gateway SSO handles auth). To enable it,
+      # either set ezua.authorizationPolicy.enabled=false above, or register
+      # BOTH redirect URIs in the Keycloak `ua` client:
+      #   https://${RELEASE_NAME}-${NAMESPACE}.${DOMAIN_NAME}/oauth2/callback
+      #   https://${RELEASE_NAME}-${NAMESPACE}.${DOMAIN_NAME}/oauth/openid/callback
+      # then uncomment and fill:
+      # oidc:
+      #   enabled: true
+      #   issuer: "https://keycloak.${OIDC_DOMAIN}/realms/ua"
+      #   clientId: "${OIDC_CLIENT_ID}"
+      #   clientSecret: "${OIDC_CLIENT_SECRET}"
+      allowRegistration: true
+
+    hpeModel:
+      displayName: "HPE Private Cloud AI"
+      # CHANGE ME: LiteLLM gateway (recommended, :4000) or an MLIS endpoint
+      # (:8080). Must end at /v1 with no trailing slash.
+      baseURL: "http://litellm.litellm.svc.cluster.local:4000/v1"
+      # CHANGE ME: LiteLLM virtual key or per-deployment MLIS key.
+      apiKey: "CHANGEME-litellm-virtual-key"
+      # CHANGE ME: a model id the endpoint actually serves.
+      defaultModel: "gpt-oss-20b"

@@ -1,0 +1,18 @@
+apiVersion: v2
+name: librechat
+description: LibreChat - open-source AI chat framework adapted for HPE Private Cloud AI (PCAI/BYOA)
+type: application
+version: 1.0.7
+appVersion: "v0.8.7"
+keywords:
+  - genai
+  - librechat
+  - llm
+  - hpe
+  - pcai
+  - byoa
+maintainers:
+  - name: ai-solution-eng
+home: https://www.librechat.ai/
+sources:
+  - https://github.com/danny-avila/LibreChat

@@ -1,0 +1,102 @@
+{{- if .Values.ragApi.enabled }}
+{{- if not .Values.pgvector.enabled }}
+{{- fail "ragApi.enabled=true requires pgvector.enabled=true (rag-api stores vectors there)" }}
+{{- end }}
+{{- if not .Values.ragApi.embeddings.model }}
+{{- fail "ragApi.embeddings.model is required when ragApi.enabled=true (must be a SYMMETRIC embedding model served by the gateway, e.g. BAAI/bge-m3)" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "librechat.fullname" . }}-rag
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "librechat.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: rag
+  template:
+    metadata:
+      labels:
+        {{- include "librechat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: rag
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: rag-api
+          image: "{{ include "librechat.registry" . }}{{ .Values.ragApi.image }}"
+          ports:
+            - name: rag-api
+              containerPort: {{ .Values.ragApi.port }}
+              protocol: TCP
+          env:
+            - name: DB_TYPE
+              value: "pgvector"
+            - name: DB_HOST
+              value: "{{ include "librechat.fullname" . }}-pgvector"
+            - name: DB_PORT
+              value: "{{ .Values.pgvector.port }}"
+            - name: DB_USER
+              value: "{{ .Values.pgvector.user }}"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "librechat.fullname" . }}-credentials
+                  key: PGVECTOR_PASSWORD
+            - name: DB_NAME
+              value: "{{ .Values.pgvector.database }}"
+            - name: POSTGRES_DB
+              value: "{{ .Values.pgvector.database }}"
+            - name: POSTGRES_USER
+              value: "{{ .Values.pgvector.user }}"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "librechat.fullname" . }}-credentials
+                  key: PGVECTOR_PASSWORD
+            - name: POSTGRES_HOST
+              value: "{{ include "librechat.fullname" . }}-pgvector"
+            - name: POSTGRES_PORT
+              value: "{{ .Values.pgvector.port }}"
+            - name: RAG_HOST
+              value: "0.0.0.0"
+            - name: RAG_PORT
+              value: "{{ .Values.ragApi.port }}"
+            # Embeddings backend. Provider MUST be "openai" for an
+            # OpenAI-compatible gateway; model MUST be a SYMMETRIC embedding
+            # model (asymmetric NIM models need input_type which rag-api's
+            # OpenAI-style client never sends -> 400).
+            - name: EMBEDDINGS_PROVIDER
+              value: {{ .Values.ragApi.embeddings.provider | default "openai" | quote }}
+            - name: EMBEDDINGS_MODEL
+              value: {{ .Values.ragApi.embeddings.model | quote }}
+            - name: RAG_OPENAI_BASEURL
+              value: {{ .Values.ragApi.embeddings.baseURL | default .Values.hpeModel.baseURL | quote }}
+            - name: RAG_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "librechat.fullname" . }}-credentials
+                  key: {{ if .Values.ragApi.embeddings.apiKey }}RAG_EMBEDDINGS_API_KEY{{ else }}HPE_MODEL_API_KEY{{ end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "librechat.fullname" . }}-rag
+  labels:
+    {{- include "librechat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rag
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.ragApi.port }}
+      targetPort: rag-api
+      protocol: TCP
+      name: rag-api
+  selector:
+    {{- include "librechat.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: rag
+{{- end }}
