@@ -1,0 +1,45 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "supabase.fullname" . }}-vs
+  namespace: {{ .Release.Namespace }}
+spec:
+  gateways:
+    - istio-system/ezaf-gateway
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint | required ".Values.ezua.virtualService.endpoint is required !\n" }}
+  http:
+    - match:
+        - uri:
+            prefix: /auth/v1/
+        - uri:
+            prefix: /rest/v1/
+        - uri:
+            prefix: /graphql/v1
+        - uri:
+            prefix: /realtime/v1/
+        - uri:
+            prefix: /storage/v1/
+        - uri:
+            prefix: /functions/v1/
+        - uri:
+            prefix: /pg/
+      route:
+        - destination:
+            host: {{ include "supabase.kong.fullname" . }}
+            port:
+              number: 8000
+    - match:
+        - uri:
+            prefix: /
+      {{- if and .Values.secret.dashboard .Values.secret.dashboard.username .Values.secret.dashboard.password }}
+      headers:
+        request:
+          set:
+            Authorization: "Basic {{ printf "%s:%s" .Values.secret.dashboard.username .Values.secret.dashboard.password | b64enc }}"
+      {{- end }}
+      route:
+        - destination:
+            host: {{ include "supabase.kong.fullname" . }}
+            port:
+              number: 8000

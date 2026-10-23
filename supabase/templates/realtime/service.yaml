@@ -1,0 +1,17 @@
+{{- if .Values.deployment.realtime.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "supabase.realtime.fullname" . }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.realtime.type }}
+  ports:
+    - port: {{ .Values.service.realtime.port }}
+      targetPort: 4000
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "supabase.realtime.selectorLabels" . | nindent 4 }}
+{{- end }}
