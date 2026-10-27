@@ -1,4 +1,3 @@
-# Applied manually (M2). Folded into templates/ezua/ in M5.
 # Purpose: machine door for the Langflow MCP — API-key auth only, no SSO gate.
 apiVersion: networking.istio.io/v1
 kind: VirtualService
