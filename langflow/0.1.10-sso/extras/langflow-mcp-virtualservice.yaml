@@ -1,0 +1,24 @@
+# Purpose: machine door for the Langflow MCP — API-key auth only, no SSO gate.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: langflow-mcp-virtual-service
+  namespace: langflow-sso
+  labels:
+    hpe-ezua/app: langflow-ide
+    hpe-ezua/type: vendor-service
+spec:
+  gateways:
+    - istio-system/ezaf-gateway
+  hosts:
+    - langflow-mcp.pcai-se-ai-application.hst.rdlabs.hpecorp.net
+  http:
+    - match:
+        - uri:
+            prefix: /api/
+      route:
+        - destination:
+            host: langflow-service.langflow-sso.svc.cluster.local
+            port:
+              number: 8080
+      timeout: 300s
