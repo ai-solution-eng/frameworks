@@ -48,7 +48,6 @@ For a token that stays the same, create a secret of type `kubernetes.io/service-
      annotations:
        kubernetes.io/service-account.name: <headlamp-sa-name>
    ```
-   Leave `data` empty; Kubernetes fills in the token.
 
 3. Apply it and read the token (if it prints nothing, wait a second and retry):
    ```shell
