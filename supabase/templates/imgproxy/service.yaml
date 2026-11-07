@@ -1,0 +1,17 @@
+{{- if .Values.deployment.imgproxy.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "supabase.imgproxy.fullname" . }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.imgproxy.type }}
+  ports:
+    - port: {{ .Values.service.imgproxy.port }}
+      targetPort: 5001
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "supabase.imgproxy.selectorLabels" . | nindent 4 }}
+{{- end }}

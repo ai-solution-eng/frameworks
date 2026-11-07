@@ -2,3 +2,5 @@
 
 # Generated diagrams
 langfuse/diagrams/
+supabase/.env
+

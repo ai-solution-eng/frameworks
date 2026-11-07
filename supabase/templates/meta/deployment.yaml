@@ -1,0 +1,126 @@
+{{- if .Values.deployment.meta.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supabase.meta.fullname" . }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.meta.enabled }}
+  replicas: {{ .Values.deployment.meta.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.meta.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.deployment.meta.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "supabase.meta.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.image.meta.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "supabase.meta.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.deployment.meta.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ include "supabase.meta.name" $ }}
+          securityContext:
+            {{- toYaml .Values.deployment.meta.securityContext | nindent 12 }}
+          image: "{{ .Values.image.meta.repository }}:{{ .Values.image.meta.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.meta.pullPolicy }}
+          env:
+            {{- range $key, $value := .Values.environment.meta }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- if .Values.deployment.db.enabled }}
+            - name: DB_HOST
+              value: {{ include "supabase.db.fullname" . }}
+            {{- end }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.secret.db.secretRef }}
+                  name: {{ .Values.secret.db.secretRef }}
+                  key: {{ .Values.secret.db.secretRefKey.password | default "password" }}
+                  {{- else }}
+                  name: {{ include "supabase.secret.db" . }}
+                  key: password
+                  {{- end }}
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.secret.db.secretRef }}
+                  name: {{ .Values.secret.db.secretRef }}
+                  key: {{ .Values.secret.db.secretRefKey.database | default "database" }}
+                  {{- else }}
+                  name: {{ include "supabase.secret.db" . }}
+                  key: database
+                  {{- end }}
+            - name: PG_META_DB_HOST
+              value: $(DB_HOST)
+            - name: PG_META_DB_PORT
+              value: $(DB_PORT)
+            - name: PG_META_DB_NAME
+              value: $(DB_NAME)
+            - name: PG_META_DB_USER
+              value: $(DB_USER)
+            - name: PG_META_DB_PASSWORD
+              value: $(DB_PASSWORD)
+            - name: PG_META_DB_SSL_MODE
+              value: $(DB_SSL)
+            - name: CRYPTO_KEY
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.secret.meta.secretRef }}
+                  name: {{ .Values.secret.meta.secretRef }}
+                  key: {{ .Values.secret.meta.secretRefKey.cryptoKey }}
+                  {{- else }}
+                  name: {{ include "supabase.secret.meta" . }}
+                  key: cryptoKey
+                  {{- end }}
+
+
+          {{- with .Values.deployment.meta.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.meta.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- with .Values.deployment.meta.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.meta.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.deployment.meta.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.meta.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.meta.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.meta.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

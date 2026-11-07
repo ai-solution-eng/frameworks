@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "clamav.fullname" . }}-api
+  labels:
+    {{- include "clamav.api.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.clamavApi.autoscaling.enabled }}
+  replicas: {{ .Values.clamavApi.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "clamav.api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "clamav.api.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "clamav.serviceAccountName" . }}
+      containers:
+        - name: clamav-api
+          image: "{{ .Values.clamavApi.image.repository }}:{{ .Values.clamavApi.image.tag }}"
+          imagePullPolicy: {{ .Values.clamavApi.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: CLAMD_HOST
+              value: {{ default (include "clamav.server.host" .) .Values.clamavApi.env.clamdHost | quote }}
+            - name: CLAMD_PORT
+              value: {{ .Values.clamavApi.env.clamdPort | quote }}
+            - name: MAXSIZE
+              value: {{ .Values.clamavApi.env.maxSize | quote }}
+            - name: TIMEOUT
+              value: {{ .Values.clamavApi.env.timeout | quote }}
+          livenessProbe:
+            {{- toYaml .Values.clamavApi.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.clamavApi.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.clamavApi.resources | nindent 12 }}
+      {{- with .Values.clamavApi.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.clamavApi.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.clamavApi.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: webollama
+description: A simple Helm chart to deploy WebOllama
+
+type: application
+
+version: 0.1.1
+
+appVersion: "1.1.0"
+icon: 🤖

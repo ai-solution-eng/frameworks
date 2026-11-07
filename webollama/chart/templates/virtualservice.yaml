@@ -1,0 +1,25 @@
+{{- if .Values.ezua.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ include "chart.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+spec:
+  gateways:
+  - {{ .Values.ezua.virtualService.istioGateway | quote }}
+  hosts:
+  - {{ .Values.ezua.virtualService.endpoint | quote }}
+  http:
+  - match:
+    - uri:
+        prefix: /
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: {{ include "chart.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: {{ .Values.service.port }}
+{{- end }}

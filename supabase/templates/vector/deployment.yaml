@@ -1,0 +1,117 @@
+{{- if .Values.deployment.vector.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supabase.vector.fullname" . }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+    vector.dev/exclude: "true"
+spec:
+  {{- if not .Values.autoscaling.vector.enabled }}
+  replicas: {{ .Values.deployment.vector.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.vector.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+      {{- with .Values.deployment.vector.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+        checksum/config: {{ include (print $.Template.BasePath "/vector/config.yaml") . | sha256sum }}
+      labels:
+        {{- include "supabase.vector.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.image.vector.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "supabase.vector.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.deployment.vector.podSecurityContext | nindent 8 }}
+      containers:
+        - args:
+            - --config
+            - /etc/vector/vector.yml
+          name: {{ include "supabase.vector.name" $ }}
+          securityContext:
+            {{- toYaml .Values.deployment.vector.securityContext | nindent 12 }}
+          image: "{{ .Values.image.vector.repository }}:{{ .Values.image.vector.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.vector.pullPolicy }}
+          env:
+            {{- range $key, $value := .Values.environment.vector }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: VECTOR_SELF_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- if .Values.deployment.analytics.enabled }}
+            - name:  LOGFLARE_PUBLIC_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.secret.analytics.secretRef }}
+                  name: {{ .Values.secret.analytics.secretRef }}
+                  key: {{ .Values.secret.analytics.secretRefKey.publicAccessToken | default "publicAccessToken" }}
+                  {{- else }}
+                  name: {{ include "supabase.secret.analytics" . }}
+                  key: publicAccessToken
+                  {{- end }}
+            {{- end }}
+          {{- with .Values.deployment.vector.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.vector.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - containerPort: {{ .Values.service.vector.port }}
+              protocol: TCP
+          volumeMounts:
+            {{- with .Values.deployment.vector.volumeMounts }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+            - mountPath: /etc/vector/vector.yml
+              name: vector-config
+              subPath: vector.yml
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+          {{- with .Values.deployment.vector.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        {{- with .Values.deployment.vector.volumes }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        - name: vector-config
+          configMap:
+            name:  {{ include "supabase.vector.fullname" . }}-config
+            defaultMode: 0777
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+      {{- with .Values.deployment.vector.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.vector.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.vector.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
