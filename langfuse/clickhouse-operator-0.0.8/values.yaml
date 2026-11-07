@@ -1,0 +1,70 @@
+# ============================================================
+# ClickHouse Kubernetes Operator  (chart 0.0.8)
+# oci://ghcr.io/clickhouse/clickhouse-operator-helm
+#
+# WHY THIS EXISTS
+# ---------------
+# Langfuse chart v2.0.0+ no longer ships ClickHouse as a Bitnami
+# sub-chart. It renders a "ClickHouseCluster" custom resource instead,
+# and this operator is what reads that resource and builds the actual
+# ClickHouse pods.
+#
+# This is a CLUSTER-WIDE component. Install it once per cluster, in its
+# own namespace, before installing the Langfuse chart.
+# ============================================================
+
+# ============================================================
+# MANAGER RESOURCES  --  DO NOT REMOVE
+#
+# The chart default is 128Mi memory. On a cluster with ~300 namespaces the
+# controller gets OOMKilled (exit 137) within seconds of starting, and the
+# pod sits in CrashLoopBackOff.
+# Observed on pcai-se-scs05, 2026-11-05:
+#   lastState.terminated.reason = OOMKilled, exitCode = 137
+# Raised to 512Mi. If it still OOMs, go to 1Gi.
+# ============================================================
+manager:
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# Cluster-wide RBAC.
+#   false -> ClusterRole / ClusterRoleBinding  (all namespaces)  <-- REQUIRED
+#   true  -> Role / RoleBinding (release namespace only)
+# The Langfuse chart creates ClickHouseCluster objects in the langfuse
+# namespace, so the operator must be able to watch every namespace.
+rbac:
+  namespaced: false
+
+# Install the ClickHouseCluster + KeeperCluster CRDs with the chart.
+crd:
+  enabled: true
+  # Keep the CRDs if the operator is later uninstalled. Prevents deleting
+  # existing ClickHouseCluster/KeeperCluster objects by accident.
+  keep: true
+
+# Webhook TLS certificates are issued by cert-manager, which is already
+# running in this cluster (v1.17.2, namespace cert-manager).
+certManager:
+  enabled: true
+
+webhook:
+  enabled: true
+
+# Metrics endpoint. Leave secure (HTTPS + authn/authz).
+metrics:
+  enabled: true
+  secure: true
+
+# A Prometheus stack exists in this cluster. Flip to true only if you
+# want a ServiceMonitor created for operator metrics.
+prometheus:
+  enabled: false
+
+# No NetworkPolicies by default; enable if your cluster requires them.
+networkPolicy:
+  enabled: false

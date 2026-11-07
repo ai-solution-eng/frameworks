@@ -1,0 +1,24 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ printf "%s-%s" .Release.Name .Chart.Name }}-virtual-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "langfuse.labels" . | nindent 4 }}
+spec:
+  # EzUA Gateway Configuration
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway | required ".Values.ezua.virtualService.istioGateway is required!" }}
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint | required ".Values.ezua.virtualService.endpoint is required!" }}
+  http:
+    - match:
+        - uri:
+            prefix: /
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: {{ .Chart.Name }}-web.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.langfuse.web.service.externalPort | default .Values.langfuse.web.service.port }}

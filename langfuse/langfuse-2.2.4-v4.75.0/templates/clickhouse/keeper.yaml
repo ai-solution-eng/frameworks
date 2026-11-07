@@ -1,0 +1,62 @@
+{{- if and .Values.clickhouse.deploy .Values.clickhouse.keeper.enabled -}}
+apiVersion: clickhouse.com/v1alpha1
+kind: KeeperCluster
+metadata:
+  name: {{ include "langfuse.fullname" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "langfuse.labels" . | nindent 4 }}
+spec:
+  clusterDomain: {{ .Values.clickhouse.keeper.clusterDomain | default "cluster.local" }}
+  replicas: {{ .Values.clickhouse.keeper.replicas }}
+  dataVolumeClaimSpec:
+    accessModes:
+      {{- toYaml .Values.clickhouse.keeper.storage.accessModes | nindent 6 }}
+    {{- with .Values.clickhouse.keeper.storage.className }}
+    storageClassName: {{ . | quote }}
+    {{- end }}
+    resources:
+      requests:
+        storage: {{ .Values.clickhouse.keeper.storage.size | quote }}
+  containerTemplate:
+    image:
+      repository: {{ .Values.clickhouse.keeper.image.repository | quote }}
+      tag: {{ .Values.clickhouse.keeper.image.tag | quote }}
+    {{- with .Values.clickhouse.keeper.resources }}
+    resources:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- if or .Values.clickhouse.keeper.logger .Values.clickhouse.keeper.settings }}
+  settings:
+    {{- with .Values.clickhouse.keeper.logger }}
+    logger:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.clickhouse.keeper.settings }}
+    extraConfig:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- end }}
+  {{- if or .Values.clickhouse.keeper.image.pullSecrets .Values.clickhouse.keeper.nodeSelector .Values.clickhouse.keeper.tolerations .Values.clickhouse.keeper.affinity .Values.clickhouse.keeper.priorityClassName }}
+  podTemplate:
+    {{- with .Values.clickhouse.keeper.image.pullSecrets }}
+    imagePullSecrets:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.clickhouse.keeper.nodeSelector }}
+    nodeSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.clickhouse.keeper.tolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.clickhouse.keeper.affinity }}
+    affinity:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.clickhouse.keeper.priorityClassName }}
+    priorityClassName: {{ . | quote }}
+    {{- end }}
+  {{- end }}
+{{- end }}
