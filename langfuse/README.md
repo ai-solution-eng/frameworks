@@ -2,6 +2,19 @@
 
 Langfuse is an open-source LLM engineering platform designed to provide observability, tracing, and evaluation for Generative AI applications. It helps teams collaboratively debug, analyze, and iterate on their LLM applications by providing a visual interface for complex traces, prompt management, and performance metrics. In the context of HPE Private Cloud AI (PCAI), Langfuse serves as the critical "command center" for understanding how models are performing and how they are being utilized by end-users.
 
+## Deployment versions
+
+| Folder | Helm chart | Langfuse app | Status |
+|---|---|---|---|
+| `langfuse-1.5.17-v3.146.0/` | 1.5.17 | 3.146.0 | superseded |
+| `langfuse-1.5.18-v3.146.0/` | 1.5.18 | 3.146.0 | superseded |
+| `langfuse-1.5.33-v3.177.0/` | 1.5.33 | 3.177.0 | staged, never deployed |
+| `langfuse-2.2.4-v4.75.0/` | 2.2.4 | 4.75.0 | **currently deployed** (v4) |
+| `clickhouse-operator-0.0.8/` | 0.0.8 | — | cluster-wide prerequisite for the v4 chart |
+
+> **v4 requires the ClickHouse operator to be installed first.**
+> See `clickhouse-operator-0.0.8/README.md`.
+
 # Why do we need it
 
 While LiteLLM acts as the gateway for your models, Langfuse provides the deep visibility required to move from prototype to production. Within the HPE AI Essentials stack, Langfuse enables:

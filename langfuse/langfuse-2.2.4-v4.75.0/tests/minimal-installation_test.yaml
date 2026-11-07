@@ -1,0 +1,124 @@
+suite: test minimal installation configuration
+templates:
+  - web/deployment.yaml
+  - worker/deployment.yaml
+  - web/service.yaml
+  - serviceaccount.yaml
+tests:
+  - it: should render basic resources
+    values:
+      - ../../../examples/minimal-installation/values.yaml
+    asserts:
+      # Test that web deployment is created
+      - hasDocuments:
+          count: 1
+        template: web/deployment.yaml
+      - isKind:
+          of: Deployment
+        template: web/deployment.yaml
+
+      # Test that worker deployment is created
+      - hasDocuments:
+          count: 1
+        template: worker/deployment.yaml
+      - isKind:
+          of: Deployment
+        template: worker/deployment.yaml
+
+      # Test that web service is created
+      - hasDocuments:
+          count: 1
+        template: web/service.yaml
+      - isKind:
+          of: Service
+        template: web/service.yaml
+
+      # Test that serviceaccount is created
+      - hasDocuments:
+          count: 1
+        template: serviceaccount.yaml
+      - isKind:
+          of: ServiceAccount
+        template: serviceaccount.yaml
+
+  - it: should use secret references from minimal installation values
+    values:
+      - ../../../examples/minimal-installation/values.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SALT
+            valueFrom:
+              secretKeyRef:
+                name: langfuse
+                key: salt
+        template: web/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ENCRYPTION_KEY
+            valueFrom:
+              secretKeyRef:
+                name: langfuse
+                key: encryption-key
+        template: web/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEXTAUTH_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: langfuse
+                key: nextauth-secret
+        template: web/deployment.yaml
+
+  - it: should configure database connections correctly
+    values:
+      - ../../../examples/minimal-installation/values.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATABASE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: langfuse
+                key: postgresql-password
+        template: web/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: langfuse
+                key: clickhouse-password
+        template: web/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: langfuse
+                key: redis-password
+        template: web/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: langfuse
+                key: s3-user
+        template: web/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: langfuse
+                key: s3-password
+        template: web/deployment.yaml

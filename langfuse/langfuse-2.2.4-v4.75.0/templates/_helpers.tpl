@@ -1,0 +1,1051 @@
+{{/*
+Expand the name of the chart.
+*/}}
+{{- define "langfuse.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Create a default fully qualified app name.
+We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
+If release name contains chart name it will be used as a full name.
+*/}}
+{{- define "langfuse.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create chart name and version as used by the chart label.
+*/}}
+{{- define "langfuse.chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Common labels
+*/}}
+{{- define "langfuse.labels" -}}
+helm.sh/chart: {{ include "langfuse.chart" . }}
+{{ include "langfuse.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Selector labels
+*/}}
+{{- define "langfuse.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "langfuse.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Create the name of the service account to use
+*/}}
+{{- define "langfuse.serviceAccountName" -}}
+{{- if .Values.langfuse.serviceAccount.create }}
+{{- default (include "langfuse.fullname" .) .Values.langfuse.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.langfuse.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Fullname of an aliased sub-chart, computed the way the sub-chart's own
+fullname helper does (postgres, valkey, and seaweedfs all share the standard
+pattern, with the dependency alias as the chart name). This is what the
+sub-chart names its Service, so hostname helpers must use it — the parent's
+own fullname prefix only coincides with it when the release is named
+"langfuse". Takes (list $ "<alias>").
+*/}}
+{{- define "langfuse.subchart.fullname" -}}
+{{- $ctx := index . 0 -}}
+{{- $alias := index . 1 -}}
+{{- $vals := index $ctx.Values $alias -}}
+{{- if $vals.fullnameOverride -}}
+{{- $vals.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $name := default $alias $vals.nameOverride -}}
+{{- if contains $name $ctx.Release.Name -}}
+{{- $ctx.Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-%s" $ctx.Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Names of the chart-managed auth Secrets for the bundled stores. The
+sub-charts read these names from plain values (Helm cannot template
+sub-chart values), so the values keys are the single source of truth and
+the Secret templates create whatever name they hold. Note: because the
+default names are static, two releases of this chart in one namespace need
+these keys overridden to disambiguate.
+*/}}
+{{- define "langfuse.postgresql.authSecretName" -}}
+{{- .Values.postgresql.settings.existingSecret | default "langfuse-postgresql-auth" -}}
+{{- end -}}
+
+{{- define "langfuse.redis.authSecretName" -}}
+{{- .Values.redis.auth.usersExistingSecret | default "langfuse-redis-auth" -}}
+{{- end -}}
+
+{{- define "langfuse.s3.authSecretName" -}}
+{{- (((.Values.s3.allInOne).s3).existingConfigSecret) | default "langfuse-s3-auth" -}}
+{{- end -}}
+
+{{/*
+Return PostgreSQL hostname
+*/}}
+{{- define "langfuse.postgresql.hostname" -}}
+{{- if .Values.postgresql.host }}
+{{- .Values.postgresql.host }}
+{{- else if .Values.postgresql.deploy }}
+{{- include "langfuse.subchart.fullname" (list . "postgresql") -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Return Redis hostname
+*/}}
+{{- define "langfuse.redis.hostname" -}}
+{{- if .Values.redis.host }}
+{{- .Values.redis.host }}
+{{- else if .Values.redis.deploy }}
+{{- include "langfuse.subchart.fullname" (list . "redis") -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Return ClickHouse hostname (without protocol)
+*/}}
+{{- define "langfuse.clickhouse.hostname" -}}
+{{- if .Values.clickhouse.host }}
+{{- if hasPrefix "http://" .Values.clickhouse.host -}}
+{{- trimPrefix "http://" .Values.clickhouse.host -}}
+{{- else if hasPrefix "https://" .Values.clickhouse.host -}}
+{{- trimPrefix "https://" .Values.clickhouse.host -}}
+{{- else -}}
+{{- .Values.clickhouse.host -}}
+{{- end -}}
+{{- else if .Values.clickhouse.deploy }}
+{{- printf "%s-clickhouse-headless" (include "langfuse.fullname" .) -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Return S3/MinIO endpoint -- if not set uses auto-discovery
+*/}}
+{{- define "langfuse.s3.endpoint" -}}
+{{- if or .Values.s3.eventUpload.endpoint .Values.s3.endpoint }}
+{{- .Values.s3.eventUpload.endpoint | default .Values.s3.endpoint }}
+{{- else if .Values.s3.deploy }}
+{{- /* seaweedfs names the Service <fullname trunc 52>-all-in-one and serves S3 on allInOne.s3.port */ -}}
+{{- $swFullname := include "langfuse.subchart.fullname" (list . "s3") | trunc 52 | trimSuffix "-" -}}
+{{- printf "http://%s-all-in-one:%v" $swFullname ((((.Values.s3.allInOne).s3).port) | default 8333) -}}
+{{- else }}
+{{- end }}
+{{- end }}
+
+{{/*
+Get a value from either a direct value or a secret reference, or nothing if neither is provided
+*/}}
+{{- define "langfuse.getValueOrSecret" -}}
+{{- if (and .value.secretKeyRef.name .value.secretKeyRef.key) -}}
+{{- if or .value.value (and .value.fieldRef .value.fieldRef.fieldPath) (and .value.resourceFieldRef .value.resourceFieldRef.resource) -}}
+{{- fail (printf ".value, .secretKeyRef, .fieldRef, and .resourceFieldRef are mutually exclusive for %s" .key) -}}
+{{- end -}}
+valueFrom:
+  secretKeyRef:
+    name: {{ .value.secretKeyRef.name }}
+    key: {{ .value.secretKeyRef.key }}
+{{- else if and .value.fieldRef .value.fieldRef.fieldPath -}}
+{{- if or .value.value (and .value.secretKeyRef.name .value.secretKeyRef.key) (and .value.resourceFieldRef .value.resourceFieldRef.resource) -}}
+{{- fail (printf ".value, .secretKeyRef, .fieldRef, and .resourceFieldRef are mutually exclusive for %s" .key) -}}
+{{- end -}}
+valueFrom:
+  fieldRef:
+    fieldPath: {{ .value.fieldRef.fieldPath }}
+{{- if .value.fieldRef.apiVersion }}
+    apiVersion: {{ .value.fieldRef.apiVersion }}
+{{- end }}
+{{- else if and .value.resourceFieldRef .value.resourceFieldRef.resource -}}
+{{- if or .value.value (and .value.secretKeyRef.name .value.secretKeyRef.key) (and .value.fieldRef .value.fieldRef.fieldPath) -}}
+{{- fail (printf ".value, .secretKeyRef, .fieldRef, and .resourceFieldRef are mutually exclusive for %s" .key) -}}
+{{- end -}}
+valueFrom:
+  resourceFieldRef:
+    resource: {{ .value.resourceFieldRef.resource }}
+{{- if .value.resourceFieldRef.containerName }}
+    containerName: {{ .value.resourceFieldRef.containerName }}
+{{- end }}
+{{- if .value.resourceFieldRef.divisor }}
+    divisor: {{ .value.resourceFieldRef.divisor }}
+{{- end }}
+{{- else if .value.value -}}
+value: {{ .value.value | quote }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+    Get a required value from either a direct value or a secret reference
+*/}}
+{{- define "langfuse.getRequiredValueOrSecret" -}}
+{{- with (include "langfuse.getValueOrSecret" .) -}}
+{{ . }}
+{{- else -}}
+{{ fail (printf "no valid value, secretKeyRef, fieldRef, or resourceFieldRef provided for %s" .key) }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Name of the chart-managed Langfuse application Secret (salt / encryption-key / nextauth-secret).
+*/}}
+{{- define "langfuse.appSecretName" -}}
+{{- printf "%s-app" (include "langfuse.fullname" .) -}}
+{{- end -}}
+
+{{/*
+Resolve a Langfuse app credential: prefer explicit value / secretKeyRef / fieldRef,
+otherwise fall back to the chart-managed `<release>-app` Secret.
+*/}}
+{{- define "langfuse.getAppSecretValue" -}}
+{{- $resolved := include "langfuse.getValueOrSecret" (dict "key" .key "value" .value) -}}
+{{- if $resolved -}}
+{{- $resolved -}}
+{{- else -}}
+valueFrom:
+  secretKeyRef:
+    name: {{ include "langfuse.appSecretName" .root }}
+    key: {{ .secretKey | quote }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Get value of a specific environment variable from additionalEnv if it exists
+*/}}
+{{- define "langfuse.getEnvVar" -}}
+{{- $envVarName := .name -}}
+{{- range .env -}}
+{{- if eq .name $envVarName -}}
+{{ .value }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+    Database related configurations by environment variables
+    Compare with https://langfuse.com/self-hosting/configuration#environment-variables
+*/}}
+{{- define "langfuse.databaseEnv" -}}
+{{- with (include "langfuse.getEnvVar" (dict "env" .Values.langfuse.additionalEnv "name" "DATABASE_URL")) -}}
+{{/*
+    If DATABASE_URL is set, we do nothing in databaseEnv.
+*/}}
+{{- else -}}
+- name: DATABASE_HOST
+  value: {{ include "langfuse.postgresql.hostname" . | quote }}
+{{- if .Values.postgresql.port }}
+- name: DATABASE_PORT
+  value: {{ .Values.postgresql.port | quote }}
+{{- end }}
+{{- if .Values.postgresql.auth.username }}
+- name: DATABASE_USERNAME
+  value: {{ .Values.postgresql.auth.username | quote }}
+{{- end }}
+- name: DATABASE_PASSWORD
+{{- if .Values.postgresql.auth.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.auth.existingSecret }}
+      key: {{ required "postgresql.auth.secretKeys.userPasswordKey is required when using an existing secret" .Values.postgresql.auth.secretKeys.userPasswordKey }}
+{{- else if .Values.postgresql.deploy }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "langfuse.postgresql.authSecretName" . | quote }}
+      key: USERDB_PASSWORD
+{{- else }}
+  value: {{ required "Using an existing secret or postgresql.auth.password is required" .Values.postgresql.auth.password | quote }}
+{{- end }}
+{{- end }}
+{{- if .Values.postgresql.auth.database }}
+- name: DATABASE_NAME
+  value: {{ .Values.postgresql.auth.database | quote }}
+{{- end }}
+{{- if .Values.postgresql.args }}
+- name: DATABASE_ARGS
+  value: {{ .Values.postgresql.args | quote }}
+{{- end }}
+{{- if .Values.postgresql.directUrl }}
+- name: DIRECT_URL
+  value: {{ .Values.postgresql.directUrl | quote }}
+{{- end }}
+{{- if .Values.postgresql.shadowDatabaseUrl }}
+- name: SHADOW_DATABASE_URL
+  value: {{ .Values.postgresql.shadowDatabaseUrl | quote }}
+{{- end }}
+- name: LANGFUSE_AUTO_POSTGRES_MIGRATION_DISABLED
+  value: {{ not .Values.postgresql.migration.autoMigrate | quote }}
+{{- end -}}
+
+{{/*
+    Langfuse Server related configurations by environment variables
+    Compare with https://langfuse.com/self-hosting/configuration#environment-variables
+*/}}
+{{- define "langfuse.serverEnv" -}}
+- name: NODE_ENV
+  value: {{ .Values.langfuse.nodeEnv | quote }}
+- name: LANGFUSE_LOG_LEVEL
+  value: {{ .Values.langfuse.logging.level | quote }}
+- name: LANGFUSE_LOG_FORMAT
+  value: {{ .Values.langfuse.logging.format | quote }}
+- name: SALT
+  {{- include "langfuse.getAppSecretValue" (dict "root" . "key" "langfuse.salt" "value" .Values.langfuse.salt "secretKey" "salt") | nindent 2 }}
+- name: ENCRYPTION_KEY
+  {{- include "langfuse.getAppSecretValue" (dict "root" . "key" "langfuse.encryptionKey" "value" .Values.langfuse.encryptionKey "secretKey" "encryption-key") | nindent 2 }}
+{{- with (include "langfuse.getValueOrSecret" (dict "key" "langfuse.licenseKey" "value" .Values.langfuse.licenseKey)) }}
+- name: LANGFUSE_EE_LICENSE_KEY
+  {{- . | nindent 2 }}
+{{- end }}
+- name: TELEMETRY_ENABLED
+  value: {{ .Values.langfuse.features.telemetryEnabled | quote }}
+- name: AUTH_DISABLE_SIGNUP
+  value: {{ .Values.langfuse.features.signUpDisabled | quote }}
+- name: ENABLE_EXPERIMENTAL_FEATURES
+  value: {{ .Values.langfuse.features.experimentalFeaturesEnabled | quote }}
+{{- if hasKey .Values.langfuse "smtp" }}
+{{- if .Values.langfuse.smtp.connectionUrl }}
+- name: SMTP_CONNECTION_URL
+  value: {{ .Values.langfuse.smtp.connectionUrl | quote }}
+- name: EMAIL_FROM_ADDRESS
+  value: {{ required "langfuse.smtp.fromAddress has to be set if langfuse.smtp.connectionUrl is configured" .Values.langfuse.smtp.fromAddress | quote }}
+{{- end }}
+{{- end }}
+{{- if hasKey .Values.langfuse "allowedOrganizationCreators" }}
+{{- if .Values.langfuse.allowedOrganizationCreators }}
+- name: LANGFUSE_ALLOWED_ORGANIZATION_CREATORS
+  value: {{ join "," .Values.langfuse.allowedOrganizationCreators | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+    NextAuth related configurations by environment variables
+    Compare with https://langfuse.com/self-hosting/configuration#environment-variables
+*/}}
+{{- define "langfuse.nextauthEnv" -}}
+- name: NEXTAUTH_URL
+  value: {{ .Values.langfuse.nextauth.url | quote }}
+- name: NEXTAUTH_SECRET
+  {{- include "langfuse.getAppSecretValue" (dict "root" . "key" "langfuse.nextauth.secret" "value" .Values.langfuse.nextauth.secret "secretKey" "nextauth-secret") | nindent 2 }}
+{{- if and (hasKey .Values.langfuse "auth") (hasKey .Values.langfuse.auth "disableUsernamePassword") }}
+- name: AUTH_DISABLE_USERNAME_PASSWORD
+  value: {{ .Values.langfuse.auth.disableUsernamePassword | quote }}
+{{- end }}
+{{- if and (hasKey .Values.langfuse "auth") (hasKey .Values.langfuse.auth "providers") }}
+{{- range $providerName, $provider := .Values.langfuse.auth.providers }}
+{{- range $optionKey, $optionVal := $provider }}
+- name: AUTH_{{ $providerName | snakecase | upper }}_{{ $optionKey | snakecase | upper }}
+{{- if and $optionVal (kindIs "map" $optionVal) }}
+  {{- include "langfuse.getValueOrSecret" (dict "key" (printf ".Values.langfuse.auth.providers.%s.%s" $providerName $optionKey) "value" $optionVal) | nindent 2 }}
+{{- else if $optionVal }}
+  value: {{ $optionVal | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+    Redis related configurations by environment variables
+    Compare with https://langfuse.com/self-hosting/configuration#environment-variables
+*/}}
+{{- define "langfuse.redisEnv" -}}
+{{- if or .Values.redis.auth.existingSecret .Values.redis.auth.password .Values.redis.deploy }}
+- name: REDIS_PASSWORD
+{{- if .Values.redis.auth.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.redis.auth.existingSecret }}
+      key: {{ required "redis.auth.existingSecretPasswordKey is required when using an existing secret" .Values.redis.auth.existingSecretPasswordKey }}
+{{- else if .Values.redis.deploy }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "langfuse.redis.authSecretName" . | quote }}
+      key: {{ .Values.redis.auth.username | quote }}
+{{- else }}
+  value: {{ required "Using an existing secret or redis.auth.password is required" .Values.redis.auth.password | quote }}
+{{- end }}
+{{- end }}
+{{- if .Values.redis.cluster.enabled }}
+{{- if not (include "langfuse.getEnvVar" (dict "env" $.Values.langfuse.additionalEnv "name" "REDIS_CLUSTER_NODES")) }}
+- name: REDIS_CLUSTER_ENABLED
+  value: "true"
+- name: REDIS_CLUSTER_NODES
+  value: {{ join "," .Values.redis.cluster.nodes | quote }}
+{{- if or .Values.redis.auth.existingSecret .Values.redis.auth.password }}
+- name: REDIS_AUTH
+  value: "$(REDIS_PASSWORD)"
+{{- end }}
+- name: REDIS_TLS_ENABLED
+  value: {{ .Values.redis.tls.enabled | quote }}
+{{- if .Values.redis.tls.enabled }}
+{{- if .Values.redis.tls.caPath }}
+- name: REDIS_TLS_CA_PATH
+  value: {{ .Values.redis.tls.caPath | quote }}
+{{- end }}
+{{- if .Values.redis.tls.certPath }}
+- name: REDIS_TLS_CERT_PATH
+  value: {{ .Values.redis.tls.certPath | quote }}
+{{- end }}
+{{- if .Values.redis.tls.keyPath }}
+- name: REDIS_TLS_KEY_PATH
+  value: {{ .Values.redis.tls.keyPath | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- else if .Values.redis.sentinel.enabled }}
+{{- if not (include "langfuse.getEnvVar" (dict "env" $.Values.langfuse.additionalEnv "name" "REDIS_SENTINEL_NODES")) }}
+- name: REDIS_SENTINEL_ENABLED
+  value: "true"
+- name: REDIS_SENTINEL_MASTER_NAME
+  value: {{ required "redis.sentinel.masterName is required when sentinel mode is enabled" .Values.redis.sentinel.masterName | quote }}
+- name: REDIS_SENTINEL_NODES
+  value: {{ required "redis.sentinel.nodes is required when sentinel mode is enabled" .Values.redis.sentinel.nodes | quote }}
+{{- if .Values.redis.sentinel.username }}
+- name: REDIS_SENTINEL_USERNAME
+  value: {{ .Values.redis.sentinel.username | quote }}
+{{- end }}
+{{- if or .Values.redis.sentinel.existingSecret .Values.redis.sentinel.password }}
+- name: REDIS_SENTINEL_PASSWORD
+{{- if .Values.redis.sentinel.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.redis.sentinel.existingSecret }}
+      key: {{ required "redis.sentinel.existingSecretPasswordKey is required when using an existing secret" .Values.redis.sentinel.existingSecretPasswordKey }}
+{{- else }}
+  value: {{ .Values.redis.sentinel.password | quote }}
+{{- end }}
+{{- end }}
+{{- if or .Values.redis.auth.existingSecret .Values.redis.auth.password }}
+- name: REDIS_AUTH
+  value: "$(REDIS_PASSWORD)"
+{{- end }}
+- name: REDIS_TLS_ENABLED
+  value: {{ .Values.redis.tls.enabled | quote }}
+{{- if .Values.redis.tls.enabled }}
+{{- if .Values.redis.tls.caPath }}
+- name: REDIS_TLS_CA_PATH
+  value: {{ .Values.redis.tls.caPath | quote }}
+{{- end }}
+{{- if .Values.redis.tls.certPath }}
+- name: REDIS_TLS_CERT_PATH
+  value: {{ .Values.redis.tls.certPath | quote }}
+{{- end }}
+{{- if .Values.redis.tls.keyPath }}
+- name: REDIS_TLS_KEY_PATH
+  value: {{ .Values.redis.tls.keyPath | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- else }}
+{{- if not (include "langfuse.getEnvVar" (dict "env" $.Values.langfuse.additionalEnv "name" "REDIS_CONNECTION_STRING")) }}
+- name: REDIS_TLS_ENABLED
+  value: {{ .Values.redis.tls.enabled | quote }}
+- name: REDIS_CONNECTION_STRING
+{{- $hasPassword := or .Values.redis.auth.existingSecret .Values.redis.auth.password .Values.redis.deploy }}
+{{- $hasUsername := .Values.redis.auth.username }}
+{{- $authPart := "" }}
+{{- if and $hasUsername $hasPassword }}
+  {{- $authPart = printf "%s:$(REDIS_PASSWORD)@" .Values.redis.auth.username }}
+{{- else if $hasPassword }}
+  {{- $authPart = ":$(REDIS_PASSWORD)@" }}
+{{- else if $hasUsername }}
+  {{- $authPart = printf "%s@" .Values.redis.auth.username }}
+{{- end }}
+  value: "{{ if .Values.redis.tls.enabled }}rediss{{ else }}redis{{ end }}://{{ $authPart }}{{ include "langfuse.redis.hostname" . }}:{{ .Values.redis.port }}/{{ .Values.redis.auth.database }}"
+{{- end }}
+{{- if .Values.redis.tls.enabled }}
+{{- if .Values.redis.tls.caPath }}
+- name: REDIS_TLS_CA_PATH
+  value: {{ .Values.redis.tls.caPath | quote }}
+{{- end }}
+{{- if .Values.redis.tls.certPath }}
+- name: REDIS_TLS_CERT_PATH
+  value: {{ .Values.redis.tls.certPath | quote }}
+{{- end }}
+{{- if .Values.redis.tls.keyPath }}
+- name: REDIS_TLS_KEY_PATH
+  value: {{ .Values.redis.tls.keyPath | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+
+{{/*
+Return ClickHouse protocol (http or https)
+*/}}
+{{- define "langfuse.clickhouse.protocol" -}}
+{{- if .Values.clickhouse.host }}
+{{- if hasPrefix "https://" .Values.clickhouse.host -}}
+{{- print "https" -}}
+{{- else -}}
+{{- print "http" -}}
+{{- end -}}
+{{- else -}}
+{{- print "http" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+    Clickhouse related configurations by environment variables
+    Compare with https://langfuse.com/self-hosting/configuration#environment-variables
+*/}}
+{{- define "langfuse.clickhouseEnv" -}}
+{{- with (include "langfuse.getEnvVar" (dict "env" .Values.langfuse.additionalEnv "name" "CLICKHOUSE_MIGRATION_URL")) -}}
+{{/*
+  If CLICKHOUSE_MIGRATION_URL is set in additionalEnv, we do nothing for ClickHouse env vars, because we assume everything is configured via additionalEnv.
+*/}}
+{{- else -}}
+{{- if or .Values.clickhouse.migration.url .Values.clickhouse.host .Values.clickhouse.deploy }}
+- name: CLICKHOUSE_MIGRATION_URL
+  {{- if .Values.clickhouse.migration.url }}
+  value: {{ .Values.clickhouse.migration.url | quote }}
+  {{- else if .Values.clickhouse.host }}
+  value: "clickhouse://{{ include "langfuse.clickhouse.hostname" . }}:{{ .Values.clickhouse.nativePort }}"
+  {{- else if .Values.clickhouse.deploy }}
+  value: "clickhouse://{{ include "langfuse.clickhouse.hostname" . }}:{{ .Values.clickhouse.nativePort }}"
+  {{- end }}
+{{- end }}
+{{- if or (hasKey .Values.clickhouse.migration "ssl") .Values.clickhouse.deploy }}
+- name: CLICKHOUSE_MIGRATION_SSL
+  value: {{ .Values.clickhouse.migration.ssl | quote }}
+{{- end }}
+{{- if or .Values.clickhouse.host .Values.clickhouse.deploy }}
+- name: CLICKHOUSE_URL
+  value: "{{ include "langfuse.clickhouse.protocol" . }}://{{ include "langfuse.clickhouse.hostname" . }}:{{ .Values.clickhouse.httpPort }}"
+{{- end }}
+{{- if or (hasKey .Values.clickhouse "database") .Values.clickhouse.deploy }}
+- name: CLICKHOUSE_DB
+  value: {{ .Values.clickhouse.database | quote }}
+{{- end }}
+{{- if or .Values.clickhouse.auth.username .Values.clickhouse.deploy }}
+- name: CLICKHOUSE_USER
+  {{- if .Values.clickhouse.deploy }}
+  value: {{ required "clickhouse.auth.username is required" .Values.clickhouse.auth.username | quote }}
+  {{- else }}
+  value: {{ .Values.clickhouse.auth.username | quote }}
+  {{- end }}
+{{- end }}
+{{- if or .Values.clickhouse.auth.existingSecret .Values.clickhouse.auth.password .Values.clickhouse.deploy }}
+- name: CLICKHOUSE_PASSWORD
+{{- if .Values.clickhouse.auth.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.clickhouse.auth.existingSecret }}
+      key: {{ required "clickhouse.auth.existingSecretKey is required when using an existing secret" .Values.clickhouse.auth.existingSecretKey }}
+{{- else if .Values.clickhouse.auth.password }}
+  value: {{ .Values.clickhouse.auth.password | quote }}
+{{- else if .Values.clickhouse.deploy }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-clickhouse-auth" (include "langfuse.fullname" .) | quote }}
+      key: "password"
+{{- end }}
+{{- end }}
+{{- if or .Values.clickhouse.host .Values.clickhouse.deploy }}
+- name: CLICKHOUSE_CLUSTER_ENABLED
+  value: {{ .Values.clickhouse.cluster.enabled | quote }}
+{{- end }}
+{{- if or (hasKey .Values.clickhouse.migration "autoMigrate") .Values.clickhouse.deploy }}
+- name: LANGFUSE_AUTO_CLICKHOUSE_MIGRATION_DISABLED
+  value: {{ not .Values.clickhouse.migration.autoMigrate | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+    Get a s3 related config by value or secret. Lookup the bucket value, if not found lookup the shared config.
+    If no value or secret is found, return an empty value (e.g. for role IRSA on AWS)
+*/}}
+{{- define "langfuse.getS3ValueOrSecret" -}}
+{{- with (include "langfuse.getValueOrSecret" (dict "key" (printf ".Values.s3.%s.%s" .bucket .key) "value" (index .values .bucket .key)) ) -}}
+{{- . }}
+{{- else }}
+{{- with (include "langfuse.getValueOrSecret" (dict "key" (printf ".Values.s3.%s" .key) "value" (index .values .key)) ) -}}
+{{- . }}
+{{- else -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+    Effective forcePathStyle for an upload type: the per-type value when it is set (including false),
+    otherwise the global s3.forcePathStyle. Takes (dict "values" .Values.s3 "bucket" "<type>").
+*/}}
+{{- define "langfuse.s3.forcePathStyle" -}}
+{{- $value := index .values .bucket "forcePathStyle" -}}
+{{- if kindIs "invalid" $value -}}
+{{- $value = .values.forcePathStyle -}}
+{{- end -}}
+{{- if not (kindIs "invalid" $value) -}}
+{{- $value -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+    S3/MinIO related configurations by environment variables
+    Compare with https://langfuse.com/self-hosting/configuration#environment-variables
+*/}}
+{{- define "langfuse.s3Env" -}}
+{{/* Storage provider specific environment variables */}}
+{{- if eq .Values.s3.storageProvider "azure" }}
+- name: LANGFUSE_USE_AZURE_BLOB
+  value: "true"
+{{- else if eq .Values.s3.storageProvider "gcs" }}
+- name: LANGFUSE_USE_GOOGLE_CLOUD_STORAGE
+  value: "true"
+{{- with (include "langfuse.getValueOrSecret" (dict "key" ".Values.s3.gcs.credentials" "value" .Values.s3.gcs.credentials)) }}
+- name: LANGFUSE_GOOGLE_CLOUD_STORAGE_CREDENTIALS
+  {{- . | nindent 2 }}
+{{- end }}
+{{- end }}
+- name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+{{- if $.Values.s3.deploy }}
+  value: {{ required "s3.[eventUpload].bucket is required" (coalesce .Values.s3.eventUpload.bucket .Values.s3.bucket .Values.s3.defaultBuckets) | quote }}
+{{- else }}
+  value: {{ required "s3.[eventUpload].bucket is required" (.Values.s3.eventUpload.bucket | default .Values.s3.bucket) | quote }}
+{{- end }}
+{{- if .Values.s3.eventUpload.prefix }}
+- name: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
+  value: {{ .Values.s3.eventUpload.prefix | quote }}
+{{- end }}
+{{- if or .Values.s3.eventUpload.region .Values.s3.region }}
+- name: LANGFUSE_S3_EVENT_UPLOAD_REGION
+  value: {{ .Values.s3.eventUpload.region | default .Values.s3.region | quote }}
+{{- end }}
+{{- if or .Values.s3.eventUpload.endpoint .Values.s3.endpoint .Values.s3.deploy }}
+- name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
+  value: {{ .Values.s3.eventUpload.endpoint | default .Values.s3.endpoint | default (include "langfuse.s3.endpoint" .) | quote }}
+{{- end }}
+{{- with (include "langfuse.getS3ValueOrSecret" (dict "key" "accessKeyId" "bucket" "eventUpload" "values" .Values.s3) ) }}
+- name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+  {{- . | nindent 2 }}
+{{- else }}
+{{- if .Values.s3.deploy }}
+- name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+  {{- if .Values.s3.auth.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.s3.auth.existingSecret }}
+      key: {{ required "s3.auth.rootUserSecretKey is required when s3.auth.existingSecret is set" .Values.s3.auth.rootUserSecretKey }}
+  {{- else }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "langfuse.s3.authSecretName" . | quote }}
+      key: accessKey
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- with (include "langfuse.getS3ValueOrSecret" (dict "key" "secretAccessKey" "bucket" "eventUpload" "values" .Values.s3) ) }}
+- name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+  {{- . | nindent 2 }}
+{{- else }}
+{{- if .Values.s3.deploy }}
+- name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+  {{- if .Values.s3.auth.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.s3.auth.existingSecret }}
+      key: {{ required "s3.auth.rootPasswordSecretKey is required when s3.auth.existingSecret is set" .Values.s3.auth.rootPasswordSecretKey }}
+  {{- else }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "langfuse.s3.authSecretName" . | quote }}
+      key: secretKey
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- if or (hasKey .Values.s3.eventUpload "forcePathStyle") (hasKey .Values.s3 "forcePathStyle") }}
+- name: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE
+  value: {{ include "langfuse.s3.forcePathStyle" (dict "values" .Values.s3 "bucket" "eventUpload") | quote }}
+{{- end }}
+- name: LANGFUSE_S3_BATCH_EXPORT_ENABLED
+  value: {{ .Values.s3.batchExport.enabled | quote }}
+{{- if $.Values.s3.batchExport.enabled }}
+- name: LANGFUSE_S3_BATCH_EXPORT_BUCKET
+{{- if $.Values.s3.deploy }}
+  value: {{ required "s3.[batchExport].bucket is required" (coalesce .Values.s3.batchExport.bucket .Values.s3.bucket .Values.s3.defaultBuckets) | quote }}
+{{- else }}
+  value: {{ required "s3.[batchExport].bucket is required" (.Values.s3.batchExport.bucket | default .Values.s3.bucket) | quote }}
+{{- end }}
+{{- if or .Values.s3.batchExport.prefix .Values.s3.prefix }}
+- name: LANGFUSE_S3_BATCH_EXPORT_PREFIX
+  value: {{ .Values.s3.batchExport.prefix | default .Values.s3.prefix | quote }}
+{{- end }}
+{{- if or .Values.s3.batchExport.region .Values.s3.region }}
+- name: LANGFUSE_S3_BATCH_EXPORT_REGION
+  value: {{ .Values.s3.batchExport.region | default .Values.s3.region | quote }}
+{{- end }}
+{{- if or .Values.s3.batchExport.endpoint .Values.s3.endpoint .Values.s3.deploy }}
+- name: LANGFUSE_S3_BATCH_EXPORT_ENDPOINT
+  value: {{ .Values.s3.batchExport.endpoint | default .Values.s3.endpoint | default (include "langfuse.s3.endpoint" .) | quote }}
+{{- end }}
+{{- with (include "langfuse.getS3ValueOrSecret" (dict "key" "accessKeyId" "bucket" "batchExport" "values" .Values.s3) ) }}
+- name: LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID
+  {{- . | nindent 2 }}
+{{- else }}
+{{- if .Values.s3.deploy }}
+- name: LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID
+  {{- if .Values.s3.auth.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.s3.auth.existingSecret }}
+      key: {{ required "s3.auth.rootUserSecretKey is required when s3.auth.existingSecret is set" .Values.s3.auth.rootUserSecretKey }}
+  {{- else }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "langfuse.s3.authSecretName" . | quote }}
+      key: accessKey
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- with (include "langfuse.getS3ValueOrSecret" (dict "key" "secretAccessKey" "bucket" "batchExport" "values" .Values.s3) ) }}
+- name: LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY
+  {{- . | nindent 2 }}
+{{- else }}
+{{- if .Values.s3.deploy }}
+- name: LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY
+  {{- if .Values.s3.auth.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.s3.auth.existingSecret }}
+      key: {{ required "s3.auth.rootPasswordSecretKey is required when s3.auth.existingSecret is set" .Values.s3.auth.rootPasswordSecretKey }}
+  {{- else }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "langfuse.s3.authSecretName" . | quote }}
+      key: secretKey
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- if or (hasKey .Values.s3.batchExport "forcePathStyle") (hasKey .Values.s3 "forcePathStyle") }}
+- name: LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE
+  value: {{ include "langfuse.s3.forcePathStyle" (dict "values" .Values.s3 "bucket" "batchExport") | quote }}
+{{- end }}
+{{- end }}
+- name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
+{{- if $.Values.s3.deploy }}
+  value: {{ required "s3.[mediaUpload].bucket is required" (coalesce .Values.s3.mediaUpload.bucket .Values.s3.bucket .Values.s3.defaultBuckets) | quote }}
+{{- else }}
+  value: {{ required "s3.[mediaUpload].bucket is required" (.Values.s3.mediaUpload.bucket | default .Values.s3.bucket) | quote }}
+{{- end }}
+{{- if or .Values.s3.mediaUpload.prefix .Values.s3.prefix }}
+- name: LANGFUSE_S3_MEDIA_UPLOAD_PREFIX
+  value: {{ .Values.s3.mediaUpload.prefix | default .Values.s3.prefix | quote }}
+{{- end }}
+{{- if or .Values.s3.mediaUpload.region .Values.s3.region }}
+- name: LANGFUSE_S3_MEDIA_UPLOAD_REGION
+  value: {{ .Values.s3.mediaUpload.region | default .Values.s3.region | quote }}
+{{- end }}
+{{- if or .Values.s3.mediaUpload.endpoint .Values.s3.endpoint .Values.s3.deploy }}
+- name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+  value: {{ .Values.s3.mediaUpload.endpoint | default .Values.s3.endpoint | default (include "langfuse.s3.endpoint" .) | quote }}
+{{- end }}
+{{- with (include "langfuse.getS3ValueOrSecret" (dict "key" "accessKeyId" "bucket" "mediaUpload" "values" .Values.s3) ) }}
+- name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
+  {{- . | nindent 2 }}
+{{- else }}
+{{- if .Values.s3.deploy }}
+- name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
+  {{- if .Values.s3.auth.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.s3.auth.existingSecret }}
+      key: {{ required "s3.auth.rootUserSecretKey is required when s3.auth.existingSecret is set" .Values.s3.auth.rootUserSecretKey }}
+  {{- else }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "langfuse.s3.authSecretName" . | quote }}
+      key: accessKey
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- with (include "langfuse.getS3ValueOrSecret" (dict "key" "secretAccessKey" "bucket" "mediaUpload" "values" .Values.s3) ) }}
+- name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
+  {{- . | nindent 2 }}
+{{- else }}
+{{- if .Values.s3.deploy }}
+- name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
+  {{- if .Values.s3.auth.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.s3.auth.existingSecret }}
+      key: {{ required "s3.auth.rootPasswordSecretKey is required when s3.auth.existingSecret is set" .Values.s3.auth.rootPasswordSecretKey }}
+  {{- else }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "langfuse.s3.authSecretName" . | quote }}
+      key: secretKey
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- if or (hasKey .Values.s3.mediaUpload "forcePathStyle") (hasKey .Values.s3 "forcePathStyle") }}
+- name: LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE
+  value: {{ include "langfuse.s3.forcePathStyle" (dict "values" .Values.s3 "bucket" "mediaUpload") | quote }}
+{{- end }}
+- name: LANGFUSE_S3_MEDIA_UPLOAD_MAX_CONTENT_LENGTH
+  value: {{ .Values.s3.mediaUpload.maxContentLength | quote }}
+- name: LANGFUSE_S3_MEDIA_UPLOAD_DOWNLOAD_URL_EXPIRY_SECONDS
+  value: {{ .Values.s3.mediaUpload.downloadUrlExpirySeconds | quote }}
+{{- if hasKey .Values.s3 "concurrency" }}
+{{- if hasKey .Values.s3.concurrency "reads" }}
+- name: LANGFUSE_S3_CONCURRENT_READS
+  value: {{ .Values.s3.concurrency.reads | quote }}
+{{- end }}
+{{- if hasKey .Values.s3.concurrency "writes" }}
+- name: LANGFUSE_S3_CONCURRENT_WRITES
+  value: {{ .Values.s3.concurrency.writes | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Langfuse AI features: the instance-wide model plus the in-app agent switch.
+Applied to web and worker; both call the model, web for Ask AI and conversation
+titles and worker for agent runs. Requires Langfuse >= 4.24. See
+https://langfuse.com/self-hosting/configuration/langfuse-assistant
+*/}}
+{{- define "langfuse.aiFeaturesEnv" -}}
+{{- $ai := .Values.langfuse.aiFeatures | default dict -}}
+{{- $agent := $ai.inAppAgent | default dict -}}
+{{- if $agent.enabled }}
+- name: LANGFUSE_IN_APP_AGENT_ENABLED
+  value: "true"
+{{- end }}
+{{- if $ai.provider }}
+- name: LANGFUSE_AI_PROVIDER
+  value: {{ $ai.provider | quote }}
+{{- end }}
+{{- if $ai.model }}
+- name: LANGFUSE_AI_MODEL
+  value: {{ $ai.model | quote }}
+{{- end }}
+{{- if $ai.smallModel }}
+- name: LANGFUSE_AI_SMALL_MODEL
+  value: {{ $ai.smallModel | quote }}
+{{- end }}
+{{- if $ai.apiKey }}
+{{- with (include "langfuse.getValueOrSecret" (dict "key" "langfuse.aiFeatures.apiKey" "value" $ai.apiKey)) }}
+- name: LANGFUSE_AI_API_KEY
+  {{- . | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- if $ai.baseUrl }}
+- name: LANGFUSE_AI_BASE_URL
+  value: {{ $ai.baseUrl | quote }}
+{{- end }}
+{{- if $ai.extraHeaders }}
+- name: LANGFUSE_AI_EXTRA_HEADERS
+  value: {{ $ai.extraHeaders | quote }}
+{{- end }}
+{{- if $ai.useResponsesApi }}
+- name: LANGFUSE_AI_USE_RESPONSES_API
+  value: "true"
+{{- end }}
+{{- if $ai.bedrockRegion }}
+- name: LANGFUSE_AI_AWS_BEDROCK_REGION
+  value: {{ $ai.bedrockRegion | quote }}
+{{- end }}
+{{- if $ai.projectId }}
+- name: LANGFUSE_AI_FEATURES_PROJECT_ID
+  value: {{ $ai.projectId | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Worker-only Lambda MicroVM sandbox variables. Helm does not create AWS resources.
+*/}}
+{{- define "langfuse.agentSandboxEnv" -}}
+{{- $s := (((.Values.langfuse.aiFeatures | default dict).inAppAgent | default dict).sandbox | default dict) -}}
+{{- if $s.provider }}
+- name: LANGFUSE_IN_APP_AGENT_SANDBOX_PROVIDER
+  value: {{ $s.provider | quote }}
+{{- end }}
+{{- if $s.imageIdentifier }}
+- name: LANGFUSE_IN_APP_AGENT_SANDBOX_AWS_LAMBDA_MICROVM_IMAGE_IDENTIFIER
+  value: {{ $s.imageIdentifier | quote }}
+{{- end }}
+{{- if $s.executionRoleArn }}
+- name: LANGFUSE_IN_APP_AGENT_SANDBOX_AWS_LAMBDA_MICROVM_EXECUTION_ROLE_ARN
+  value: {{ $s.executionRoleArn | quote }}
+{{- end }}
+{{- if $s.region }}
+- name: LANGFUSE_IN_APP_AGENT_SANDBOX_AWS_LAMBDA_MICROVM_REGION
+  value: {{ $s.region | quote }}
+{{- end }}
+{{- if $s.egressNetworkConnectorArn }}
+- name: LANGFUSE_IN_APP_AGENT_SANDBOX_AWS_LAMBDA_MICROVM_EGRESS_NETWORK_CONNECTOR_ARN
+  value: {{ $s.egressNetworkConnectorArn | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
+In-cluster MCP: the worker calls the web Service instead of the public URL.
+Scoped to LANGFUSE_MCP_BASE_URL rather than NEXTAUTH_URL, which the worker also
+uses to build links for users in emails and Slack messages and which therefore
+has to stay externally resolvable.
+*/}}
+{{- define "langfuse.aiFeaturesMcpWebEnv" -}}
+{{- $mcp := (((.Values.langfuse.aiFeatures | default dict).inAppAgent | default dict).mcp | default dict) -}}
+{{- if $mcp.useInternalWebUrl }}
+- name: LANGFUSE_MCP_ALLOWED_HOSTS
+  value: {{ printf "%s-web" (include "langfuse.fullname" .) | quote }}
+{{- end }}
+{{- end -}}
+
+{{- define "langfuse.aiFeaturesMcpWorkerEnv" -}}
+{{- $mcp := (((.Values.langfuse.aiFeatures | default dict).inAppAgent | default dict).mcp | default dict) -}}
+{{- if $mcp.useInternalWebUrl }}
+- name: LANGFUSE_MCP_BASE_URL
+  value: {{ printf "http://%s-web:%v" (include "langfuse.fullname" .) (.Values.langfuse.web.service.port) | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
+"true" if the value is a whole number. YAML values arrive as float64,
+--set values as int64.
+*/}}
+{{- define "langfuse.isInteger" -}}
+{{- if or (kindIs "int" .) (kindIs "int64" .) (and (kindIs "float64" .) (eq (float64 (int .)) .)) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+URL the AI gateway calls web on. Defaults to the in-cluster web Service, so
+gateway traffic and telemetry never pass through web's Ingress.
+*/}}
+{{- define "langfuse.gateway.webUrl" -}}
+{{- if .Values.langfuse.gateway.webUrl -}}
+{{- .Values.langfuse.gateway.webUrl -}}
+{{- else -}}
+{{- printf "http://%s-web.%s.svc.cluster.local:%v" (include "langfuse.fullname" .) .Release.Namespace (.Values.langfuse.web.service.externalPort | default .Values.langfuse.web.service.port) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The gateway accepts debug, info, warn, error, and fatal, and exits on trace.
+*/}}
+{{- define "langfuse.gateway.logLevel" -}}
+{{- if eq .Values.langfuse.logging.level "trace" -}}
+debug
+{{- else -}}
+{{- .Values.langfuse.logging.level -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Environment of the AI gateway container. Deliberately excludes langfuse.commonEnv:
+the gateway needs no database, Redis, ClickHouse, or S3 credentials.
+*/}}
+{{- define "langfuse.gatewayEnv" -}}
+{{- $gw := .Values.langfuse.gateway -}}
+- name: LANGFUSE_AI_GATEWAY_LISTEN_ADDRESS
+  value: {{ printf "0.0.0.0:%v" $gw.service.port | quote }}
+- name: LANGFUSE_LOG_LEVEL
+  value: {{ include "langfuse.gateway.logLevel" . | quote }}
+- name: LANGFUSE_LOG_FORMAT
+  value: {{ .Values.langfuse.logging.format | quote }}
+- name: LANGFUSE_AI_GATEWAY_WEB_URL
+  value: {{ include "langfuse.gateway.webUrl" . | quote }}
+{{- if hasPrefix "http://" (include "langfuse.gateway.webUrl" . | lower) }}
+{{- /* The gateway refuses non-loopback plain-HTTP web URLs unless opted in; /resolve responses carry provider API keys. */}}
+- name: LANGFUSE_AI_GATEWAY_ALLOW_HTTP_WEB_URL
+  value: "true"
+{{- end }}
+- name: LANGFUSE_AI_GATEWAY_SERVICE_KEY
+  {{- include "langfuse.getAppSecretValue" (dict "root" . "key" "langfuse.gateway.serviceKey" "value" $gw.serviceKey "secretKey" "ai-gateway-service-key") | nindent 2 }}
+- name: LANGFUSE_AI_GATEWAY_CONNECTION_DRAIN_TIMEOUT_SECONDS
+  value: {{ $gw.connectionDrainTimeoutSeconds | quote }}
+- name: LANGFUSE_AI_GATEWAY_TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS
+  value: {{ $gw.telemetryShutdownTimeoutSeconds | quote }}
+{{- end -}}
+
+{{/*
+Public gateway URL web shows users. Defaults to the first gateway ingress host,
+over https when the ingress terminates TLS or web itself is served over https
+(TLS terminated in front of the ingress, e.g. an ALB certificate annotation).
+*/}}
+{{- define "langfuse.gateway.publicUrl" -}}
+{{- $gw := .Values.langfuse.gateway -}}
+{{- if $gw.publicUrl -}}
+{{- $gw.publicUrl -}}
+{{- else if and $gw.ingress.enabled $gw.ingress.hosts -}}
+{{- $scheme := ternary "https" "http" (or $gw.ingress.tls.enabled (hasPrefix "https://" (.Values.langfuse.nextauth.url | default "" | lower))) -}}
+{{- printf "%s://%v" $scheme (first $gw.ingress.hosts) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+AI gateway settings on web: whether a gateway is deployed (always rendered, "true"
+or "false"; the LANGFUSE_AI_GATEWAY_ENABLED feature flag is left to the user), the
+public gateway URL, the HMAC service key it verifies gateway calls with, and
+the ES256 key pair it signs and verifies ingestion tokens with. Web derives the
+public key and key id from the private key unless they are overridden. The
+gateway never holds the JWT keys. LANGFUSE_AI_GATEWAY_DEPLOYED and
+LANGFUSE_AI_GATEWAY_PUBLIC_URL are skipped when already set in additionalEnv.
+*/}}
+{{- define "langfuse.gatewayWebEnv" -}}
+{{- $gw := (.Values.langfuse.gateway | default dict) -}}
+{{- $additionalEnv := concat (.Values.langfuse.additionalEnv | default list) (.Values.langfuse.web.pod.additionalEnv | default list) -}}
+{{- if not (include "langfuse.getEnvVar" (dict "env" $additionalEnv "name" "LANGFUSE_AI_GATEWAY_DEPLOYED")) }}
+- name: LANGFUSE_AI_GATEWAY_DEPLOYED
+  value: {{ ternary "true" "false" (eq (toString $gw.enabled) "true") | quote }}
+{{- end }}
+{{- if $gw.enabled }}
+{{- with (include "langfuse.gateway.publicUrl" .) }}
+{{- if not (include "langfuse.getEnvVar" (dict "env" $additionalEnv "name" "LANGFUSE_AI_GATEWAY_PUBLIC_URL")) }}
+- name: LANGFUSE_AI_GATEWAY_PUBLIC_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+- name: LANGFUSE_AI_GATEWAY_SERVICE_KEY
+  {{- include "langfuse.getAppSecretValue" (dict "root" . "key" "langfuse.gateway.serviceKey" "value" $gw.serviceKey "secretKey" "ai-gateway-service-key") | nindent 2 }}
+{{- if $gw.jwt.keyId }}
+- name: LANGFUSE_AI_GATEWAY_JWT_KEY_ID
+  value: {{ $gw.jwt.keyId | quote }}
+{{- end }}
+- name: LANGFUSE_AI_GATEWAY_JWT_PRIVATE_KEY
+  {{- include "langfuse.getAppSecretValue" (dict "root" . "key" "langfuse.gateway.jwt.privateKey" "value" $gw.jwt.privateKey "secretKey" "ai-gateway-jwt-private-key") | nindent 2 }}
+{{- with (include "langfuse.getValueOrSecret" (dict "key" "langfuse.gateway.jwt.publicKey" "value" $gw.jwt.publicKey)) }}
+- name: LANGFUSE_AI_GATEWAY_JWT_PUBLIC_KEY
+  {{- . | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Common environment variables for all deployments
+*/}}
+{{- define "langfuse.commonEnv" -}}
+{{ include "langfuse.serverEnv" . }}
+{{ include "langfuse.nextauthEnv" . }}
+{{ include "langfuse.databaseEnv" . }}
+{{ include "langfuse.redisEnv" . }}
+{{ include "langfuse.clickhouseEnv" . }}
+{{ include "langfuse.s3Env" . }}
+{{ include "langfuse.aiFeaturesEnv" . }}
+{{- end -}}

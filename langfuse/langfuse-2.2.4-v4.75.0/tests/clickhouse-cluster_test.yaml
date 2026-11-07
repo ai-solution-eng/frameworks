@@ -1,0 +1,110 @@
+suite: test clickhouse cluster configuration
+templates:
+  - web/deployment.yaml
+  - worker/deployment.yaml
+tests:
+  - it: should set CLICKHOUSE_CLUSTER_ENABLED to false when cluster.enabled is explicitly false with external ClickHouse
+    values:
+      - ../values.lint.yaml
+    set:
+      clickhouse.deploy: false
+      clickhouse.cluster.enabled: false
+      clickhouse.host: "my-clickhouse-cloud.clickhouse.com"
+      clickhouse.auth.username: "default"
+      clickhouse.auth.password: "secretPassword"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CLUSTER_ENABLED
+            value: "false"
+        template: web/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CLUSTER_ENABLED
+            value: "false"
+        template: worker/deployment.yaml
+
+  - it: should set CLICKHOUSE_CLUSTER_ENABLED to true when cluster.enabled is true (default) with external ClickHouse
+    values:
+      - ../values.lint.yaml
+    set:
+      clickhouse.deploy: false
+      clickhouse.host: "my-clickhouse-cluster.clickhouse.com"
+      clickhouse.auth.username: "default"
+      clickhouse.auth.password: "secretPassword"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CLUSTER_ENABLED
+            value: "true"
+        template: web/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CLUSTER_ENABLED
+            value: "true"
+        template: worker/deployment.yaml
+
+  - it: should set CLICKHOUSE_CLUSTER_ENABLED to true when deploying single-replica ClickHouse (operator-managed cluster)
+    values:
+      - ../values.lint.yaml
+    set:
+      clickhouse.deploy: true
+      clickhouse.cluster.replicas: 1
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CLUSTER_ENABLED
+            value: "true"
+        template: web/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CLUSTER_ENABLED
+            value: "true"
+        template: worker/deployment.yaml
+
+  - it: should set CLICKHOUSE_CLUSTER_ENABLED to true when deploying multi-replica ClickHouse cluster
+    values:
+      - ../values.lint.yaml
+    set:
+      clickhouse.deploy: true
+      clickhouse.cluster.replicas: 3
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CLUSTER_ENABLED
+            value: "true"
+        template: web/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CLUSTER_ENABLED
+            value: "true"
+        template: worker/deployment.yaml
+
+  - it: should set CLICKHOUSE_CLUSTER_ENABLED to false when cluster.enabled is false even with multi-replica deployment
+    values:
+      - ../values.lint.yaml
+    set:
+      clickhouse.deploy: true
+      clickhouse.cluster.replicas: 3
+      clickhouse.cluster.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CLUSTER_ENABLED
+            value: "false"
+        template: web/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CLUSTER_ENABLED
+            value: "false"
+        template: worker/deployment.yaml
