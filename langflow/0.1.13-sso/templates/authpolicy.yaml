@@ -1,0 +1,24 @@
+{{- if .Values.ezua.authorizationPolicy.enabled }}
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  # This object lives in a SHARED namespace (istio-system), and Helm tracks
+  # ownership by release name + release namespace — so the name must be unique
+  # per release, or a second install fails with "invalid ownership metadata".
+  name: {{ printf "%s-%s-auth-policy-%s" .Release.Name .Chart.Name .Release.Namespace }}
+  namespace: {{ .Values.ezua.authorizationPolicy.namespace | required ".Values.ezua.authorizationPolicy.namespace is required !\n" }}
+spec:
+  action: CUSTOM
+  provider:
+    name: {{ .Values.ezua.authorizationPolicy.providerName | required ".Values.ezua.authorizationPolicy.providerName is required !\n" }}
+  rules:
+    - to:
+        - operation:
+            hosts:
+              - {{ .Values.ezua.virtualService.endpoint | required ".Values.ezua.virtualService.endpoint is required !\n" }}
+  selector:
+    {{- with .Values.ezua.authorizationPolicy.matchLabels }}
+    matchLabels:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+{{- end }}

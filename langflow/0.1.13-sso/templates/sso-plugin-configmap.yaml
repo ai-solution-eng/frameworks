@@ -1,0 +1,39 @@
+{{/*
+  SSO plugin delivery — no custom image required.
+
+  Two ConfigMaps:
+    1. <fullname>-sso-plugin : the pcai_keycloak Python package (mounted on PYTHONPATH)
+    2. <fullname>-lfx-config : lfx.toml that registers the auth_service (mounted in LANGFLOW_CONFIG_DIR)
+
+  Both are mounted into the stock Langflow backend container via
+  .Values.langflow.backend.volumes / volumeMounts (see values.yaml).
+
+  ConfigMap source files live under files/sso/ in the chart and are inlined
+  here with .Files.Get, so there is nothing to escape and no PyPI/airgap
+  dependency at runtime.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "langflow.fullname" . }}-sso-plugin
+  labels:
+    app: {{ template "langflow.name" . }}
+    release: {{ .Release.Name }}
+    {{- include "hpe-ezua.labels" . | nindent 4 }}
+data:
+{{- range $path, $_ := .Files.Glob "files/sso/pcai_keycloak/*.py" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | indent 4 }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "langflow.fullname" . }}-lfx-config
+  labels:
+    app: {{ template "langflow.name" . }}
+    release: {{ .Release.Name }}
+    {{- include "hpe-ezua.labels" . | nindent 4 }}
+data:
+  lfx.toml: |
+{{ .Files.Get "files/sso/lfx.toml" | indent 4 }}

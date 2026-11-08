@@ -1,0 +1,422 @@
+ezua:
+  # The platform domain. PCAI's Import Framework substitutes it; with plain
+  # helm you must set it yourself.
+  domainName: "${DOMAIN_NAME}"
+  #Use next options in order to configure the application endpoint.
+  #Example of a VirtualService is here:
+  virtualService:
+    endpoint: "langflow.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+    # Front-facing Service of the langflow-ide chart = langflow.fullname
+    # (== fullnameOverride below) serving the frontend on port 8080.
+    # VERIFY after install:  kubectl get svc -n <ns>
+    targetService: "langflow-service"
+    targetPort: 8080
+
+  # Second hostname for MCP / API-key clients, /api/ only. The
+  # AuthorizationPolicy matches a single host, so this one is never delegated to
+  # oauth2-proxy: no SSO, Langflow API keys only. Machine-only — do not publish.
+  mcpVirtualService:
+    enabled: true
+    endpoint: "langflow-mcp.${DOMAIN_NAME}"
+    timeout: 300s
+
+  authorizationPolicy:
+    # Istio CUSTOM policy -> oauth2-proxy, i.e. platform SSO in front of the app.
+    # false removes the gate only; Langflow's own login still applies. Note that
+    # with the gate ON, Langflow's login page is unreachable (the gateway
+    # re-authenticates every request).
+    enabled: true
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    matchLabels:
+      istio: "ingressgateway"
+
+  selfSignedCert: false
+
+imagePullSecrets: []
+
+nameOverride: "langflow-service"
+# Override for the name of the helm deployment
+# Note: using `langflow` as service name causes
+# env var collision when deploying on openshift
+# https://github.com/langflow-ai/langflow/issues/4330#issuecomment-2459097917
+fullnameOverride: "langflow-service"
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  # SHOULD BE TRUE FOR SELF-SIGNED CERTIFICATE COPY
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the
+  # fullname template
+  name: ""
+
+ingress:
+  enabled: false
+  annotations:
+    {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: chart-example.local
+      paths: []
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  runAsGroup: 1000
+
+podSecurityContext:
+  fsGroup: 1000
+  runAsUser: 1000
+  runAsNonRoot: true
+  runAsGroup: 1000
+
+langflow:
+  global:
+    image:
+      tag: "1.13.0"
+
+  # Backend pod annotations. The backend StatefulSet template reads annotations
+  # from `.Values.langflow.podAnnotations` (NOT langflow.backend.podAnnotations),
+  # so the Prometheus scrape config must live here to take effect.
+  # NOTE: the scrape only returns data if Langflow's exporter is enabled — see
+  # LANGFLOW_PROMETHEUS_ENABLED in backend.env below. Remove both if unused.
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+
+  backend:
+    replicaCount: 1
+    service:
+      type: ClusterIP
+      port: 7860
+    backendOnly: true
+    numWorkers: 1
+    image:
+      # STOCK Langflow backend image — no custom SSO build. SSO is injected at
+      # runtime as a pluggable auth_service (see volumes/volumeMounts + env below).
+      repository: langflowai/langflow
+      imagePullPolicy: Always
+      tag: "1.13.0"
+    # The container entrypoint is not configurable: the StatefulSet hardcodes
+    # ["/bin/bash","-c"] because it exports the external-DB URL first.
+    resources:
+      requests:
+        cpu: 4
+        memory: 10Gi
+      limits:
+        cpu: 6
+        memory: 30Gi
+    probe:
+      failureThreshold: 60
+      periodSeconds: 30
+      timeoutSeconds: 10
+      initialDelaySeconds: 30
+
+    # SSO via the pcai_keycloak pluggable auth_service (no custom image).
+    # The StatefulSet template turns this block into PYTHONPATH /
+    # LANGFLOW_CONFIG_DIR / OIDC_* env vars — see files/sso/.
+    #
+    # Split-horizon OIDC: the ISSUER (used to verify the "iss" claim) is the
+    # external https URL the browser sees; the JWKS URL is the in-cluster http
+    # endpoint used to fetch signing keys. They must describe the SAME realm.
+    #
+    # enabled: false leaves the plugin unloaded and Langflow on its own local
+    # accounts only (the gateway SSO gate, if enabled, still applies).
+    oidc:
+      enabled: true
+      realm: "UA"                     # PCAI default realm — case-sensitive
+      keycloakService: "keycloak"     # in-cluster service name
+      keycloakNamespace: "keycloak"   # in-cluster namespace
+      providerName: "keycloak"        # recorded in sso_user_profile.sso_provider
+      # Optional. audience: the JWT "aud" claim to enforce (empty = skip).
+      audience: ""
+      usernameClaim: ""               # default: preferred_username
+      emailClaim: ""                  # default: email
+    env:
+      - name: LANGFLOW_PORT
+        value: "7860"
+      - name: LANGFLOW_ALEMBIC_LOG_FILE
+        value: "/app/db/alembic.log"
+      - name: LANGFLOW_UPDATE_STARTER_PROJECTS
+        value: "false"
+      - name: DO_NOT_TRACK
+        value: "true"
+      # Langflow 1.12+ blocks URLs whose hostname resolves to a private IP —
+      # which is every PCAI endpoint (ClusterIPs in 10.0.0.0/8). Without this,
+      # connecting a model or MCP server fails with "resolves to blocked IP".
+      # Forms: exact host, *.wildcard-domain, exact IP, CIDR.
+      - name: LANGFLOW_SSRF_ALLOWED_HOSTS
+        value: "*.${DOMAIN_NAME},*.svc.cluster.local"
+
+      # NOTE: the SSO plugin wiring (PYTHONPATH, LANGFLOW_CONFIG_DIR, OIDC_*)
+      # is rendered by templates/backend-statefulset.yaml from
+      # langflow.backend.oidc below — not from this list. Those env vars are
+      # the plugin's activation contract; a user override that dropped one
+      # would silently disable SSO.
+
+      # Enables Langflow's Prometheus exporter on port 9090 so the scrape
+      # annotation in langflow.podAnnotations actually returns metrics.
+      # Remove this (and the annotations) if you don't collect metrics.
+      - name: LANGFLOW_PROMETHEUS_ENABLED
+        value: "true"
+
+
+      # Auth + encryption keys.
+      #
+      # NEVER set langflow.backend.autoLogin / superuserPassword / secretKey:
+      # the StatefulSet has a legacy block that, when those keys exist, injects
+      # a RANDOM LANGFLOW_SECRET_KEY after this list — re-keying the deployment
+      # on every upgrade and making previously encrypted data undecryptable.
+      #
+      # LANGFLOW_SECRET_KEY is the Fernet key for stored global variables and
+      # credentials. It must never change, hence the Secret reference.
+      - name: LANGFLOW_AUTO_LOGIN
+        value: "false"
+      - name: LANGFLOW_SKIP_AUTH_AUTO_LOGIN
+        value: "false"
+      - name: LANGFLOW_NEW_USER_IS_ACTIVE
+        value: "false"
+      - name: LANGFLOW_SUPERUSER
+        value: "admin"
+      - name: LANGFLOW_SUPERUSER_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: langflow-auth
+            key: superuser-password
+      - name: LANGFLOW_SECRET_KEY
+        valueFrom:
+          secretKeyRef:
+            name: langflow-auth
+            key: secret-key
+      - name: NVIDIA_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: langflow-auth
+            key: nvidia-api-key
+      # Langfuse tracing is configured by the top-level `langfuse:` block
+      # (rendered by the StatefulSet template). Off by default: enabling it
+      # requires a `langfuse-credentials` Secret in this namespace, and a
+      # missing Secret keeps the pod in CreateContainerConfigError.
+
+      # Platform CA trust. Langflow's MCP client (httpx) trusts certifi only, so
+      # HTTPS endpoints signed by the platform CA fail with "unable to get local
+      # issuer certificate".
+      # SSL_CERT_FILE REPLACES the default store rather than extending it, hence
+      # the MERGED bundle (public roots + cluster CA) in ezaf-root-ca. Pointing
+      # it at a CA-only file would break outbound public HTTPS.
+      #   SSL_CERT_FILE -> Python ssl/httpx · REQUESTS_CA_BUNDLE -> requests
+      #   NODE_EXTRA_CA_CERTS -> Node/npx MCP servers
+      - name: SSL_CERT_FILE
+        value: /etc/ssl/certs/ezaf-ca-bundle.crt
+      - name: REQUESTS_CA_BUNDLE
+        value: /etc/ssl/certs/ezaf-ca-bundle.crt
+      - name: NODE_EXTRA_CA_CERTS
+        value: /etc/ssl/certs/ezaf-ca-bundle.crt
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+    securityContext:
+      capabilities:
+        drop:
+          - ALL
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 1000
+      allowPrivilegeEscalation: false
+      runAsGroup: 1000
+
+    podSecurityContext:
+      fsGroup: 1000
+      runAsUser: 1000
+      runAsNonRoot: true
+      runAsGroup: 1000
+
+    externalDatabase:
+      # Compose in the SQLAlchemy format:
+      # https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls
+      enabled: true
+      driver:
+        value: "postgresql"
+      host:
+        value: "langflow-ide-postgresql-service"
+      port:
+        value: "5432"
+      database:
+        value: "langflow-db"
+      user:
+        value: "langflow"
+      password:
+        valueFrom:
+          secretKeyRef:
+            key: "password"
+            name: "langflow-ide-postgresql-service"
+
+    volumes:
+      - name: flows
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+      - name: data
+        emptyDir: {}
+      - name: db
+        emptyDir: {}
+      # SSO plugin source (pcai_keycloak package) + service-registration toml
+      - name: sso-plugin
+        configMap:
+          name: langflow-service-sso-plugin
+      - name: lfx-config
+        configMap:
+          name: langflow-service-lfx-config
+      # Platform CA bundle. Mounted as a SINGLE FILE (see volumeMounts) --
+      # never mount the whole /etc/ssl/certs directory: that would hide the
+      # image's own trust store.
+      - name: ezaf-root-ca
+        configMap:
+          name: ezaf-root-ca
+          defaultMode: 420
+          items:
+            - key: ezaf-root-ca.crt
+              path: ezaf-ca-bundle.crt
+
+    volumeMounts:
+      - name: flows
+        mountPath: /app/flows
+        readOnly: false
+      - name: tmp
+        mountPath: /tmp
+        readOnly: false
+      - name: data
+        mountPath: /app/data
+        readOnly: false
+      - name: db
+        mountPath: /app/db
+        readOnly: false
+      # Mount the package dir so `import pcai_keycloak.auth` resolves under PYTHONPATH=/opt/langflow-sso
+      - name: sso-plugin
+        mountPath: /opt/langflow-sso/pcai_keycloak
+        readOnly: true
+      # Mount lfx.toml inside LANGFLOW_CONFIG_DIR (=/app/data). subPath keeps the
+      # surrounding emptyDir writable for Langflow's other config-dir files.
+      - name: lfx-config
+        mountPath: /app/data/lfx.toml
+        subPath: lfx.toml
+        readOnly: true
+      # One file next to the image's trust store, not over it.
+      - name: ezaf-root-ca
+        mountPath: /etc/ssl/certs/ezaf-ca-bundle.crt
+        subPath: ezaf-ca-bundle.crt
+        readOnly: true
+
+    # SQLite is disabled in favour of the external PostgreSQL below. Kept
+    # here only because the StatefulSet template branches on it.
+    sqlite:
+      enabled: false
+      volume:
+        size: "1Gi"
+        existingStorageClassName: "default"
+        storageClass: {}
+
+  frontend:
+    enabled: true
+    replicaCount: 1
+
+    service:
+      type: ClusterIP
+      port: 8080
+
+    image:
+      # Frontend tag verified published for 1.13.0 (frontend has no 1.12.x
+      # tags at all — it skipped 1.12). Keep frontend == backend version.
+      repository: langflowai/langflow-frontend
+      imagePullPolicy: Always
+      tag: "1.13.0"
+
+    resources:
+      requests:
+        cpu: 1
+        memory: 512Mi
+      limits:
+        cpu: 2
+        memory: 4Gi
+
+    probe:
+      failureThreshold: 3
+      periodSeconds: 10
+      timeoutSeconds: 5
+      initialDelaySeconds: 5
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+    podAnnotations:
+      sidecar.istio.io/inject: "false"
+
+    # Upload cap in MB, passed as LANGFLOW_MAX_FILE_SIZE_UPLOAD and consumed by
+    # the frontend image's own nginx template (client_max_body_size).
+    maxFileSizeUpload: 500
+
+    # Extra env for the frontend container, appended after BACKEND_URL,
+    # FRONTEND_PORT and LANGFLOW_MAX_FILE_SIZE_UPLOAD.
+    env: []
+
+# ── Langfuse tracing (optional) ────────────────────────────────────────────
+# Off by default. When enabled, the backend reads three env vars whose
+# credentials come from a Secret in THIS release's namespace — the chart does
+# not create it. If the Secret is missing the pod never starts
+# (CreateContainerConfigError), so this stays opt-in.
+langfuse:
+  enabled: false
+  baseUrl: ""                        # e.g. http://langfuse-web.langfuse.svc.cluster.local:3000
+  secretName: "langfuse-credentials"
+  publicKeyKey: "public-key"
+  secretKeyKey: "secret-key"
+
+# ── Corporate proxy (optional) ─────────────────────────────────────────────
+# Enable this when the cluster has NO direct egress: Langflow then reaches the
+# NVIDIA API and internet-hosted MCP servers through the proxy.
+#
+# noProxy MUST cover in-cluster traffic. The backend talks to Keycloak's JWKS,
+# to Langfuse and to in-cluster MCP servers over cluster DNS; if those go
+# through the proxy, SSO and tracing break with errors that look like an IdP or
+# network problem. An empty noProxy is refused at render time on purpose.
+#
+# Add your platform domain to noProxy if the gateway is directly reachable
+# from pods, e.g. ",.langflow.example.com".
+proxy:
+  enabled: false
+  httpProxy: ""            # e.g. "http://proxy.example.com:8080"
+  httpsProxy: ""           # usually the same value
+  noProxy: ".cluster.local,.svc,.svc.cluster.local,localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+secretProvider:
+  enabled: false
+
+postgresql:
+  enabled: true
+  fullnameOverride: "langflow-ide-postgresql-service"
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+    tag: 16.4.0-debian-12-r14
+  auth:
+    username: "langflow"
+    password: "langflow-postgres"
+    database: "langflow-db"

@@ -1,0 +1,28 @@
+apiVersion: v2
+name: langflow-ide
+description: >-
+  Langflow IDE adapted for HPE Private Cloud AI (PCAI): Istio route with an
+  optional platform-SSO gate, external PostgreSQL, Keycloak authentication via
+  a pluggable auth_service, platform CA trust and corporate-proxy support.
+type: application
+version: 0.1.13
+appVersion: "1.13.0"
+icon: https://raw.githubusercontent.com/langflow-ai/langflow/main/docs/static/img/langflow-logo-color-black-solid.svg
+keywords:
+  - langflow
+  - llm
+  - agents
+  - ai
+  - hpe
+  - pcai
+home: https://github.com/langflow-ai/langflow
+sources:
+  - https://github.com/langflow-ai/langflow
+  - https://github.com/langflow-ai/langflow-helm-charts
+maintainers:
+  - name: HPE AI Solution Engineering
+dependencies:
+  - name: postgresql
+    version: 15.x
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
