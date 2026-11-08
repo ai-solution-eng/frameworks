@@ -224,3 +224,70 @@ To build the patched image, use the following commands:
 podman build --tag docker.io/acarboni/langflow-ide:1.5.1 .
 podman push docker.io/acarboni/langflow-ide:1.5.1
 ```
+
+# 0.1.13-sso — Langflow 1.13.0 (2026-11)
+
+Chart `0.1.13`, appVersion `1.13.0`. Folder `0.1.13-sso/`, artifact
+`langflow-ide-sso-0.1.13.tgz`. Deployed namespace at HPE: `langflow-1-13`.
+
+## This is not a rebase onto a newer upstream chart
+
+`langflow-ai/langflow-helm-charts` is stagnant: last release `langflow-ide-0.1.2`
+with `appVersion: latest`, and `main` is byte-identical to that release. The
+`0.1.x` series in this repo is HPE-authored, tracking Langflow app releases.
+
+Note also that `1.10.0/` is **not** pristine upstream — it is the pre-SSO HPE
+chart. `templates/authpolicy.yaml`, `templates/ezua/*`, the `ezua:` values block
+and the frontend nginx rework exist in neither upstream nor 0.1.2. Diffing
+`1.10.0` against `0.1.10-sso` therefore understates the PCAI surface.
+
+The upgrade is: appVersion + image tags + SSO-plugin compatibility + the items
+below.
+
+## Changes vs 0.1.10-sso
+
+| Change | Why |
+|---|---|
+| `appVersion: 1.13.0`; 3 image tags → 1.13.0 | `appVersion` is a label; the tags are what actually ship |
+| `ezua.authorizationPolicy.enabled` + `{{- if }}` wrapper in `templates/authpolicy.yaml` | on/off switch for the platform SSO gate, modelled on the multimodal-rag chart |
+| SSO plugin: removed `_install_oauth2_login()` | its premise ("stock Langflow ships no oauth2_login") was never true; in 1.13 the symbol is a real FastAPI security scheme whose cookie name derives from `auth_cookie_name()` |
+| SSO plugin: `except Exception` → `except (InvalidTokenError, TokenExpiredError)` | 1.13 added `AuthBackendUnavailableError` (503); swallowing it reports an outage as "invalid token" |
+| CA trust: `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` / `NODE_EXTRA_CA_CERTS` → single-file mount of `ezaf-root-ca` | Langflow's MCP client trusts certifi only → "unable to get local issuer certificate" on PCAI HTTPS endpoints |
+| `proxy:` block rendered into the backend env | verified on the lab cluster: direct egress `000`, via hpeproxy `404` |
+| `templates/mcp-virtualservice.yaml` (was `extras/`) | the hand-applied copy hardcoded namespace `langflow-sso` + the production hostname |
+| removed `templates/nginx-configmap.yaml` | mounted at `/etc/nginx/templates/…`; the image entrypoint reads `/etc/nginx/conf.d/default.conf.template`, so it never took effect. Upload cap now via `langflow.frontend.maxFileSizeUpload` |
+| removed dead values keys (`backend.command`, `backend.podAnnotations`, `frontend.env/volumes/volumeMounts`, `ezua.oidc`) | the templates hardcode or never read them |
+| frontend: restored `imagePullSecrets` | 0.1.10-sso dropped it, so it only applied to the backend (air-gap/private registry) |
+| dropped `charts/postgresql-15.5.38.tgz` | duplicate of `charts/postgresql/`; Helm used the directory but `helm package` shipped both (170 KB → 67 KB) |
+
+## Deliberately NOT adopted
+
+**Langflow 1.13's built-in external auth** (`LANGFLOW_EXTERNAL_AUTH_*`) would
+replace the `pcai_keycloak` plugin, but it hard-rejects a plain-http JWKS URL
+(the chart's split-horizon JWKS is `http://keycloak.keycloak.svc…`) and requires
+an audience claim. `LANGFLOW_SSO_*` is foundations only — no OIDC
+redirect/callback route exists yet. Revisit when Keycloak is served over
+in-cluster TLS and an audience is registered.
+
+**The chart's `ezua.selfSignedCert: true` path** builds an `emptyDir` from an
+alpine bundle and mounts it over the whole `/etc/ssl/certs` directory. On the new
+**UBI 10** backend base that hides the distro trust store, and it additionally
+requires Kyverno plus `secret/istio-system/ingress-cert`. The CA block above is
+narrower and does not depend on either.
+
+## Base-image change to watch
+
+1.13.0's backend image moved from Debian to `ubi10/python-314-minimal`
+(Python 3.14, uid 1000 / gid 0, `HOME=/app/data`, Node 24 installed for npx-based
+MCP servers). Re-verify `readOnlyRootFilesystem`, mounted emptyDirs and anything
+that assumed Debian paths (`/etc/ssl/certs/ca-certificates.crt`).
+
+## Verify
+
+```bash
+helm lint 0.1.13-sso
+helm template lf 0.1.13-sso | grep -c '^kind:'                                  # 18
+helm template lf 0.1.13-sso --set ezua.authorizationPolicy.enabled=false \
+  | grep -c 'kind: AuthorizationPolicy'                                         # 0
+helm template lf 0.1.13-sso --set proxy.noProxy="" 2>&1 | head -1               # refuses
+```

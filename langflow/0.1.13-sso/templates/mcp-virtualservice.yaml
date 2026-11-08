@@ -1,0 +1,36 @@
+{{/*
+  Machine door for MCP / API-key clients.
+
+  templates/authpolicy.yaml delegates only the host named in
+  ezua.virtualService.endpoint to oauth2-proxy; Istio evaluates a CUSTOM policy
+  only for requests its rules match, so a different hostname is never
+  delegated. That is what makes this second hostname work: no interactive SSO,
+  the only credential is a Langflow API key.
+
+  It is a separate switch on purpose — an unauthenticated route to /api/ that
+  should be opted into, not implied by the auth gate.
+*/}}
+{{- if .Values.ezua.mcpVirtualService.enabled }}
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: {{ printf "%s-%s-mcp-virtual-service" .Release.Name .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hpe-ezua.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway | required ".Values.ezua.virtualService.istioGateway is required !\n" }}
+  hosts:
+    - {{ .Values.ezua.mcpVirtualService.endpoint | required ".Values.ezua.mcpVirtualService.endpoint is required when mcpVirtualService.enabled=true !\n" }}
+  http:
+    - match:
+        - uri:
+            prefix: /api/
+      route:
+        - destination:
+            host: {{ .Values.ezua.virtualService.targetService | required ".Values.ezua.virtualService.targetService is required !\n" }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.ezua.virtualService.targetPort | required ".Values.ezua.virtualService.targetPort is required !\n" }}
+      timeout: {{ .Values.ezua.mcpVirtualService.timeout }}
+{{- end }}

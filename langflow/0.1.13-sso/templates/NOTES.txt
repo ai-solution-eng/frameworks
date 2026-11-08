@@ -1,0 +1,49 @@
+Langflow IDE ({{ .Chart.Name }} {{ .Chart.Version }}, appVersion {{ .Chart.AppVersion }})
+installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+{{- if contains "${" .Values.ezua.virtualService.endpoint }}
+
+!! ACTION REQUIRED ---------------------------------------------------------
+   ezua.virtualService.endpoint still contains a placeholder:
+     {{ .Values.ezua.virtualService.endpoint }}
+
+   Installing through the PCAI Import Framework substitutes ${DOMAIN_NAME}
+   automatically. If you installed with helm directly, set it explicitly:
+     --set ezua.virtualService.endpoint=langflow.<your-domain>
+---------------------------------------------------------------------------
+{{- else }}
+
+  Browser URL   https://{{ .Values.ezua.virtualService.endpoint }}
+  {{- if .Values.ezua.authorizationPolicy.enabled }}
+  Access        platform SSO (oauth2-proxy) in front of the app
+  {{- else }}
+  Access        NO gateway gate — Langflow's own login page
+  {{- end }}
+  {{- if .Values.ezua.mcpVirtualService.enabled }}
+  {{- if not (contains "${" .Values.ezua.mcpVirtualService.endpoint) }}
+  Machine door  https://{{ .Values.ezua.mcpVirtualService.endpoint }}   (API key only, no SSO)
+  {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- if not .Values.langfuse.enabled }}
+
+  Langfuse tracing is disabled (langfuse.enabled=false).
+{{- end }}
+
+{{- if and .Values.proxy.enabled (not .Values.proxy.httpProxy) }}
+
+!! proxy.enabled=true but proxy.httpProxy is empty — outbound calls will fail.
+{{- end }}
+
+Prerequisites this chart does NOT create:
+  - Secret langflow-auth with keys:
+      superuser-password, secret-key (Fernet key — never change it), nvidia-api-key
+  {{- if .Values.langfuse.enabled }}
+  - Secret {{ .Values.langfuse.secretName }} with keys:
+      {{ .Values.langfuse.publicKeyKey }}, {{ .Values.langfuse.secretKeyKey }}
+  {{- end }}
+
+Check the backend is healthy:
+  kubectl get pods -n {{ .Release.Namespace }}
+  kubectl logs -n {{ .Release.Namespace }} sts/{{ include "langflow.fullname" . }} | grep -i "KeycloakAuthService active"
