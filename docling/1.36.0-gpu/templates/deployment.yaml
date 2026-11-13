@@ -16,6 +16,7 @@ spec:
         {{- include "docling.selectorLabels" . | nindent 8 }}
         hpe-ezua/app: {{ .Release.Name }}
         hpe-ezua/type: vendor-service
+        hpe-ezua/resource-type: gpu
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
