@@ -1,0 +1,15 @@
+Argilla {{ .Chart.AppVersion }} has been deployed as release {{ .Release.Name }}.
+
+UI / API:  https://{{ .Values.ezua.virtualService.endpoint }}
+In-cluster API URL (SDK from PCAI notebooks):
+  http://{{ include "argilla.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.argilla.service.port }}
+
+Owner account credentials:
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "argilla.secretName" . }} -o jsonpath='{.data.username}' | base64 -d; echo
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "argilla.secretName" . }} -o jsonpath='{.data.password}' | base64 -d; echo
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "argilla.secretName" . }} -o jsonpath='{.data.api-key}' | base64 -d; echo
+{{- if .Values.ezua.sso.enabled }}
+
+Keycloak SSO ("Sign in with Keycloak") needs this redirect URI on the Keycloak client:
+  https://{{ .Values.ezua.virtualService.endpoint }}/oauth/keycloak/callback
+{{- end }}

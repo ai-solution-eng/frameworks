@@ -1,0 +1,11 @@
+{{- if and .Values.ezua.sso.enabled .Values.ezua.sso.bridge.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "argilla.fullname" . }}-pcai-sso
+  labels:
+    {{- include "argilla.labels" (dict "ctx" . "component" "server") | nindent 4 }}
+data:
+  pcai_sso.py: |
+    {{- .Files.Get "files/pcai_sso.py" | nindent 4 }}
+{{- end }}

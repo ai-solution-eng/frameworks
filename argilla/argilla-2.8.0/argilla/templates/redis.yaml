@@ -1,0 +1,67 @@
+{{- if .Values.redis.enabled }}
+{{- $ctx := dict "ctx" . "component" "redis" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "argilla.redis.fullname" . }}
+  labels:
+    {{- include "argilla.labels" $ctx | nindent 4 }}
+spec:
+  selector:
+    {{- include "argilla.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "argilla.redis.fullname" . }}
+  labels:
+    {{- include "argilla.labels" $ctx | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "argilla.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "argilla.podLabels" $ctx | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
+          # Job queue only: no persistence needed
+          args: ["--save", "", "--appendonly", "no"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+      volumes:
+        - name: data
+          emptyDir: {}
+{{- end }}

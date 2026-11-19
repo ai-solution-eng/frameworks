@@ -1,0 +1,17 @@
+{{- if .Values.argilla.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "argilla.fullname" . }}
+  labels:
+    {{- include "argilla.labels" (dict "ctx" . "component" "server") | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.argilla.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.argilla.persistence.size }}
+  {{- with .Values.argilla.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}
