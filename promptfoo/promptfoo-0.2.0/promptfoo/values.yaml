@@ -1,0 +1,129 @@
+# Default values for promptfoo.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Keep at 1: promptfoo uses a local SQLite database and an in-memory job queue.
+replicaCount: 1
+
+# Recreate so the old pod releases the ReadWriteOnce volume before the new one starts.
+strategy:
+  type: Recreate
+
+image:
+  repository: ghcr.io/promptfoo/promptfoo
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ''
+
+# ghcr.io/promptfoo/promptfoo is public. For an air-gapped cluster, mirror the image
+# to your registry and override image.repository (and add a pull secret here if needed).
+imagePullSecrets: []
+nameOverride: ''
+fullnameOverride: ''
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ''
+
+podAnnotations: {}
+podLabels: {}
+
+# The image runs as the non-root "promptfoo" user; fsGroup makes the data volume writable.
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext: {}
+# capabilities:
+#   drop:
+#   - ALL
+# readOnlyRootFilesystem: true
+# runAsNonRoot: true
+# runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 3000
+
+resources:
+  limits:
+    cpu: '1'
+    memory: 2Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 20
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Extra environment variables for the promptfoo container, e.g. provider API keys
+# or an OpenAI-compatible base URL pointing at MLIS / LiteLLM.
+extraEnv: []
+# - name: OPENAI_BASE_URL
+#   value: http://litellm.litellm.svc.cluster.local:4000/v1
+# - name: OPENAI_API_KEY
+#   valueFrom:
+#     secretKeyRef:
+#       name: promptfoo-provider-keys
+#       key: OPENAI_API_KEY
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+persistentVolumesClaims:
+  - name: promptfoo
+    size: 5Gi
+    accessModes:
+      - ReadWriteOnce
+    # Empty = use the cluster's default StorageClass.
+    storageClassName: ''
+
+# Additional volumes on the output Deployment definition.
+volumes:
+  - name: config
+    persistentVolumeClaim:
+      claimName: promptfoo
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts:
+  - name: config
+    mountPath: '/home/promptfoo/.promptfoo'
+    readOnly: false
+
+nodeSelector:
+  kubernetes.io/arch: amd64
+
+tolerations: []
+
+affinity: {}
+
+# Platform related options (HPE AI Essentials / Private Cloud AI)
+ezua:
+  # Use next options in order to configure the application endpoint.
+  virtualService:
+    endpoint: 'promptfoo.${DOMAIN_NAME}'
+    istioGateway: 'istio-system/ezaf-gateway'
+
+  # Use next options in order to configure the Istio authorization policy (SSO).
+  authorizationPolicy:
+    namespace: 'istio-system'
+    providerName: 'oauth2-proxy'
+    matchLabels:
+      istio: 'ingressgateway'
