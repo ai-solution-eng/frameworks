@@ -1,0 +1,98 @@
+{{- if .Values.elasticsearch.enabled }}
+{{- $ctx := dict "ctx" . "component" "elasticsearch" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "argilla.elasticsearch.fullname" . }}
+  labels:
+    {{- include "argilla.labels" $ctx | nindent 4 }}
+spec:
+  selector:
+    {{- include "argilla.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: http
+      port: 9200
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "argilla.elasticsearch.fullname" . }}
+  labels:
+    {{- include "argilla.labels" $ctx | nindent 4 }}
+spec:
+  serviceName: {{ include "argilla.elasticsearch.fullname" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "argilla.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "argilla.podLabels" $ctx | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 0
+        fsGroup: 1000
+      containers:
+        - name: elasticsearch
+          image: "{{ .Values.elasticsearch.image.repository }}:{{ .Values.elasticsearch.image.tag }}"
+          imagePullPolicy: {{ .Values.elasticsearch.image.pullPolicy }}
+          env:
+            - name: discovery.type
+              value: single-node
+            - name: cluster.name
+              value: {{ include "argilla.elasticsearch.fullname" . | quote }}
+            - name: node.name
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: xpack.security.enabled
+              value: "false"
+            # Avoids needing vm.max_map_count=262144 on the nodes (no privileged init container)
+            - name: node.store.allow_mmap
+              value: "false"
+            - name: cluster.routing.allocation.disk.threshold_enabled
+              value: "false"
+            - name: ES_JAVA_OPTS
+              value: {{ .Values.elasticsearch.javaOpts | quote }}
+          ports:
+            - name: http
+              containerPort: 9200
+            - name: transport
+              containerPort: 9300
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+          resources:
+            {{- toYaml .Values.elasticsearch.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "argilla.selectorLabels" $ctx | nindent 10 }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.elasticsearch.persistence.size }}
+        {{- with .Values.elasticsearch.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+{{- end }}
