@@ -1,0 +1,19 @@
+apiVersion: v2
+appVersion: v2.8.0
+description: Argilla - collaboration tool for AI engineers and domain experts to build
+  high-quality datasets. Packaged as an HPE Private Cloud AI (AI Essentials) imported
+  framework.
+home: https://argilla.io
+icon: https://raw.githubusercontent.com/argilla-io/argilla/develop/argilla/docs/assets/logo.svg
+keywords:
+- argilla
+- annotation
+- labeling
+- datasets
+- pcai
+- ezua
+name: argilla
+sources:
+- https://github.com/argilla-io/argilla
+type: application
+version: 2.8.0

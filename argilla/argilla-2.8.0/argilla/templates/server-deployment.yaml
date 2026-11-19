@@ -1,0 +1,180 @@
+{{- $ctx := dict "ctx" . "component" "server" -}}
+{{- $caSecret := include "argilla.caSecretName" . -}}
+{{- $bridge := and .Values.ezua.sso.enabled .Values.ezua.sso.bridge.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "argilla.fullname" . }}
+  labels:
+    {{- include "argilla.labels" $ctx | nindent 4 }}
+spec:
+  replicas: {{ .Values.argilla.replicaCount }}
+  {{- if .Values.argilla.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "argilla.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "argilla.podLabels" $ctx | nindent 8 }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/pcai-sso: {{ .Files.Get "files/pcai_sso.py" | sha256sum }}
+        proxy.istio.io/config: '{ "holdApplicationUntilProxyStarts": true }'
+        {{- with .Values.argilla.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: argilla-server
+          image: "{{ .Values.argilla.image.repository }}:{{ .Values.argilla.image.tag }}"
+          imagePullPolicy: {{ .Values.argilla.image.pullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              {{- if $caSecret }}
+              cat /etc/ssl/certs/ca-certificates.crt /etc/argilla/ca/ca.crt > /tmp/ca-bundle.crt
+              export SSL_CERT_FILE=/tmp/ca-bundle.crt REQUESTS_CA_BUNDLE=/tmp/ca-bundle.crt
+              {{- end }}
+              {{- include "argilla.waitFor" . | nindent 14 }}
+              exec /bin/bash /home/argilla/start_argilla_server.sh
+          env:
+            {{- include "argilla.commonEnv" . | nindent 12 }}
+            - name: USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argilla.secretName" . }}
+                  key: username
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argilla.secretName" . }}
+                  key: password
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "argilla.secretName" . }}
+                  key: api-key
+            - name: WORKSPACE
+              value: {{ .Values.argilla.auth.workspace | quote }}
+            - name: REINDEX_DATASETS
+              value: {{ .Values.argilla.reindexDatasets | toString | quote }}
+            {{- if .Values.ezua.sso.enabled }}
+            - name: ARGILLA_AUTH_OAUTH_CFG
+              value: /etc/argilla/oauth/oauth.yaml
+            - name: SOCIAL_AUTH_OIDC_ENDPOINT
+              value: {{ .Values.ezua.sso.issuer | quote }}
+            - name: SOCIAL_AUTH_KEYCLOAK_OIDC_ENDPOINT
+              value: {{ .Values.ezua.sso.issuer | quote }}
+            {{- end }}
+            {{- if $bridge }}
+            - name: UVICORN_APP
+              value: pcai_sso:app
+            - name: PYTHONPATH
+              value: /opt/pcai-sso
+            - name: PCAI_SSO_ISSUER
+              value: {{ .Values.ezua.sso.issuer | quote }}
+            - name: PCAI_SSO_USERNAME_CLAIM
+              value: {{ .Values.ezua.sso.bridge.usernameClaim | quote }}
+            - name: PCAI_SSO_WORKSPACES
+              {{- $ws := list }}
+              {{- range .Values.ezua.sso.allowedWorkspaces }}{{ $ws = append $ws .name }}{{ end }}
+              value: {{ join "," ($ws | default (list "default")) | quote }}
+            {{- end }}
+            {{- with .Values.argilla.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 6900
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /api/v1/version
+              port: http
+            periodSeconds: 10
+            failureThreshold: 90
+          readinessProbe:
+            httpGet:
+              path: /api/v1/version
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/version
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.argilla.persistence.mountPath }}
+            {{- if .Values.ezua.sso.enabled }}
+            - name: oauth
+              mountPath: /etc/argilla/oauth
+              readOnly: true
+            {{- end }}
+            {{- if $caSecret }}
+            - name: ca
+              mountPath: /etc/argilla/ca
+              readOnly: true
+            {{- end }}
+            {{- if $bridge }}
+            - name: pcai-sso
+              mountPath: /opt/pcai-sso
+              readOnly: true
+            {{- end }}
+          resources:
+            {{- toYaml .Values.argilla.resources | nindent 12 }}
+      volumes:
+        - name: data
+          {{- if .Values.argilla.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "argilla.fullname" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.ezua.sso.enabled }}
+        - name: oauth
+          secret:
+            secretName: {{ include "argilla.fullname" . }}
+            items:
+              - key: oauth.yaml
+                path: oauth.yaml
+        {{- end }}
+        {{- if $caSecret }}
+        - name: ca
+          secret:
+            secretName: {{ $caSecret }}
+            items:
+              - key: {{ include "argilla.caSecretKey" . }}
+                path: ca.crt
+        {{- end }}
+        {{- if $bridge }}
+        - name: pcai-sso
+          configMap:
+            name: {{ include "argilla.fullname" . }}-pcai-sso
+        {{- end }}
+      {{- with .Values.argilla.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.argilla.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.argilla.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

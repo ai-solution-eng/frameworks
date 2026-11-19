@@ -1,0 +1,207 @@
+nameOverride: ""
+fullnameOverride: ""
+
+#Platform related options (HPE Private Cloud AI / AI Essentials)
+#Placeholders such as ${DOMAIN_NAME} are substituted by the platform only when they
+#are present in EzAppConfig.Spec.Values (i.e. this ezua section on import).
+ezua:
+  domainName: "${DOMAIN_NAME}"
+
+  oidc:
+    client_id: "${OIDC_CLIENT_ID}"
+    client_secret: "${OIDC_CLIENT_SECRET}"
+    domain: "${OIDC_DOMAIN}"
+
+  #Use next options in order to configure the application endpoint.
+  virtualService:
+    endpoint: "argilla.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+
+  #Use next options in order to configure the Istio authorization policy
+  #WARNING: providerName MUST stay "oauth2-proxy". Istio allows only ONE CUSTOM provider per
+  #workload; every tile's policy on the shared ingress gateway uses oauth2-proxy. A different
+  #provider here makes the gateway fail closed ("RBAC: access denied") for the WHOLE platform.
+  #The chart refuses to render any other value.
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    matchLabels:
+      istio: "ingressgateway"
+
+  # Keycloak SSO.
+  # oauth2-proxy on the gateway replaces the request's Authorization header with the user's
+  # Keycloak token, which Argilla cannot read (-> 401 after login). The SSO bridge
+  # (files/pcai_sso.py, runs inside the Argilla pod) verifies that Keycloak token against the
+  # realm's signing keys and hands Argilla a native token for the same user. Nothing outside
+  # the release namespace is changed.
+  # Also enables Argilla's "Sign in with Keycloak" button, which needs
+  # https://<endpoint>/oauth/keycloak/callback in the Keycloak client's redirect URIs.
+  sso:
+    enabled: true
+    # OIDC issuer of the PCAI Keycloak realm (must match the token "iss" claim)
+    issuer: "https://keycloak.${DOMAIN_NAME}/realms/UA"
+    # Allow http redirect URIs (only for testing without TLS)
+    allowHttpRedirect: false
+    # Workspaces SSO users join on first login (created automatically)
+    allowedWorkspaces:
+      - name: default
+    bridge:
+      enabled: true
+      usernameClaim: preferred_username
+    # CA used to verify the Keycloak HTTPS certificate (PCAI uses a private root CA).
+    # Resolution order:
+    #   1. secretName: an existing Secret in the release namespace
+    #   2. pem: the CA certificate inline
+    #   3. copyFrom: read-only lookup of the platform root CA at install time, copied into a
+    #      Secret in the release namespace (nothing is written outside it)
+    caCert:
+      secretName: ""
+      key: ca.crt
+      pem: ""
+      copyFrom:
+        enabled: true
+        namespace: istio-system
+        name: ezaf-root-ca
+        key: ca.crt
+
+# Images. For air-gapped installs point the repositories at your registry,
+# e.g. "${AIRGAP_REGISTRY}/argilla/argilla-server" (set it in the ezua import values).
+argilla:
+  image:
+    repository: argilla/argilla-server
+    tag: v2.8.0
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+
+  # Owner (admin) account created on first start. Empty password / apiKey are
+  # generated and kept in the <release>-argilla secret across upgrades.
+  auth:
+    username: "argilla"
+    password: ""
+    apiKey: ""
+    workspace: "default"
+    # JWT signing key. Empty = generated and kept across upgrades.
+    secretKey: ""
+    # Use an existing secret instead (keys: username, password, api-key, auth-secret-key)
+    existingSecret: ""
+
+  # Reindex datasets into the search engine at start-up (after restoring ES, etc.)
+  reindexDatasets: false
+  # Disable Hugging Face Hub telemetry (recommended for air-gapped clusters)
+  disableTelemetry: true
+
+  extraEnv: []
+
+  service:
+    type: ClusterIP
+    port: 6900
+
+  persistence:
+    enabled: true
+    size: 2Gi
+    accessMode: ReadWriteOnce
+    storageClass: ""
+    mountPath: /var/lib/argilla
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+worker:
+  enabled: true
+  replicaCount: 1
+  numWorkers: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# Bundled PostgreSQL (Argilla metadata DB). Disable to use an external one.
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "14"
+    pullPolicy: IfNotPresent
+  database: argilla
+  username: argilla
+  # Empty = generated and kept across upgrades
+  password: ""
+  persistence:
+    size: 5Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# Used when postgresql.enabled=false. Either a full URL or an existing secret holding it.
+externalDatabase:
+  # postgresql://user:pass@host:5432/argilla (rewritten to postgresql+asyncpg:// automatically).
+  # If you use existingSecret, store the URL with the postgresql+asyncpg:// scheme yourself.
+  url: ""
+  existingSecret: ""
+  existingSecretKey: database-url
+
+# Bundled single-node Elasticsearch (search engine). Disable to use an external one.
+elasticsearch:
+  enabled: true
+  image:
+    repository: docker.elastic.co/elasticsearch/elasticsearch
+    tag: "8.17.0"
+    pullPolicy: IfNotPresent
+  javaOpts: "-Xms1g -Xmx1g"
+  persistence:
+    size: 10Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+# Used when elasticsearch.enabled=false
+externalElasticsearch:
+  url: "http://elasticsearch:9200"
+  sslVerify: true
+  # "elasticsearch" or "opensearch"
+  searchEngine: elasticsearch
+
+# Bundled Redis (background job queue). Disable to use an external one.
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Used when redis.enabled=false
+externalRedis:
+  url: "redis://redis:6379/0"
+  cluster: false
+
+imagePullSecrets: []
