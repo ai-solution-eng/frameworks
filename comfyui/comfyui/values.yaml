@@ -36,6 +36,18 @@ customNodesPVC:
   accessMode: ReadWriteMany
 
 # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+#
+# Set this to 0 when the app is not in use. Because a GPU is declared under
+# `resources` below, every replica holds an entire accelerator for its whole
+# lifetime - whether or not it is serving a single request. ComfyUI also caches
+# model weights in VRAM and never gives them back on its own, so an idle replica
+# can sit on most of a card indefinitely. Scaling to 0 releases the card back to
+# the cluster; the next scale-up takes a card again (and waits in Pending if
+# none is free, which is a queue rather than a crash).
+#
+# Note: this value is ignored when `autoscaling.enabled` is true - the HPA owns
+# the replica count in that case. Do not enable autoscaling for this chart: each
+# replica needs its own whole GPU, so scaling out consumes accelerators.
 replicaCount: 1
 
 # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
@@ -103,11 +115,38 @@ ingress:
   tls: false
   existingSecret: ""
 
+# We usually recommend not to specify default resources and to leave this as a conscious
+# choice for the user. This also increases chances charts run on environments with little
+# resources, such as Minikube. If you do want to specify resources, uncomment the following
+# lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+#
+# GPU NOTES - please read before changing nvidia.com/gpu.
+#
+# 1. requests MUST equal limits. nvidia.com/gpu is an *extended* resource and
+#    Kubernetes does not allow extended resources to be overcommitted. Setting
+#    requests: 0 with limits: 1 is rejected at admission with HTTP 422
+#    ("must be equal to nvidia.com/gpu limit of 1") and the pod is never created.
+#    This is not a soft failure and there is no way to express "allocated by the
+#    scheduler but still visible as all devices" - allocation IS the pin.
+#
+# 2. Declaring the GPU is what reserves the card. The device plugin allocates one
+#    whole accelerator to this pod for as long as it runs, so no other workload
+#    can be scheduled onto that card. That reservation is the point of this block.
+#
+# 3. Setting nvidia.com/gpu to 0 is NOT a safe way to avoid taking a card. With 0
+#    the device plugin allocates nothing and no NVIDIA_VISIBLE_DEVICES pin is
+#    injected, so the container sees EVERY GPU on the node and ComfyUI attaches to
+#    cuda:0 - while the scheduler still believes that card is free. Any pod that
+#    requests a whole GPU can then be placed on it and will fail to start with
+#    "Free memory on device cuda:0 ... is less than desired GPU memory
+#    utilization", because ComfyUI is holding the memory. Since ComfyUI never
+#    releases cached weights, this persists for the lifetime of the pod.
+#
+# 4. If sharing a card is genuinely required, keep 0 but pin the card explicitly
+#    via an NVIDIA_VISIBLE_DEVICES=<GPU-UUID> entry in `env` below. Be aware this
+#    still leaves the card unaccounted to the scheduler, so it only confines the
+#    pod - it does not protect the card from being handed to another pod.
 resources:
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
   limits:
     cpu: 8
     memory: 30Gi
@@ -141,6 +180,16 @@ autoscaling:
 #   mountPath: "/etc/foo"
 #   readOnly: true
 
+# Pin the pod to a specific node - normally the GPU node that has spare capacity.
+# Uncomment and replace the placeholder with a real node name, for example:
+#
+#   nodeSelector:
+#     kubernetes.io/hostname: <gpu-node-name>
+#
+# Pinning is optional but recommended for a GPU workload: it keeps the pod off
+# nodes whose accelerators are already committed, and combined with
+# `replicaCount: 0` it makes it predictable which card gets reclaimed when the
+# app is scaled back up. Leave as {} to let the scheduler choose any node.
 nodeSelector: {}
 
 tolerations: []
