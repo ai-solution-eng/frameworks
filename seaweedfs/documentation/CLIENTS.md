@@ -199,6 +199,16 @@ df.write.parquet("s3a://uploads/out/")
 
 Whatever client you use, two calls settle it: a list against a bucket you created returns your keys, and the same client with no credentials gets `403 AccessDenied` (§ 3.1). If both hold, the connection and the identity are right and any remaining failure is the specific operation you are calling — which is the point at which the unverified surface in the introduction matters.
 
+### The region string
+
+**The region is part of the SigV4 credential scope** — `AWS4-HMAC-SHA256 Credential=<key>/<date>/<region>/s3/aws4_request` — so the gateway has to derive the signing key from the same value the client used. SeaweedFS's default is `us-east-1`, and that is what every recipe here uses and what the smoke test verified.
+
+It is not a placement control: nothing in this chart stores data "in" a region, and the bucket has no region attribute. And it is not a credential check either — a client that signs with a different region still works, because the gateway derives the key from the value the client sent rather than comparing it to a configured one.
+
+**Verified on SE G2 (2026-11-24): the gateway accepts any region.** A request signed with `eu-central-1` against a deployment that had only ever been used with `us-east-1` returned `OK` — SeaweedFS re-derives the signing key from whatever region appears in the credential scope, so the value only has to be self-consistent. There is no server-side region to configure, and nothing in this chart exposes one.
+
+Keep `us-east-1` anyway, which is what every recipe here and `s3_helper.py` use. The flip side of "any value works" is that a client drifting to another region will **never** produce an error telling you so, so a fixed default is the cheapest way to keep clients comparable.
+
 ## 4. TLS and the CA
 
 **The public host presents a certificate from the cluster-internal AIE Root CA, and that CA is in no system trust store.** Every client fails TLS on its first call until it is told where the CA is; this is not a client misconfiguration and there is nothing to install cluster-wide. The 2026-11-24 run used `/home/andrew/.dsh/certs/pcai-aie-root-ca.crt` (`~/.dsh/certs/pcai-aie-root-ca.crt` in the recipes below); any copy of the AIE Root CA certificate works.

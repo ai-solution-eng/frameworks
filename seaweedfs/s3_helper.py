@@ -11,7 +11,11 @@ Configuration (environment, all optional except the first three):
     S3_ACCESS_KEY  seaweedfs
     S3_SECRET_KEY  the secretKey from the s3-config / s3-identity Secret
     S3_CA_BUNDLE   path to the AIE Root CA, when the gateway cert is not publicly trusted
-    S3_REGION      default us-east-1 (SeaweedFS ignores it, SigV4 needs one)
+    S3_REGION      default us-east-1. SigV4 puts the region inside the credential scope,
+                   and SeaweedFS re-derives from whatever the client sent, so any value is
+                   accepted (verified: eu-central-1 works against a us-east-1 deployment).
+                   It only has to be self-consistent - keep one value so clients stay
+                   comparable, since a drift to another region produces no error at all.
 
 fish setup against a PCAI deployment:
 
@@ -53,6 +57,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import os
+import signal
 import sys
 import time
 from typing import Iterable, Iterator
@@ -258,6 +263,45 @@ def cat_object(bucket: str, key: str, max_bytes: int = 0, binary: bool = False, 
     return written
 
 
+def verify_folder(
+    local_dir: str,
+    bucket: str,
+    prefix: str = "",
+    excludes: Iterable[str] = DEFAULT_EXCLUDES,
+    s3=None,
+) -> dict:
+    """Compare a local tree against a bucket prefix: count, names and byte sizes.
+
+    This is the close-out check for an ingest window - the customer's manifest is the
+    local tree, and anything missing or short here is data that did not land.
+    """
+    s3 = s3 or client()
+    prefix = prefix.strip("/")
+    remote = {
+        obj["Key"]: obj["Size"]
+        for obj in list_objects(bucket, prefix=f"{prefix}/" if prefix else "", s3=s3)
+    }
+    local = {
+        (f"{prefix}/{rel}".lstrip("/") if prefix else rel).replace(os.sep, "/"): os.path.getsize(full)
+        for full, rel in _iter_files(local_dir, excludes)
+    }
+    missing = sorted(k for k in local if k not in remote)
+    short = sorted(
+        (k, local[k], remote[k]) for k in local
+        if k in remote and remote[k] != local[k]
+    )
+    extra = sorted(k for k in remote if k not in local)
+    return {
+        "local_files": len(local),
+        "local_bytes": sum(local.values()),
+        "remote_files": len(remote),
+        "remote_bytes": sum(remote.values()),
+        "missing": missing,
+        "size_mismatch": short,
+        "extra_remote": extra,
+    }
+
+
 def presign(bucket: str, key: str, expires: int = 3600, s3=None) -> str:
     """A presigned GET URL. Valid only against the host it was signed for."""
     s3 = s3 or client()
@@ -278,6 +322,23 @@ def _human(n: float) -> str:
     return f"{n:.1f} TiB"
 
 
+def describe_config() -> dict:
+    """Effective configuration, with the secret masked. No network calls."""
+    endpoint = os.environ.get("S3_ENDPOINT", "")
+    access = os.environ.get("S3_ACCESS_KEY", "seaweedfs")
+    secret = os.environ.get("S3_SECRET_KEY", "")
+    ca = os.environ.get("S3_CA_BUNDLE", "")
+    region = os.environ.get("S3_REGION", "us-east-1")
+    masked = f"{secret[:4]}...{secret[-4:]} ({len(secret)} chars)" if len(secret) > 8 else ("set" if secret else "MISSING")
+    return {
+        "S3_ENDPOINT": endpoint or "MISSING",
+        "S3_ACCESS_KEY": access,
+        "S3_SECRET_KEY": masked,
+        "S3_CA_BUNDLE": f"{ca} ({'exists' if os.path.isfile(ca) else 'NOT FOUND'})" if ca else "(unset - system trust store)",
+        "S3_REGION": region,
+    }
+
+
 def _split_target(target: str) -> tuple[str, str]:
     """'bucket/key/path' -> ('bucket', 'key/path')"""
     if "/" not in target:
@@ -293,9 +354,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="SeaweedFS S3 helper (path-style, SigV4). Configure via S3_* env vars.",
     )
+    parser.add_argument(
+        "--region", default=None,
+        help="override S3_REGION for this call (SigV4 credential scope; default us-east-1)",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("buckets", help="list buckets")
+
+    sub.add_parser("config", help="print the effective S3_* configuration (secret masked, no network)")
+    sub.add_parser("ping", help="connect and list buckets - proves the settings work")
 
     p = sub.add_parser("mkdir", help="create a bucket (idempotent)")
     p.add_argument("bucket")
@@ -320,6 +388,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--long", action="store_true", help="show size and mtime")
 
+    p = sub.add_parser("verify", help="compare a local tree against a bucket prefix")
+    p.add_argument("source")
+    p.add_argument("target", help="<bucket> or <bucket>/<prefix>")
+    p.add_argument("--exclude", action="append", default=None)
+    p.add_argument("--strict", action="store_true", help="also fail on objects present only in the bucket")
+
     p = sub.add_parser("get", help="download an object: get <bucket>/<key> [local-path]")
     p.add_argument("target")
     p.add_argument("local_path", nargs="?")
@@ -337,11 +411,29 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("target")
 
     args = parser.parse_args(argv)
+    if args.region:
+        os.environ["S3_REGION"] = args.region
 
     try:
         if args.cmd == "buckets":
             names = list_buckets()
             print("\n".join(names) if names else "(no buckets)")
+            return 0
+
+        if args.cmd == "config":
+            cfg = describe_config()
+            width = max(len(k) for k in cfg)
+            for key, value in cfg.items():
+                print(f"{key:<{width}}  {value}")
+            if "MISSING" in cfg["S3_ENDPOINT"] or "MISSING" in cfg["S3_SECRET_KEY"]:
+                print("\nS3_ENDPOINT and S3_SECRET_KEY are required - see the docstring at the top of this file.",
+                      file=sys.stderr)
+                return 1
+            return 0
+
+        if args.cmd == "ping":
+            names = list_buckets()
+            print(f"OK  {os.environ.get('S3_ENDPOINT')}  ({len(names)} bucket(s))")
             return 0
 
         if args.cmd == "mkdir":
@@ -351,7 +443,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.cmd == "rmbucket":
             delete_bucket(args.bucket)
-            print(f"deleted: {args.bucket}")
+            print(f"deleted: {os.environ.get('S3_ENDPOINT')} {args.bucket}")
             return 0
 
         if args.cmd == "put":
@@ -386,6 +478,23 @@ def main(argv: list[str] | None = None) -> int:
             print(f"-- {len(objects)} object(s), {_human(sum(o['Size'] for o in objects))}", file=sys.stderr)
             return 0
 
+        if args.cmd == "verify":
+            bucket, _, prefix = args.target.partition("/")
+            excludes = tuple(args.exclude) if args.exclude else DEFAULT_EXCLUDES
+            res = verify_folder(args.source, bucket, prefix=prefix, excludes=excludes)
+            print(f"local : {res['local_files']:>6} file(s)  {_human(res['local_bytes']):>10}")
+            print(f"remote: {res['remote_files']:>6} file(s)  {_human(res['remote_bytes']):>10}  ({bucket}/{prefix or ''})")
+            for key in res["missing"]:
+                print(f"  MISSING remote: {key}")
+            for key, lsize, rsize in res["size_mismatch"]:
+                print(f"  SIZE differs:   {key}  local {_human(lsize)} / remote {_human(rsize)}")
+            if args.strict:
+                for key in res["extra_remote"]:
+                    print(f"  ONLY remote:    {key}")
+            ok = not res["missing"] and not res["size_mismatch"] and not (args.strict and res["extra_remote"])
+            print("VERIFIED - local and remote match" if ok else "DIFFERENCES FOUND", file=sys.stderr)
+            return 0 if ok else 1
+
         if args.cmd == "get":
             bucket, key = _split_target(args.target)
             written = download_file(bucket, key, args.local_path)
@@ -405,7 +514,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "rm":
             bucket, key = _split_target(args.target)
             delete_object(bucket, key)
-            print(f"deleted: {bucket}/{key}")
+            print(f"deleted: {os.environ.get('S3_ENDPOINT')} {bucket}/{key}")
             return 0
 
         parser.error(f"unknown command {args.cmd}")
@@ -425,4 +534,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # "cat ... | head" closes the pipe early; exit quietly instead of raising
+    # BrokenPipeError from the interpreter's final flush.
+    try:
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    except (AttributeError, ValueError):  # pragma: no cover - non-POSIX
+        pass
     raise SystemExit(main())
