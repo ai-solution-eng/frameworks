@@ -1,0 +1,204 @@
+{{- if or (not (hasKey .Values.manager "enabled")) (.Values.manager.enabled) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "clickhouse-operator.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    control-plane: controller-manager
+    {{- with .Values.manager.labels }}
+    {{- with omit . "app.kubernetes.io/managed-by" "app.kubernetes.io/name" "helm.sh/chart" "app.kubernetes.io/instance" "control-plane" }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- end }}
+  name: {{ include "clickhouse-operator.resourceName" (dict "suffix" "controller-manager" "context" $) }}
+  namespace: {{ .Release.Namespace }}
+  {{- with .Values.manager.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.manager.strategy }}
+  strategy: {{ toYaml . | nindent 6 }}
+  {{- end }}
+  replicas: {{ .Values.manager.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "clickhouse-operator.name" . }}
+      control-plane: controller-manager
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+        {{- if .Values.prometheus.scraping_annotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "{{ .Values.metrics.port }}"
+        {{- end }}
+        {{- with .Values.manager.pod }}
+        {{- with .annotations }}
+        {{- with omit . "kubectl.kubernetes.io/default-container" "prometheus.io/scrape" "prometheus.io/path" "prometheus.io/port" }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+      labels:
+        app.kubernetes.io/name: {{ include "clickhouse-operator.name" . }}
+        helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        control-plane: controller-manager
+        clickhouse.com/role: operator
+        {{- with .Values.manager.pod }}
+        {{- with .labels }}
+        {{- with omit . "app.kubernetes.io/name" "helm.sh/chart" "app.kubernetes.io/instance" "app.kubernetes.io/managed-by" "control-plane" "clickhouse.com/role" }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+    spec:
+      {{- with .Values.manager.topologySpreadConstraints }}
+      topologySpreadConstraints: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.manager.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.manager.tolerations }}
+      tolerations: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.manager.nodeSelector }}
+      nodeSelector: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.manager.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.manager.affinity }}
+      affinity: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: manager
+        command:
+        - /manager
+        args:
+        {{- if .Values.metrics.enabled }}
+        - --metrics-bind-address=:{{ .Values.metrics.port }}
+        {{- if not .Values.metrics.secure }}
+        - --metrics-secure=false
+        {{- end }}
+        {{- else }}
+        # Bind to :0 to disable the controller-runtime managed metrics server
+        - --metrics-bind-address=0
+        {{- end }}
+        - --health-probe-bind-address=:8081
+        {{- range .Values.manager.args }}
+        - {{ . }}
+        {{- end }}
+        {{- if and .Values.certManager.enabled .Values.webhook.enabled }}
+        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+        {{- if and .Values.metrics.enabled .Values.metrics.secure }}
+        - --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
+        {{- end }}
+        {{- end }}
+        env:
+        - name: ENABLE_WEBHOOKS
+          value: {{ .Values.webhook.enabled | quote }}
+        - name: ENABLE_PDB
+          value: {{ .Values.controller.pdbManagement.enabled | quote }}
+        - name: ENABLE_NETWORK_POLICY
+          value: {{ .Values.controller.networkPolicyManagement.enabled | quote }}
+        {{- if not (empty .Values.controller.watchNamespaces) }}
+        - name: WATCH_NAMESPACE
+          value: {{ join "," .Values.controller.watchNamespaces | quote }}
+        {{- end }}
+        {{- range $k, $v := .Values.manager.envOverrides }}
+        - name: {{ $k }}
+          value: {{ $v | quote }}
+        {{- end }}
+        {{- $repository := .Values.manager.image.repository }}
+        {{- $registry := default .Values.manager.image.registry (.Values.global | default dict).imageRegistry }}
+        {{- if $registry }}{{- $repository = printf "%s/%s" (trimSuffix "/" $registry) $repository }}{{- end }}
+        image: "{{ $repository }}{{- if .Values.manager.image.digest }}@{{ .Values.manager.image.digest }}{{- else if not (contains "@" $repository) }}:{{ .Values.manager.image.tag | default .Chart.AppVersion }}{{- end }}"
+        {{- with .Values.manager.image.pullPolicy }}
+        imagePullPolicy: {{ . }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        ports:
+        {{- if .Values.webhook.enabled }}
+        - containerPort: {{ .Values.webhook.port }}
+          name: webhook-server
+          protocol: TCP
+        {{- end }}
+        {{- if .Values.metrics.enabled }}
+        - containerPort: {{ .Values.metrics.port }}
+          name: metrics-server
+          protocol: TCP
+        {{- end }}
+        resources:
+          {{- if .Values.manager.resources }}
+          {{- toYaml .Values.manager.resources | nindent 10 }}
+          {{- else }}
+          {}
+          {{- end }}
+        securityContext:
+          {{- if .Values.manager.securityContext }}
+          {{- toYaml .Values.manager.securityContext | nindent 10 }}
+          {{- else }}
+          {}
+          {{- end }}
+        {{- if or .Values.manager.extraVolumeMounts .Values.certManager.enabled }}
+        volumeMounts:
+        {{- with .Values.manager.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if and .Values.certManager.enabled .Values.webhook.enabled }}
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: webhook-certs
+          readOnly: true
+        {{- if and .Values.metrics.enabled .Values.metrics.secure }}
+        - mountPath: /tmp/k8s-metrics-server/metrics-certs
+          name: metrics-certs
+          readOnly: true
+        {{- end }}
+        {{- end }}
+        {{- end }}
+      securityContext:
+        {{- if .Values.manager.podSecurityContext }}
+        {{- toYaml .Values.manager.podSecurityContext | nindent 8 }}
+        {{- else }}
+        {}
+        {{- end }}
+      serviceAccountName: {{ include "clickhouse-operator.serviceAccountName" . }}
+      {{- if and (hasKey .Values.manager "terminationGracePeriodSeconds") (ne .Values.manager.terminationGracePeriodSeconds nil) }}
+      terminationGracePeriodSeconds: {{ .Values.manager.terminationGracePeriodSeconds }}
+      {{- end }}
+      {{- if or .Values.manager.extraVolumes .Values.certManager.enabled }}
+      volumes:
+      {{- with .Values.manager.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- if and .Values.certManager.enabled .Values.webhook.enabled }}
+      - name: webhook-certs
+        secret:
+          secretName: {{ include "clickhouse-operator.resourceName" (dict "suffix" "webhook-server-cert" "context" $) }}
+      {{- if and .Values.metrics.enabled .Values.metrics.secure }}
+      - name: metrics-certs
+        secret:
+          secretName: metrics-server-cert
+      {{- end }}
+      {{- end }}
+      {{- end }}
+{{- end }}
