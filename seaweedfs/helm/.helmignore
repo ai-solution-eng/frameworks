@@ -1,0 +1,11 @@
+# Patterns are matched against paths inside the chart directory.
+#
+# Site values must never enter a packaged chart: helm/local/ carries real
+# endpoints and the S3 secret key. See helm/local/README.md.
+local/
+PORTING.md
+
+# editor / OS noise
+.DS_Store
+*.swp
+*.bak

@@ -1,0 +1,337 @@
+# ============================================================================
+# SeaweedFS — HOSTED TRIAL values (secret-free) — helm/values-examples/
+#
+# Pair: values.hosted-trial-ingest.yaml  <->  values.hosted-trial-locked.yaml
+# The two files are BYTE-IDENTICAL except one line:
+#     ezua.s3VirtualService.enabled
+# Keep it that way. On PCAI the pasted values REPLACE the chart's values.yaml, so
+# any edit riding along with the flip silently reverts every key you dropped - and
+# the two that bite are s3.existingConfigSecret (a Secret that does not exist leaves
+# the pod stuck in ContainerCreating on its mount) and volume.persistence.size (-> the
+# upgrade is rejected outright, because volumeClaimTemplates are immutable).
+#
+# NO CREDENTIAL IN THIS FILE. The S3 identity lives in the Secret named by
+# s3.existingConfigSecret, created once before the install - step 0 below.
+#
+# Topology: 3 volume servers x 250Gi, defaultReplication 001 (two copies on two
+# volume servers in the same rack) = 750Gi raw, ~375Gi usable. The customer's
+# dataset must fit in the ~375Gi, not in 750Gi.
+#
+# Ingest sequence (documentation/OPERATIONS.md section 11):
+#   0. create the identity Secret once, BEFORE the first apply:
+#        kubectl create secret generic seaweedfs-s3-identity -n <ns> \
+#          --from-file=seaweedfs_s3_config=/tmp/s3_key.json \
+#          --dry-run=client -o yaml | kubectl apply -f -
+#      (the JSON must be the identities document - shape check in the s3 block)
+#   1. apply the INGEST file  -> public S3 host open, gateway HPA armed
+#   2. customer uploads       -> abort incomplete multipart uploads, reconcile the
+#                                object count and bytes against their manifest
+#   3. apply the LOCKED file  -> the S3 VirtualService disappears (no pod restarts);
+#                                in-cluster reads and the filer UI continue
+#   4. rotate the S3 key      -> the credential outlives the route; rotate it
+#
+# Sanitized: no credential here at all - only the Secret NAME appears. Real site
+# values belong in helm/local/ (gitignored, never packaged). ${DOMAIN_NAME} is
+# substituted by PCAI - leave it verbatim.
+#
+# Lines marked # SITE: are the ones to change per customer.
+# ============================================================================
+
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  virtualService:
+    # Browser-facing filer UI host, behind customer SSO.
+    endpoint: "seaweedfs.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  s3VirtualService:
+    enabled: false   # LOCKED: no public S3 host. The S3 Service stays up for in-cluster reads.
+    endpoint: "seaweedfs-s3.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+    # Empty = no route timeout (Istio's default is disabled), which large and
+    # multipart uploads need. Do NOT use "0s": Istio rejects any timeout that is
+    # not a valid duration greater than 1ms.
+    timeout: ""
+    allowList:
+      # SITE: preferred over a timed open window. If the customer can name their
+      # egress CIDRs (corporate NAT ranges), set enabled: true and list them - the
+      # S3 host then never has to be open to the whole internet, and the ingest
+      # window stops being a deadline.
+      enabled: false
+      cidrs: []
+  authorizationPolicy:
+    # Customer SSO on the UI host only. The S3 host is deliberately outside it:
+    # SigV4 clients cannot follow an OIDC redirect.
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    enabled: true
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # Open-internet machine: pull straight from Docker Hub. SITE: set the internal
+  # mirror (e.g. 172.28.1.64/ezmeral-common) only if the cluster has no egress.
+  registry: ""
+  repository: chrislusf/seaweedfs
+  tag: "4.55"
+  pullPolicy: IfNotPresent
+
+# SITE: must exist on the trial cluster. gl4f-filesystem is the PCAI default
+# (VAST-backed, ReadWriteOnce) and the one to check for 250Gi claims
+# claims - confirm the quota before installing.
+storageClass: gl4f-filesystem
+
+# --- Pod security -----------------------------------------------------------
+# ON: every pod runs as uid/gid 1000 with fsGroup 1000, RuntimeDefault seccomp, no
+# privilege escalation and every capability dropped. Nothing here needs root - the
+# workloads bind only unprivileged ports.
+#
+# The one dependency is the storage driver applying fsGroup to the claim. If it
+# ignores it the pods start but cannot write /data - Running, never Ready,
+# "permission denied" in the logs. Rollback is one flag and one upgrade:
+#   --set securityContext.enabled=false
+# Regenerate PVCs rather than reusing claims written by a root-owned deployment:
+# fsGroupChangePolicy only re-chowns the volume root.
+securityContext:
+  enabled: true
+  pod:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: false
+
+# --- Metrics ----------------------------------------------------------------
+metrics:
+  # Publishes -metricsPort (9327) on the master, volume and filer Services. The
+  # S3 gateway has no metrics listener in this build.
+  enabled: true
+  serviceMonitor:
+    # Needs the Prometheus Operator CRDs - off unless the cluster has them.
+    enabled: false
+    interval: 30s
+    additionalLabels: {}
+    namespace: ""
+
+# --- Disruption -------------------------------------------------------------
+podDisruptionBudget:
+  # maxUnavailable: 1 keeps a node drain to one pod at a time. Master and filer
+  # are single replicas: a PDB there would block drains forever.
+  volume:
+    enabled: true
+    maxUnavailable: 1
+  s3:
+    enabled: true
+    maxUnavailable: 1
+  master:
+    enabled: false
+    maxUnavailable: 1
+  filer:
+    enabled: false
+    maxUnavailable: 1
+
+# --- Network policy ---------------------------------------------------------
+networkPolicy:
+  # OFF unless the namespace enforces default-deny. When on it denies all traffic
+  # to these pods and re-allows only intra-release traffic, DNS, the ezua gateway
+  # and whatever is listed below.
+  enabled: false
+  ingressGatewayNamespace: "istio-system"
+  # Extra namespaces allowed to reach the S3 API and the filer (e.g. app namespaces).
+  allowFromNamespaces: []
+  # Extra CIDRs allowed to reach the S3 API (e.g. the load balancer's range).
+  allowFromCIDRs: []
+  # Calico applies policy to kubelet probes: list the node subnet if readiness
+  # probes go unhealthy after enabling this.
+  nodeCIDRs: []
+  allowMetricsFromNamespaces: []
+  dnsNamespace: "kube-system"
+
+master:
+  enabled: true
+  # One master. It holds no irreplaceable data (volume servers re-register), so its
+  # loss is a write-path pause, not a data loss.
+  replicas: 1
+  port: 9333
+  grpcPort: 19333
+  metricsPort: 9327
+  # 001 = one extra copy on a DIFFERENT volume server in the same rack (two copies
+  # total) - the strongest placement a single-rack cluster can satisfy. 010 needs a
+  # second RACK and 100 a second DATA CENTER; neither places here, and an
+  # unplaceable placement makes WRITES FAIL.
+  defaultReplication: "001"
+  # 1 GB per volume: 250Gi / 1Gi is ~250 volumes per server, ~750 across the three -
+  # comfortably inside the master's volume index. Raise this only with the PVC size,
+  # never on its own.
+  volumeSizeLimitMB: 1000
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+volume:
+  enabled: true
+  # 3 x 250Gi = 750Gi raw, ~375Gi usable with 001.
+  # These are three STORAGE SERVERS with the data sharded across them - not three
+  # copies of it. The second copy of every volume comes from
+  # master.defaultReplication (001) above, and that is what costs the other ~375Gi.
+  replicas: 3
+  port: 8080
+  grpcPort: 18080
+  metricsPort: 9327
+  maxVolumes: 0
+  # 2% of 250Gi is ~5Gi of reserve per server - ample for rewriting a 1Gi volume
+  # during compaction. Do not set 0: a disk that fills during compaction corrupts
+  # the volume it was rewriting.
+  minFreeSpacePercent: 2
+  compactionMBps: 50
+  readMode: "proxy"
+  dataCenter: ""
+  rack: ""
+  persistence:
+    # PVC size is immutable - size it once, correctly. 250Gi per server is 750Gi raw
+    # and ~375Gi usable with 001.
+    size: 250Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+
+filer:
+  enabled: true
+  # Single replica: the metadata store is an embedded LevelDB on this PVC. It
+  # cannot be scaled or shared; an external store is the HA path (ROADMAP.md).
+  replicas: 1
+  port: 8888
+  grpcPort: 18888
+  metricsPort: 9327
+  # Sized by OBJECT COUNT, not bytes: LevelDB holds path -> fileId entries. 20Gi is
+  # generous for hundreds of thousands of objects. Do not size this from the data
+  # volume - 750Gi of a few large objects needs a few GiB here.
+  persistence:
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+
+s3:
+  enabled: true
+  # IGNORED while autoscaling is on: the Deployment then omits spec.replicas so a
+  # helm upgrade cannot fight the HPA. Kept complete so turning autoscaling off works.
+  replicas: 2
+  autoscaling:
+    # Serves REQUESTS, not storage: the gateway terminates TLS, verifies SigV4,
+    # translates S3 to the filer and streams bytes - it holds no data, so more pods
+    # add no capacity and no copies. Fires on many concurrent requests or many small
+    # objects; a few very large objects are low-CPU-per-byte streaming work, so
+    # expect it to sit near minReplicas during a bulk copy. The ceiling stays the
+    # single-replica filer and the volume servers' disks.
+    enabled: true
+    minReplicas: 2
+    # Size the ceiling to what the node pool can actually schedule - a Pending
+    # gateway pod adds no throughput, it just hides the real bottleneck.
+    maxReplicas: 4
+    # Requires s3.resources.requests.cpu below - the render FAILS without it,
+    # because a utilisation target with no request cannot be measured.
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: ""
+    scaleDownStabilizationSeconds: 300
+  port: 8333
+  # Path-style only: one host, no wildcard DNS or certificate. Not passed to the
+  # container (weed s3 has no -domainName); kept for documentation.
+  domainName: ""
+  auth:
+    accessKey: "seaweedfs"
+    # PREFERRED: leave this empty and own the credential in a Secret (below).
+    # FALLBACK only, if you cannot create the Secret: paste a fresh
+    #   openssl rand -hex 32
+    # here. An empty value with no Secret is generated at install and REGENERATED
+    # on every upgrade, which breaks every client mid-trial.
+    secretKey: ""
+  # The Secret you create ONCE, before the first apply. With this set the chart
+  # renders no Secret of its own and the pod mounts yours; s3.auth.* above is inert.
+  #
+  #   kubectl create secret generic seaweedfs-s3-identity -n <ns> \
+  #     --from-file=seaweedfs_s3_config=/tmp/s3_key.json \
+  #     --dry-run=client -o yaml | kubectl apply -f -
+  #
+  # /tmp/s3_key.json must be the identities document, not a bare key pair:
+  #   {"identities":[{"name":"admin",
+  #                   "credentials":[{"accessKey":"seaweedfs","secretKey":"<64 hex>"}],
+  #                   "actions":["Admin","Read","Write"]}]}
+  # Check the shape and that the key is not truncated before creating:
+  #   jq -e '.identities[0].credentials[0].secretKey | length == 64' /tmp/s3_key.json
+  #
+  # The name is deliberately NOT "<fullname>-s3-config": for a release called
+  # seaweedfs that is the chart's own Secret name, and Helm creates or deletes that
+  # object by name if the release ever renders its own again.
+  # Rotation afterwards is kubectl apply + rollout restart, no helm involved
+  # (documentation/OPERATIONS.md section 5).
+  existingConfigSecret: "seaweedfs-s3-identity"
+  probes:
+    # Forgiving on purpose: a probe-kill loop destroys the evidence when the gateway
+    # is stuck, and the historical failure here logged nothing at all.
+    livenessInitialDelaySeconds: 120
+    livenessFailureThreshold: 6
+  resources:
+    requests:
+      cpu: 500m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# ============================================================================
+# Before you apply
+#
+# 1. metrics-server must be running or the HPA does nothing:
+#      kubectl top pods -n <ns>     # empty or error = no metrics
+#      kubectl get hpa -n <ns>      # TARGETS must not read <unknown>
+# 2. Confirm the storage class provisions 250Gi claims and has ~750Gi of quota.
+#    PVC size is IMMUTABLE: an undersized claim is re-provisioned, not patched.
+# 3. Both DNS names must exist: seaweedfs.<domain> and seaweedfs-s3.<domain>.
+# 4. Watch capacity during the window:
+#      kubectl exec -n <ns> <fullname>-volume-0 -- df -h /data
+# 5. Run the close-out in documentation/OPERATIONS.md section 11 before locking:
+#    abandoned multipart uploads are invisible to a bucket listing and still hold
+#    disk.
+# ============================================================================
+
+# --- Backup -----------------------------------------------------------------
+# OFF: no destination is configured. When on this needs (1) a Secret carrying the
+# S3 identity as two keys - accessKey, secretKey - and (2) a Secret with an
+# rclone.conf defining the destination remote. Logical backup only (keys + bytes);
+# restore is a sync back - documentation/OPERATIONS.md section 13.
+backup:
+  enabled: false
+  schedule: "0 2 * * *"
+  suspend: false
+  image:
+    repository: rclone/rclone
+    tag: "1.68.1"
+    pullPolicy: IfNotPresent
+  source:
+    existingSecret: ""
+  destination:
+    configSecret: ""
+    remote: ""
+  transfers: 8
+  checksum: true
+  versioning: true
+  activeDeadlineSeconds: 21600
+  resources: {}

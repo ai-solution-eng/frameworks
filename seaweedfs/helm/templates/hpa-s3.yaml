@@ -1,0 +1,61 @@
+{{- if and .Values.s3.enabled .Values.s3.autoscaling.enabled }}
+{{- $as := .Values.s3.autoscaling -}}
+{{- $res := .Values.s3.resources | default dict -}}
+{{- $cpu := dig "requests" "cpu" "" $res -}}
+{{- $mem := dig "requests" "memory" "" $res -}}
+{{- if not $cpu }}
+{{- fail "s3.autoscaling.enabled requires s3.resources.requests.cpu: a CPU-utilisation HPA has nothing to measure without a request, so it would report <unknown> and never scale" }}
+{{- end }}
+{{- if and $as.targetMemoryUtilizationPercentage (not $mem) }}
+{{- fail "s3.autoscaling.targetMemoryUtilizationPercentage requires s3.resources.requests.memory" }}
+{{- end }}
+# Autoscales the stateless S3 gateway only - the one component here that owns no
+# state. The volume servers own PVCs and the filer embeds its metadata store, so
+# neither can be scaled by an HPA (see values.yaml s3.autoscaling).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-s3
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: s3
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "seaweedfs.fullname" . }}-s3
+  minReplicas: {{ $as.minReplicas }}
+  maxReplicas: {{ $as.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $as.targetCPUUtilizationPercentage }}
+    {{- if $as.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ $as.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: {{ $as.scaleDownStabilizationSeconds }}
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+{{- end }}

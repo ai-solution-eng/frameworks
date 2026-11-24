@@ -1,0 +1,40 @@
+{{- if and .Values.s3.enabled .Values.ezua.s3VirtualService.enabled }}
+# Public S3 API endpoint. Exposes ONLY the S3 gateway, and is intentionally NOT
+# behind the oauth2-proxy AuthorizationPolicy: S3 clients sign requests with SigV4
+# and cannot complete an OIDC login flow. Access control here is the S3 identity
+# config in the s3-config Secret, plus optional source-IP restriction (see
+# authorizationPolicy-s3-allowlist.yaml).
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-s3
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ezua.s3VirtualService.istioGateway | required ".Values.ezua.s3VirtualService.istioGateway is required!" }}
+  hosts:
+    - {{ .Values.ezua.s3VirtualService.endpoint | required ".Values.ezua.s3VirtualService.endpoint is required!" }}
+  http:
+    - match:
+        - uri:
+            prefix: /
+      # NOTE: do not set this to "0s". Istio validates HTTPRoute.timeout as a
+      # duration GREATER THAN 1ms and rejects 0s at admission time. The field is
+      # omitted by default because an omitted timeout is already "disabled" per
+      # the Istio API, which is exactly what we want for large/multipart uploads.
+      # Set a real duration (e.g. "3600s") only if you want a hard cap.
+      {{- if .Values.ezua.s3VirtualService.timeout }}
+      timeout: {{ .Values.ezua.s3VirtualService.timeout | quote }}
+      {{- end }}
+      # Do not let Envoy retry S3 writes: a retried PUT/POST can duplicate an
+      # upload or corrupt a multipart completion.
+      retries:
+        attempts: 0
+      route:
+        - destination:
+            host: {{ include "seaweedfs.fullname" . }}-s3.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.s3.port }}
+{{- end }}

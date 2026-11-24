@@ -1,0 +1,107 @@
+{{- if .Values.s3.enabled }}
+{{- $fullname := include "seaweedfs.fullname" . -}}
+{{- $svc := printf "%s-s3" $fullname -}}
+{{- $client := printf "%s-filer-client" $fullname -}}
+# ClusterIP. Reached three ways: from outside through the S3 VirtualService
+# (virtualservice-s3.yaml), which is deliberately NOT behind the oauth2-proxy
+# AuthorizationPolicy because SigV4 clients cannot follow an OIDC redirect;
+# in-cluster directly; or through a PCAI EzDataSource s3-proxy that adds JWT + OPA
+# auth (see PORTING.md). Every path authenticates against the identity in the
+# s3-config Secret.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: s3
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.s3.port }}
+      targetPort: http
+  selector:
+    {{- include "seaweedfs.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: s3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: s3
+spec:
+  # Omitted when the HPA owns the replica count, so helm upgrade cannot reset it.
+  {{- if not .Values.s3.autoscaling.enabled }}
+  replicas: {{ .Values.s3.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: s3
+  template:
+    metadata:
+      labels:
+        {{- include "seaweedfs.labels" . | nindent 8 }}
+        app.kubernetes.io/component: s3
+    spec:
+      {{- if .Values.securityContext.enabled }}
+      securityContext:
+        {{- toYaml .Values.securityContext.pod | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: s3
+          image: {{ include "seaweedfs.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.securityContext.enabled }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container | nindent 12 }}
+          {{- end }}
+          # No `command:` override. The image ENTRYPOINT is `weed` and appends these
+          # args, so argv[1] is the subcommand. Confirmed empirically: running
+          # `kubectl run ... -- /usr/bin/weed s3 -h` returned
+          # `weed: unknown subcommand "/usr/bin/weed"`, which proves the entrypoint
+          # (not the args) supplies the `weed` binary.
+          # Flag set verified against `weed s3 -h` on chrislusf/seaweedfs:4.23:
+          #   Example: weed s3 [-port=8333] [-filer=<ip:port>[,<ip:port>]...]
+          #                       [-config=</path/to/config.json>]
+          # The s3 subcommand accepts ONLY -port, -filer and -config. It does NOT
+          # define -ip.bind, -metricsPort or -domainName; passing any of them aborts
+          # the process during flag parsing ("flag provided but not defined") before
+          # it ever binds a socket, which is why the gateway never came up.
+          args:
+            - s3
+            - -port={{ .Values.s3.port }}
+            - -filer={{ $client }}:{{ .Values.filer.port }}
+            - -config=/etc/sw/seaweedfs_s3_config
+          ports:
+            - name: http
+              containerPort: {{ .Values.s3.port }}
+          # Deliberately forgiving: a probe-kill loop destroys the evidence.
+          # The first attempt restart-looped on liveness before the gateway ever
+          # bound 8333, leaving exit code 0 and no logs.
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.s3.probes.livenessInitialDelaySeconds }}
+            periodSeconds: 20
+            failureThreshold: {{ .Values.s3.probes.livenessFailureThreshold }}
+          volumeMounts:
+            - name: s3-config
+              mountPath: /etc/sw
+              readOnly: true
+          resources:
+            {{- toYaml .Values.s3.resources | nindent 12 }}
+      volumes:
+        - name: s3-config
+          secret:
+            secretName: {{ include "seaweedfs.s3SecretName" . }}
+{{- end }}

@@ -1,0 +1,11 @@
+{{- /* Renders nothing. Fails the render when a combination cannot work, so the
+       error appears at helm upgrade instead of as a CrashLoopBackOff. */ -}}
+{{- if .Values.securityContext.enabled }}
+{{- $pod := .Values.securityContext.pod | default dict }}
+{{- if and $pod.runAsNonRoot (not $pod.runAsUser) }}
+{{- fail "securityContext.pod.runAsNonRoot is true but runAsUser is empty: the upstream image runs as root, so every container would abort at start. Set securityContext.pod.runAsUser (e.g. 1000), or drop runAsNonRoot." }}
+{{- end }}
+{{- end }}
+{{- if and .Values.metrics.serviceMonitor.enabled (not .Values.metrics.enabled) }}
+{{- fail "metrics.serviceMonitor.enabled requires metrics.enabled: a ServiceMonitor with no metrics Service port scrapes nothing." }}
+{{- end }}

@@ -1,0 +1,27 @@
+# More information: https://docs.ezmeral.hpe.com/unified-analytics/15/ManageClusters/importing-applications.html
+#
+# This VirtualService exposes ONLY the SeaweedFS filer web UI to browser users through
+# the PCAI ezua gateway, and it is the host the oauth2-proxy AuthorizationPolicy covers.
+# The S3 API has its own VirtualService (virtualservice-s3.yaml) on its own host, and is
+# deliberately NOT covered by that policy: SigV4 clients cannot follow an OIDC redirect.
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-filer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ezua.virtualService.istioGateway | required ".Values.ezua.virtualService.istioGateway is required!" }}
+  hosts:
+    - {{ .Values.ezua.virtualService.endpoint | required ".Values.ezua.virtualService.endpoint is required!" }}
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: {{ include "seaweedfs.fullname" . }}-filer.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.filer.port }}

@@ -1,0 +1,25 @@
+# =============================================================================
+# SeaweedFS PCAI chart package
+#
+# Packaged artifacts (seaweedfs-*.tar.gz) are DELIVERABLES - they are NOT
+# ignored here, on purpose.
+# =============================================================================
+
+# Local site values: per-cluster files carrying real endpoints and credentials.
+# Only the convention README is trackable. See helm/local/README.md.
+helm/local/*
+!helm/local/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Editor and session scratch
+.scratch/
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/

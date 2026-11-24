@@ -1,0 +1,104 @@
+{{- if .Values.backup.enabled }}
+{{- $b := .Values.backup -}}
+{{- $fullname := include "seaweedfs.fullname" . -}}
+{{- if not .Values.s3.enabled }}{{ fail "backup.enabled requires s3.enabled: the backup job reads through this release's S3 API." }}{{ end }}
+{{- if not $b.source.existingSecret }}{{ fail "backup.enabled requires backup.source.existingSecret - a Secret with keys accessKey and secretKey for this release's S3 identity (the s3-config Secret stores them inside JSON, so it cannot be referenced directly)." }}{{ end }}
+{{- if not $b.destination.configSecret }}{{ fail "backup.enabled requires backup.destination.configSecret - a Secret with key rclone.conf defining the destination remote." }}{{ end }}
+{{- if not $b.destination.remote }}{{ fail "backup.enabled requires backup.destination.remote, e.g. \"offsite:seaweedfs-backup\"." }}{{ end }}
+# Logical backup: every bucket on this deployment's S3 API is synced to a remote you
+# own. This is NOT a PVC snapshot - restore is a sync back (OPERATIONS.md section 13).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullname }}-backup
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ $b.schedule | quote }}
+  suspend: {{ $b.suspend }}
+  # A slow run must never overlap the next tick.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ $b.activeDeadlineSeconds }}
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "seaweedfs.labels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: Never
+          {{- if .Values.securityContext.enabled }}
+          securityContext:
+            {{- toYaml .Values.securityContext.pod | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: rclone
+              image: "{{ $b.image.repository }}:{{ $b.image.tag }}"
+              imagePullPolicy: {{ $b.image.pullPolicy }}
+              {{- if .Values.securityContext.enabled }}
+              securityContext:
+                {{- toYaml .Values.securityContext.container | nindent 16 }}
+              {{- end }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+                  ARGS="--checksum --transfers ${TRANSFERS} --stats 60s --stats-one-line --s3-no-check-bucket"
+                  if [ "${VERSIONING}" = "true" ]; then
+                    # Replaced and deleted objects are kept, not removed.
+                    ARGS="$ARGS --backup-dir ${DST}/_versions/${STAMP}"
+                  fi
+                  echo "backup: src: -> ${DST}/current"
+                  exec rclone sync src: "${DST}/current" $ARGS
+              env:
+                - name: DST
+                  value: {{ $b.destination.remote | quote }}
+                - name: TRANSFERS
+                  value: {{ $b.transfers | quote }}
+                - name: VERSIONING
+                  value: {{ $b.versioning | quote }}
+                - name: RCLONE_CONFIG
+                  value: /etc/rclone/rclone.conf
+                # The source remote is defined entirely through env vars, so no
+                # credential file has to be rendered for this deployment.
+                - name: RCLONE_CONFIG_SRC_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_SRC_PROVIDER
+                  value: Other
+                - name: RCLONE_CONFIG_SRC_ENDPOINT
+                  value: "http://{{ $fullname }}-s3:{{ .Values.s3.port }}"
+                - name: RCLONE_CONFIG_SRC_REGION
+                  value: us-east-1
+                - name: RCLONE_CONFIG_SRC_FORCE_PATH_STYLE
+                  value: "true"
+                - name: RCLONE_CONFIG_SRC_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $b.source.existingSecret }}
+                      key: accessKey
+                - name: RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $b.source.existingSecret }}
+                      key: secretKey
+              volumeMounts:
+                - name: rclone-config
+                  mountPath: /etc/rclone
+                  readOnly: true
+              resources:
+                {{- toYaml ($b.resources | default dict) | nindent 16 }}
+          volumes:
+            - name: rclone-config
+              secret:
+                secretName: {{ $b.destination.configSecret }}
+                items:
+                  - key: rclone.conf
+                    path: rclone.conf
+{{- end }}

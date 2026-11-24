@@ -1,0 +1,155 @@
+{{- if .Values.filer.enabled }}
+{{- $fullname := include "seaweedfs.fullname" . -}}
+{{- $svc := printf "%s-filer" $fullname -}}
+{{- $client := printf "%s-filer-client" $fullname -}}
+{{- $master := printf "%s-master" $fullname -}}
+# Headless service: gives each filer replica a stable identity for the StatefulSet.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: filer
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: {{ .Values.filer.port }}
+      targetPort: http
+    - name: grpc
+      port: {{ .Values.filer.grpcPort }}
+      targetPort: grpc
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.filer.metricsPort }}
+      targetPort: metrics
+    {{- end }}
+  selector:
+    {{- include "seaweedfs.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: filer
+---
+# Client-facing service. This is what the S3 gateway talks to, and what the
+# VirtualService routes the filer UI to. Name mirrors the upstream chart
+# (<fullname>-filer-client) so future maintainers recognise it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $client }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: filer
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.filer.port }}
+      targetPort: http
+    # REQUIRED by the S3 gateway. `weed s3` defaults to -iam=true and talks to
+    # the filer over gRPC, deriving that port as <filer port>+10000 = 18888.
+    # With only 8888 published, the gateway dials :18888, gets connection
+    # refused, and blocks on IAM init before it ever binds its own port -
+    # which is why it ran for minutes, logged nothing useful, and never
+    # listened on 8333.
+    - name: grpc
+      port: {{ .Values.filer.grpcPort }}
+      targetPort: grpc
+  selector:
+    {{- include "seaweedfs.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: filer
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: filer
+spec:
+  serviceName: {{ $svc }}
+  replicas: {{ .Values.filer.replicas }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: filer
+  template:
+    metadata:
+      labels:
+        {{- include "seaweedfs.labels" . | nindent 8 }}
+        app.kubernetes.io/component: filer
+    spec:
+      {{- if .Values.securityContext.enabled }}
+      securityContext:
+        {{- toYaml .Values.securityContext.pod | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: filer
+          image: {{ include "seaweedfs.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.securityContext.enabled }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container | nindent 12 }}
+          {{- end }}
+          # No `command:` override. The image ENTRYPOINT is `weed` and appends these
+          # args, so argv[1] is the subcommand. Confirmed empirically: running
+          # `kubectl run ... -- /usr/bin/weed s3 -h` returned
+          # `weed: unknown subcommand "/usr/bin/weed"`, which proves the entrypoint
+          # (not the args) supplies the `weed` binary.
+          args:
+            - filer
+            - -ip.bind=0.0.0.0
+            - -port={{ .Values.filer.port }}
+            - -master={{ $master }}:{{ .Values.master.port }}
+            - -defaultReplicaPlacement={{ .Values.master.defaultReplication }}
+            - -dirListLimit=100000
+            - -ip=$(POD_IP)
+            - -metricsPort={{ .Values.filer.metricsPort }}
+          env:
+            # Embedded LevelDB metadata store. This is how the upstream chart enables
+            # it; the store lives on the /data PVC. Verify on first deploy that the
+            # leveldb files appear under /data (see PORTING.md).
+            - name: WEED_LEVELDB2_ENABLED
+              value: "true"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: http
+              containerPort: {{ .Values.filer.port }}
+            - name: grpc
+              containerPort: {{ .Values.filer.grpcPort }}
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.filer.metricsPort }}
+            {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.filer.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "seaweedfs.selectorLabels" . | nindent 10 }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.storageClass }}
+        storageClassName: {{ .Values.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.filer.persistence.size }}
+{{- end }}

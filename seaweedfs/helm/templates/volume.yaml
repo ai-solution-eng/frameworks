@@ -1,0 +1,130 @@
+{{- if .Values.volume.enabled }}
+{{- $fullname := include "seaweedfs.fullname" . -}}
+{{- $svc := printf "%s-volume" $fullname -}}
+{{- $master := printf "%s-master" $fullname -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: volume
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: {{ .Values.volume.port }}
+      targetPort: http
+    - name: grpc
+      port: {{ .Values.volume.grpcPort }}
+      targetPort: grpc
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.volume.metricsPort }}
+      targetPort: metrics
+    {{- end }}
+  selector:
+    {{- include "seaweedfs.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: volume
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: volume
+spec:
+  serviceName: {{ $svc }}
+  replicas: {{ .Values.volume.replicas }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: volume
+  template:
+    metadata:
+      labels:
+        {{- include "seaweedfs.labels" . | nindent 8 }}
+        app.kubernetes.io/component: volume
+    spec:
+      {{- if .Values.securityContext.enabled }}
+      securityContext:
+        {{- toYaml .Values.securityContext.pod | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: volume
+          image: {{ include "seaweedfs.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.securityContext.enabled }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container | nindent 12 }}
+          {{- end }}
+          # No `command:` override. The image ENTRYPOINT is `weed` and appends these
+          # args, so argv[1] is the subcommand. Confirmed empirically: running
+          # `kubectl run ... -- /usr/bin/weed s3 -h` returned
+          # `weed: unknown subcommand "/usr/bin/weed"`, which proves the entrypoint
+          # (not the args) supplies the `weed` binary.
+          args:
+            - volume
+            - -ip.bind=0.0.0.0
+            - -port={{ .Values.volume.port }}
+            - -dir
+            - /data
+            - -max
+            - {{ .Values.volume.maxVolumes | quote }}
+            - -minFreeSpacePercent={{ .Values.volume.minFreeSpacePercent }}
+            - -compactionMBps={{ .Values.volume.compactionMBps }}
+            - -readMode={{ .Values.volume.readMode }}
+            - -ip=$(POD_NAME).{{ $svc }}.{{ .Release.Namespace }}.svc.cluster.local
+            - -master={{ $master }}:{{ .Values.master.port }}
+            - -metricsPort={{ .Values.volume.metricsPort }}
+            {{- if .Values.volume.dataCenter }}
+            - -dataCenter={{ .Values.volume.dataCenter }}
+            {{- end }}
+            {{- if .Values.volume.rack }}
+            - -rack={{ .Values.volume.rack }}
+            {{- end }}
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: http
+              containerPort: {{ .Values.volume.port }}
+            - name: grpc
+              containerPort: {{ .Values.volume.grpcPort }}
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.volume.metricsPort }}
+            {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.volume.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "seaweedfs.selectorLabels" . | nindent 10 }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.storageClass }}
+        storageClassName: {{ .Values.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.volume.persistence.size }}
+{{- end }}

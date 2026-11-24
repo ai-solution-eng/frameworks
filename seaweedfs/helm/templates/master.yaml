@@ -1,0 +1,121 @@
+{{- if .Values.master.enabled }}
+{{- $fullname := include "seaweedfs.fullname" . -}}
+{{- $svc := printf "%s-master" $fullname -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: {{ .Values.master.port }}
+      targetPort: http
+    - name: grpc
+      port: {{ .Values.master.grpcPort }}
+      targetPort: grpc
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.master.metricsPort }}
+      targetPort: metrics
+    {{- end }}
+  selector:
+    {{- include "seaweedfs.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  serviceName: {{ $svc }}
+  replicas: {{ .Values.master.replicas }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: master
+  template:
+    metadata:
+      labels:
+        {{- include "seaweedfs.labels" . | nindent 8 }}
+        app.kubernetes.io/component: master
+    spec:
+      {{- if .Values.securityContext.enabled }}
+      securityContext:
+        {{- toYaml .Values.securityContext.pod | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: master
+          image: {{ include "seaweedfs.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.securityContext.enabled }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container | nindent 12 }}
+          {{- end }}
+          # No `command:` override. The image ENTRYPOINT is `weed` and appends these
+          # args, so argv[1] is the subcommand. Confirmed empirically: running
+          # `kubectl run ... -- /usr/bin/weed s3 -h` returned
+          # `weed: unknown subcommand "/usr/bin/weed"`, which proves the entrypoint
+          # (not the args) supplies the `weed` binary.
+          args:
+            - master
+            - -ip.bind=0.0.0.0
+            - -port={{ .Values.master.port }}
+            - -mdir=/data
+            - -ip=$(POD_NAME).{{ $svc }}.{{ .Release.Namespace }}.svc.cluster.local
+            - -defaultReplication={{ .Values.master.defaultReplication }}
+            - -volumeSizeLimitMB={{ .Values.master.volumeSizeLimitMB }}
+            - -metricsPort={{ .Values.master.metricsPort }}
+            {{- if gt (int .Values.master.replicas) 1 }}
+            - -peers={{ range $i := until (int .Values.master.replicas) }}{{ if $i }},{{ end }}{{ $svc }}-{{ $i }}.{{ $svc }}.{{ $.Release.Namespace }}.svc.cluster.local:{{ $.Values.master.grpcPort }}{{ end }}
+            {{- end }}
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: http
+              containerPort: {{ .Values.master.port }}
+            - name: grpc
+              containerPort: {{ .Values.master.grpcPort }}
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.master.metricsPort }}
+            {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.master.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "seaweedfs.selectorLabels" . | nindent 10 }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.storageClass }}
+        storageClassName: {{ .Values.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.master.persistence.size }}
+{{- end }}

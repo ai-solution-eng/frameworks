@@ -1,0 +1,55 @@
+❯ python3 s3_helper.py buckets                                                                                                            (ML14) 
+
+andrew-bucket
+❯ python3 s3_helper.py ls andrew-bucket --long                                                                                            (ML14) 
+   1.4 MiB  2026-11-24 20:40  LLM_Papers/1710.06963.pdf
+ 465.2 KiB  2026-11-24 20:40  LLM_Papers/2012.06659.pdf
+   3.2 MiB  2026-11-24 20:41  LLM_Papers/2604.07035v2.pdf
+   1.6 MiB  2026-11-24 20:40  LLM_Papers/BetterFasterLLM.pdf
+   4.3 MiB  2026-11-24 20:41  LLM_Papers/DeepSeek_V4.pdf
+   1.7 MiB  2026-11-24 20:41  LLM_Papers/DeepSeek_V41_Tech_Report.pdf
+   1.8 MiB  2026-11-24 20:40  LLM_Papers/Deepseekv3.pdf
+ 957.6 KiB  2026-11-24 20:40  LLM_Papers/Deepseekv3_2.pdf
+ 754.5 KiB  2026-11-24 20:41  LLM_Papers/EngramPaper.pdf
+   1.4 MiB  2026-11-24 20:40  LLM_Papers/GLM-5.3-Flash.pdf
+   5.9 MiB  2026-11-24 20:41  LLM_Papers/GLM-5.pdf
+   1.3 MiB  2026-11-24 20:40  LLM_Papers/KimiLinear.pdf
+   1.1 MiB  2026-11-24 20:40  LLM_Papers/Mamba.pdf
+   3.1 MiB  2026-11-24 20:40  LLM_Papers/Mamba2.pdf
+   1.0 MiB  2026-11-24 20:41  LLM_Papers/Mamba3.pdf
+   3.7 MiB  2026-11-24 20:40  LLM_Papers/Megatron_LM.pdf
+1011.5 KiB  2026-11-24 20:40  LLM_Papers/Megatron_LM2.pdf
+   4.5 MiB  2026-11-24 20:40  LLM_Papers/Moshi.pdf
+ 632.4 KiB  2026-11-24 20:40  LLM_Papers/NVIDIA-Nemotron-3-White-Paper.pdf
+ 246.8 KiB  2026-11-24 20:40  LLM_Papers/PersonaPlex_preprint.pdf
+   1.4 MiB  2026-11-24 20:40  LLM_Papers/SWAN_GPT_Context_Scaling.pdf
+ 487.4 KiB  2026-11-24 20:40  LLM_Papers/Srivastava_OmniVec2_-_A_Novel_Transformer_based_Network_for_Large_Scale_CVPR_2024_paper.pdf
+-- 22 object(s), 41.8 MiB
+
+❯ python3 s3_helper.py putdir ./documentation andrew-bucket/SeaweedFSdocumentation                                                        (ML14) 
+   14.0 KiB    0.4s  andrew-bucket/SeaweedFSdocumentation/ARCHITECTURE.md
+   10.5 KiB    0.2s  andrew-bucket/SeaweedFSdocumentation/CHANGELOG.md
+   23.1 KiB    0.2s  andrew-bucket/SeaweedFSdocumentation/CLIENTS.md
+   40.3 KiB    0.2s  andrew-bucket/SeaweedFSdocumentation/CONFIGURATION.md
+   15.5 KiB    0.2s  andrew-bucket/SeaweedFSdocumentation/DEPLOYMENT.md
+   23.4 KiB    0.2s  andrew-bucket/SeaweedFSdocumentation/OPERATIONS.md
+    7.4 KiB    0.2s  andrew-bucket/SeaweedFSdocumentation/ROADMAP.md
+   13.7 KiB    0.2s  andrew-bucket/SeaweedFSdocumentation/VERIFICATION.md
+      230 B    0.2s  andrew-bucket/SeaweedFSdocumentation/description_pcai.txt
+       21 B    0.2s  andrew-bucket/SeaweedFSdocumentation/generate_key.sh
+uploaded 10 file(s), 148.2 KiB to andrew-bucket/SeaweedFSdocumentation
+
+❯ python3 s3_helper.py cat andrew-bucket/SeaweedFSdocumentation/ARCHITECTURE.md | head                                                    (ML14) 
+# Architecture
+
+How the four SeaweedFS processes cooperate on PCAI, where the bytes actually live, and what each failure costs. Everything here is derived from the chart in `helm/` and the observed state of the SE G2 deployment (2026-11-24); the operational procedures are in [OPERATIONS.md](OPERATIONS.md).
+
+---
+
+## 1. The four processes
+
+| Process | Subcommand | Kubernetes object | Owns | Loses everything if its PVC dies? |
+|---|---|---|---|---|
+
+❯ python3 s3_helper.py get andrew-bucket/SeaweedFSdocumentation/ARCHITECTURE.md ./test.md                                                 (ML14) 
+wrote 14.0 KiB -> ./test.md

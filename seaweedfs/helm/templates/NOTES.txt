@@ -1,0 +1,42 @@
+SeaweedFS has been installed for HPE Private Cloud AI.
+
+Components:
+  master  {{ include "seaweedfs.fullname" . }}-master:{{ .Values.master.port }}
+  volume  {{ include "seaweedfs.fullname" . }}-volume:{{ .Values.volume.port }} ({{ .Values.volume.replicas }} replicas)
+  filer   {{ include "seaweedfs.fullname" . }}-filer-client:{{ .Values.filer.port }}
+  s3      {{ include "seaweedfs.fullname" . }}-s3.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.s3.port }}
+
+Filer UI (through PCAI SSO):
+  https://{{ .Values.ezua.virtualService.endpoint }}
+
+{{- if .Values.ezua.s3VirtualService.enabled }}
+S3 API (PUBLIC - SigV4 auth only, NOT behind SSO):
+  https://{{ .Values.ezua.s3VirtualService.endpoint }}
+
+  Use path-style addressing. From outside the cluster:
+
+  export AWS_ACCESS_KEY_ID=<access key>
+  export AWS_SECRET_ACCESS_KEY=<secret key>
+  aws --endpoint-url https://{{ .Values.ezua.s3VirtualService.endpoint }} s3 mb s3://uploads
+  aws --endpoint-url https://{{ .Values.ezua.s3VirtualService.endpoint }} s3 cp ./file.bin s3://uploads/
+
+  boto3:
+    boto3.client("s3", endpoint_url="https://{{ .Values.ezua.s3VirtualService.endpoint }}",
+                 config=Config(s3={"addressing_style": "path"}),
+                 region_name="us-east-1")
+{{- else }}
+S3 API is cluster-internal only:
+  http://{{ include "seaweedfs.fullname" . }}-s3.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.s3.port }}
+{{- end }}
+
+Credentials:
+  access key: {{ .Values.s3.auth.accessKey }}
+  secret key: {{ if .Values.s3.auth.secretKey }}from values{{ else }}generated - read it from the Secret below{{ end }}
+
+  kubectl get secret {{ include "seaweedfs.s3SecretName" . }} -n {{ .Release.Namespace }} \
+    -o jsonpath="{.data.seaweedfs_s3_config}" | base64 -d
+
+In-cluster consumers can also be pointed at the PCAI platform s3-proxy: register
+this endpoint as an object store data source (Data Engineering > Data Sources >
+Object Store Data, MinIO tile) to get JWT + OPA auth and the same boto3 pattern as
+external S3. See PORTING.md.

@@ -1,0 +1,173 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy -}}
+{{- $fullname := include "seaweedfs.fullname" . -}}
+{{- $sel := include "seaweedfs.selectorLabels" . -}}
+# Deny everything to this release's pods, then re-allow exactly what is listed
+# below. Requires a CNI that enforces NetworkPolicy (Calico, Cilium, ...).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-default-deny
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- $sel | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Intra-release traffic: master <-> volume <-> filer <-> s3, every port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-allow-intra-release
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- $sel | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- $sel | nindent 14 }}
+        {{- range $np.nodeCIDRs }}
+        # Some CNIs apply policy to kubelet health probes; these ranges keep them working.
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- $sel | nindent 14 }}
+    # DNS. Without this the components cannot resolve each other's Services.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $np.dnsNamespace }}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# The ezua gateway that fronts the filer UI and the public S3 API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-allow-ingress-gateway
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- $sel | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $np.ingressGatewayNamespace }}
+      ports:
+        {{- if .Values.filer.enabled }}
+        - protocol: TCP
+          port: {{ .Values.filer.port }}
+        {{- end }}
+        {{- if .Values.s3.enabled }}
+        - protocol: TCP
+          port: {{ .Values.s3.port }}
+        {{- end }}
+{{- if or $np.allowFromNamespaces $np.allowFromCIDRs }}
+---
+# In-cluster clients and known source ranges (the opt-in allowlist).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-allow-extra-clients
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- $sel | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- range $np.allowFromNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+        {{- range $np.allowFromCIDRs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        {{- if .Values.filer.enabled }}
+        - protocol: TCP
+          port: {{ .Values.filer.port }}
+        {{- end }}
+        {{- if .Values.s3.enabled }}
+        - protocol: TCP
+          port: {{ .Values.s3.port }}
+        {{- end }}
+{{- end }}
+{{- if .Values.backup.enabled }}
+---
+# The backup job talks to the S3 gateway in this namespace AND to a remote you own,
+# which can be anywhere - so this one pod gets general egress. It is the only
+# component here that is allowed off-cluster traffic.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-allow-backup-egress
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- $sel | nindent 6 }}
+      app.kubernetes.io/component: backup
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+{{- end }}
+{{- if and .Values.metrics.enabled $np.allowMetricsFromNamespaces }}
+---
+# Prometheus (and only Prometheus) on the metrics port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-allow-metrics
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- $sel | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- range $np.allowMetricsFromNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.master.metricsPort }}
+{{- end }}
+{{- end }}

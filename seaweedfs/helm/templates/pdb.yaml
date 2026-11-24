@@ -1,0 +1,68 @@
+{{- $pdb := .Values.podDisruptionBudget -}}
+{{- $fullname := include "seaweedfs.fullname" . -}}
+{{- if and .Values.master.enabled $pdb.master.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-master
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  maxUnavailable: {{ $pdb.master.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: master
+---
+{{- end }}
+{{- if and .Values.volume.enabled $pdb.volume.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-volume
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: volume
+spec:
+  # maxUnavailable rather than minAvailable: safe at any replica count, and with
+  # three volume servers it still means one drain at a time (which is what keeps
+  # 001 placement satisfiable).
+  maxUnavailable: {{ $pdb.volume.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: volume
+---
+{{- end }}
+{{- if and .Values.filer.enabled $pdb.filer.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-filer
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: filer
+spec:
+  maxUnavailable: {{ $pdb.filer.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: filer
+---
+{{- end }}
+{{- if and .Values.s3.enabled $pdb.s3.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-s3
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: s3
+spec:
+  maxUnavailable: {{ $pdb.s3.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: s3
+{{- end }}

@@ -1,0 +1,1 @@
+SeaweedFS object store for PCAI: 3 volume servers with 001 (2-copy) replication, an S3-compatible gateway with path-style SigV4 access, and a browser filer UI behind PCAI SSO. The S3 API is published on its own host, outside SSO.

@@ -1,0 +1,267 @@
+# =============================================================================
+# PCAI (HPE Private Cloud AI) integration block - required by the ezua gateway.
+# ${DOMAIN_NAME} is substituted by PCAI after packaging; keep it verbatim.
+# =============================================================================
+ezua:
+  domainName: "${DOMAIN_NAME}"
+  # Browser-facing endpoint for the SeaweedFS filer UI (not the S3 API).
+  virtualService:
+    endpoint: "seaweedfs.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+  # Public S3 API endpoint, for uploads from outside the cluster.
+  # IMPORTANT: this host is deliberately NOT covered by the oauth2-proxy
+  # AuthorizationPolicy below. S3 clients authenticate with SigV4 access keys and
+  # cannot follow an OIDC redirect, so putting oauth2 in front of this route would
+  # break boto3/aws-cli/rclone. Auth on this route is the S3 signature only -
+  # see the security notes in PORTING.md before enabling it on a shared gateway.
+  s3VirtualService:
+    enabled: true
+    endpoint: "seaweedfs-s3.${DOMAIN_NAME}"
+    istioGateway: "istio-system/ezaf-gateway"
+    # Empty = no route timeout (Istio's default is disabled), which is what large
+    # and multipart uploads need. Do NOT set "0s": Istio rejects any timeout that
+    # is not a valid duration greater than 1ms. Use e.g. "3600s" to cap uploads.
+    timeout: ""
+    # Optional source-IP restriction, implemented as an Istio DENY policy scoped to
+    # the S3 host only (a DENY on one host does not affect the UI host).
+    allowList:
+      enabled: false
+      cidrs: []
+  # Routes browser traffic through PCAI SSO. Applies to the filer UI host ONLY.
+  authorizationPolicy:
+    namespace: "istio-system"
+    providerName: "oauth2-proxy"
+    enabled: true
+
+# =============================================================================
+# SeaweedFS
+# =============================================================================
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # Set to the internal mirror (e.g. 172.28.1.64/ezmeral-common) for air-gapped PCAI.
+  registry: ""
+  repository: chrislusf/seaweedfs
+  tag: "4.55"
+  pullPolicy: IfNotPresent
+
+# =============================================================================
+# Pod security. ON by default: every pod runs as uid/gid 1000 with fsGroup 1000,
+# RuntimeDefault seccomp, no privilege escalation and every capability dropped.
+# Nothing in this chart needs root - the workloads bind only unprivileged ports
+# (9333, 19333, 8080, 18080, 8888, 18888, 8333, 9327).
+#
+# The one dependency is the storage driver applying fsGroup to the claim. If a
+# driver ignores it, the pods start but cannot write /data (Running, never Ready,
+# "permission denied" in the logs): set securityContext.enabled=false and upgrade.
+# PVCs written by an earlier root-owned deployment are root-owned - regenerate
+# them when switching, because fsGroupChangePolicy only re-chowns the volume root.
+# =============================================================================
+securityContext:
+  enabled: true
+  pod:
+    runAsNonRoot: true
+    # Must be set: the image's default user is root, so runAsNonRoot alone would
+    # abort the container at start. The render fails if this is left empty.
+    runAsUser: 1000
+    runAsGroup: 1000
+    # Makes the PVCs writable by runAsUser. Requires a CSI driver that applies
+    # fsGroup to the volume - verify on first deploy.
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    # Off by default: SeaweedFS may write outside /data (scratch files during
+    # compaction). Turn on only after confirming the pods stay healthy.
+    readOnlyRootFilesystem: false
+
+# =============================================================================
+# Metrics. The master, volume and filer already listen on -metricsPort; this
+# publishes that port on their Services so something can scrape it. The S3
+# gateway has no metrics listener in this build (it accepts only -port, -filer,
+# -config), so it is not covered.
+# =============================================================================
+metrics:
+  enabled: true
+  # Requires the Prometheus Operator CRDs. Off by default: on a cluster without
+  # them the release would fail to install.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    # Extra labels so an existing Prometheus selects the object.
+    additionalLabels: {}
+    # Namespace for the ServiceMonitor; empty = the release namespace.
+    namespace: ""
+
+# =============================================================================
+# PodDisruptionBudgets. maxUnavailable: 1 keeps a node drain to one pod at a time
+# and is safe at any replica count (a PDB with minAvailable would block drains
+# forever on a single-replica component, which is why master and filer are off).
+# =============================================================================
+podDisruptionBudget:
+  volume:
+    enabled: true
+    maxUnavailable: 1
+  s3:
+    enabled: true
+    maxUnavailable: 1
+  master:
+    enabled: false
+    maxUnavailable: 1
+  filer:
+    enabled: false
+    maxUnavailable: 1
+
+# =============================================================================
+# NetworkPolicy. OFF by default: it only makes sense in a namespace that already
+# enforces default-deny, and enabling it in a permissive namespace adds a failure
+# mode without removing one. When on, it denies all ingress/egress to this
+# release's pods and re-allows only: intra-release traffic, DNS, the ingress
+# gateway (filer UI + S3 API), and whatever you list below.
+# =============================================================================
+networkPolicy:
+  enabled: false
+  # Namespace holding the ezua gateway that fronts the filer UI and the S3 API.
+  ingressGatewayNamespace: "istio-system"
+  # Extra namespaces allowed to reach the S3 API and the filer (e.g. app namespaces).
+  allowFromNamespaces: []
+  # Extra CIDRs allowed to reach the S3 API (e.g. the load balancer's range).
+  allowFromCIDRs: []
+  # Some CNIs (Calico) apply policy to kubelet health probes, which then fail.
+  # List the node subnet here if your probes go unhealthy after enabling this.
+  nodeCIDRs: []
+  # Namespaces allowed to scrape the metrics port (e.g. the Prometheus namespace).
+  allowMetricsFromNamespaces: []
+  dnsNamespace: "kube-system"
+
+# =============================================================================
+# Backup. OFF by default. A CronJob runs rclone against this deployment's own S3
+# API and syncs every bucket to a remote you configure. This is a LOGICAL backup
+# (keys and bytes), not a PVC snapshot: restore is a sync back, and it is the
+# only copy that can be verified with the S3 tooling you already use.
+# =============================================================================
+backup:
+  enabled: false
+  schedule: "0 2 * * *"
+  suspend: false
+  image:
+    repository: rclone/rclone
+    tag: "1.68.1"
+    pullPolicy: IfNotPresent
+  source:
+    # REQUIRED when enabled. A Secret carrying the S3 identity of this release as
+    # two discrete keys: accessKey and secretKey (same pair as the s3-config
+    # Secret, which stores them inside JSON and cannot be referenced directly).
+    existingSecret: ""
+  destination:
+    # REQUIRED when enabled. A Secret holding an rclone config file under the key
+    # rclone.conf, defining the remote named in .remote below.
+    configSecret: ""
+    # e.g. "offsite:seaweedfs-backup" - the remote and bucket/prefix to sync into.
+    remote: ""
+  transfers: 8
+  checksum: true
+  # Keep replaced and deleted objects in <remote>/_versions/<timestamp> instead of
+  # removing them, so a bad sync is recoverable.
+  versioning: true
+  activeDeadlineSeconds: 21600
+  resources: {}
+
+# Storage class used for all component PVCs. gl4f-filesystem is the PCAI default
+# (VAST-backed, ReadWriteOnce); each replica gets its own PVC.
+storageClass: gl4f-filesystem
+
+master:
+  enabled: true
+  # 1 master is a single point of failure. 3 requires the peer set to form a quorum;
+  # the peer list is generated automatically when replicas > 1.
+  replicas: 1
+  port: 9333
+  grpcPort: 19333
+  metricsPort: 9327
+  # 000 = no replication. Digits are x=other data centers, y=other racks,
+  # z=other servers in the SAME rack. For 3 volume servers in one rack use "001"
+  # (one extra copy on another server, 2 copies total). "010" requires a second
+  # RACK and "100" a second DATA CENTER - neither can be placed with one rack.
+  defaultReplication: "000"
+  volumeSizeLimitMB: 1000
+  persistence:
+    size: 5Gi
+  resources: {}
+
+volume:
+  enabled: true
+  replicas: 3
+  port: 8080
+  grpcPort: 18080
+  metricsPort: 9327
+  # 0 = unlimited volumes per server
+  maxVolumes: 0
+  minFreeSpacePercent: 1
+  compactionMBps: 50
+  readMode: "proxy"
+  dataCenter: ""
+  rack: ""
+  persistence:
+    size: 100Gi
+  resources: {}
+
+filer:
+  enabled: true
+  # The filer keeps its metadata in an embedded LevelDB store on the PVC.
+  # Keep at 1 replica unless you move the store to an external backend.
+  replicas: 1
+  port: 8888
+  grpcPort: 18888
+  metricsPort: 9327
+  persistence:
+    size: 10Gi
+  resources: {}
+
+s3:
+  enabled: true
+  # Stateless gateway; safe to scale. IGNORED when s3.autoscaling.enabled is true -
+  # the Deployment then omits spec.replicas so Helm does not fight the HPA.
+  replicas: 2
+  # Horizontal autoscaling for the S3 GATEWAY ONLY. The volume servers, filer and
+  # master cannot be autoscaled: each volume replica owns a PVC, and the filer's
+  # metadata store is embedded in a single replica. Scaling the gateway raises
+  # ingest concurrency (SigV4 verification and request multiplexing are per-pod
+  # CPU); it does NOT raise the ceiling set by the filer or by volume-server disks.
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 8
+    # Percentage of s3.resources.requests.cpu. A CPU target without a CPU REQUEST
+    # cannot compute utilisation, so the render fails rather than shipping an HPA
+    # that reports <unknown> forever.
+    targetCPUUtilizationPercentage: 70
+    # Optional second metric; requires s3.resources.requests.memory. "" = off.
+    targetMemoryUtilizationPercentage: ""
+    # Scale up immediately, scale down slowly, so an ingest burst does not flap.
+    scaleDownStabilizationSeconds: 300
+  port: 8333
+  # NOTE: kept for documentation only - it is NOT passed to the container.
+  # `weed s3` on 4.23 has no -domainName flag. The S3 endpoint is therefore
+  # path-style only, which is what our single-host VirtualService requires anyway.
+  domainName: ""
+  auth:
+    accessKey: "seaweedfs"
+    # Leave empty to generate a random key at install time. SET THIS EXPLICITLY
+    # in any environment you intend to upgrade: an empty value is regenerated on
+    # every helm upgrade and will break existing clients.
+    secretKey: ""
+  # Bring your own Secret containing key `seaweedfs_s3_config` (the S3 identity JSON).
+  existingConfigSecret: ""
+  # A probe-kill loop hides the real startup error. Keep liveness lenient enough
+  # that a stuck gateway can be inspected with `kubectl logs` before it is killed.
+  probes:
+    livenessInitialDelaySeconds: 120
+    livenessFailureThreshold: 6
+  resources: {}

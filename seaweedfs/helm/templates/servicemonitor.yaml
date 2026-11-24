@@ -1,0 +1,24 @@
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+{{- $sm := .Values.metrics.serviceMonitor -}}
+# Requires the Prometheus Operator CRDs (monitoring.coreos.com/v1). The chart
+# cannot detect them, which is why this is off by default.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}
+  namespace: {{ $sm.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    {{- with $sm.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+  endpoints:
+    # Only the master, volume and filer Services carry a port named 'metrics'.
+    - port: metrics
+      path: /metrics
+      interval: {{ $sm.interval }}
+{{- end }}

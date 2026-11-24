@@ -1,0 +1,31 @@
+{{- if and .Values.s3.enabled .Values.ezua.s3VirtualService.enabled .Values.ezua.s3VirtualService.allowList.enabled }}
+# Optional source-IP restriction for the PUBLIC S3 endpoint.
+#
+# Implemented as DENY (not ALLOW) on purpose: a DENY policy scoped by host only
+# affects traffic to that host, whereas introducing an ALLOW policy on the shared
+# ingressgateway workload would change authorisation semantics for every other
+# host on the gateway, including the SSO-protected filer UI.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ .Release.Name }}-s3-deny-not-in-allowlist
+  namespace: {{ .Values.ezua.authorizationPolicy.namespace }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+spec:
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            hosts:
+              - {{ .Values.ezua.s3VirtualService.endpoint }}
+      from:
+        - source:
+            notRemoteIpBlocks:
+              {{- range .Values.ezua.s3VirtualService.allowList.cidrs }}
+              - {{ . | quote }}
+              {{- end }}
+  selector:
+    matchLabels:
+      istio: "ingressgateway"
+{{- end }}
