@@ -1,0 +1,148 @@
+# -- Enable or disable the terminals subchart
+enabled: false
+
+# -- Override the name of the chart
+nameOverride: ""
+# -- Override the full name of the chart
+fullnameOverride: ""
+
+# -- API key shared between orchestrator and spawned terminals
+apiKey: ""
+# -- Use an existing secret for the API key (key: api-key)
+existingSecret: ""
+
+# --------------------------------------------------------------------------
+# CRD
+# --------------------------------------------------------------------------
+crd:
+  # -- Install the Terminal CRD (set false if already installed cluster-wide)
+  install: true
+
+# --------------------------------------------------------------------------
+# Terminal CR defaults
+# --------------------------------------------------------------------------
+# Defaults applied to Terminal custom resources when fields are omitted.
+# These values are baked into the CRD's openAPIV3Schema defaults.
+terminalDefaults:
+  persistence:
+    # -- Enable a PVC for each terminal by default
+    enabled: true
+    # -- Default PVC size for each terminal
+    size: "1Gi"
+    # -- StorageClass for the terminal PVC. Leave empty to use the cluster's
+    # default StorageClass (recommended for EKS/GKE/AKS). Set to a name (e.g.
+    # "gp3") to pin a class. Note: the empty value is omitted from the CRD
+    # entirely so PVCs fall through to the cluster default; setting it to ""
+    # via a Terminal CR is still possible and disables dynamic provisioning.
+    storageClass: ""
+
+# --------------------------------------------------------------------------
+# Operator (Kopf controller that watches Terminal CRs)
+# --------------------------------------------------------------------------
+operator:
+  image:
+    repository: ghcr.io/open-webui/terminals-operator
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  # -- Configure pod security context for the operator pod
+  # ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+  podSecurityContext:
+    {}
+    # runAsNonRoot: true  # verify image supports non-root before enabling
+    # runAsUser: 65534
+    # fsGroup: 65534
+  # -- Configure container security context for the operator container
+  containerSecurityContext:
+    {}
+    # allowPrivilegeEscalation: false
+    # capabilities:
+    #   drop:
+    #     - ALL
+    # readOnlyRootFilesystem: true
+    # runAsNonRoot: false  # upstream image runs as root; set true only with a non-root image
+    # runAsUser: 65534
+    # seccompProfile:
+    #   type: RuntimeDefault
+
+# --------------------------------------------------------------------------
+# Orchestrator (FastAPI service that proxies / provisions terminals)
+# --------------------------------------------------------------------------
+orchestrator:
+  image:
+    repository: ghcr.io/open-webui/terminals
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8080
+    containerPort: 8080
+  # -- Backend type: kubernetes-operator, kubernetes, docker, local, static
+  backend: kubernetes-operator
+  # -- Default image for spawned terminal pods
+  terminalImage: "ghcr.io/open-webui/open-terminal:latest"
+  # -- Pull policy for the terminal image inside spawned pods
+  terminalImagePullPolicy: IfNotPresent
+  # -- Idle timeout in minutes for spawned terminal pods (0 = disabled)
+  idleTimeoutMinutes: 30
+  # -- Resource requests/limits for the orchestrator pod itself
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  # -- Configure pod security context for the orchestrator pod
+  # ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+  podSecurityContext:
+    {}
+    # runAsNonRoot: true  # verify image supports non-root before enabling
+    # runAsUser: 65534
+    # fsGroup: 65534
+  # -- Configure container security context for the orchestrator container
+  containerSecurityContext:
+    {}
+    # allowPrivilegeEscalation: false
+    # capabilities:
+    #   drop:
+    #     - ALL
+    # readOnlyRootFilesystem: false
+    # runAsNonRoot: false  # upstream image runs as root; set true only with a non-root image
+    # runAsUser: 65534
+    # seccompProfile:
+    #   type: RuntimeDefault
+
+# --------------------------------------------------------------------------
+# Network Policy
+# --------------------------------------------------------------------------
+networkPolicy:
+  # -- Enable NetworkPolicy resources to restrict inter-pod traffic.
+  # When enabled, the orchestrator is reachable only from pods in the same
+  # namespace and terminal pods can communicate only with the orchestrator.
+  enabled: false
+  # -- Label selector matching terminal pods spawned by the operator.
+  # Must align with the labels the terminals-operator actually applies.
+  terminalPodSelector:
+    app.kubernetes.io/component: terminal
+  operator:
+    # -- Custom egress rules for the operator pod
+    egress: []
+  orchestrator:
+    # -- Custom ingress rules for the orchestrator pod
+    ingress: []
+    # -- Custom egress rules for the orchestrator pod
+    egress: []
+  terminals:
+    # -- Custom ingress rules for terminal pods
+    ingress: []
+    # -- Custom egress rules for terminal pods
+    egress: []
